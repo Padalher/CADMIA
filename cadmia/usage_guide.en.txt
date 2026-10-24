@@ -1,0 +1,2440 @@
+====================================================================
+
+   ____    _    ____  __  __ ___    _
+  / ___|  / \  |  _ \|  \/  |_ _|  / \
+ | |     / _ \ | | | | |\/| || |  / _ \
+ | |___ / ___ \| |_| | |  | || | / ___ \
+  \____/_/   \_\____/|_|  |_|___/_/   \_\
+
+       CADMIA — Computational Agent-Driven
+        Molecular Intelligence Architecture
+
+====================================================================
+USER GUIDE
+====================================================================
+
+Program version: CADMIA 0.3.0 (alpha)
+Edition year:    2026
+
+Author:       Pablo Daniel Álvarez Hernández
+Institution:  Universidad Juárez Autónoma de Tabasco (UJAT) /
+              Centro de Investigación de Ciencia y Tecnología
+              Aplicada de Tabasco (CICTAT)
+Email:        pablo.alvarez@padalher.com
+
+--------------------------------------------------------------------
+
+CLI program for the study of reactivity and adsorption on nanoclusters
+via quantum chemistry (Gaussian 16, ORCA 6), with a common data core
+and full scientific traceability. CADMIA is a single program exposed
+through the `cadmia` command with subcommands.
+
+Compatible with: Gaussian 16 and ORCA 6 outputs, Python 3.11+
+(tested on 3.14).
+
+Guide organization: following the style of reference manuals such as
+Multiwfn's, each section documents one type of analysis with its command, its
+main options and, where applicable, its Python API, accompanied by reproducible
+examples. Structural analysis is an integrated part of CADMIA; section 12
+summarizes its use as `cadmia structure`.
+
+
+====================================================================
+TABLE OF CONTENTS
+====================================================================
+
+ 1. Overview and architecture
+ 2. Installation and environment check (cadmia doctor)
+ 3. The base calculations: three SCF states (N, N+1, N-1)
+ 4. Quality control: cadmia validate and cadmia diagnose
+ 5. CDFT reactivity: cadmia cdft
+ 6. Adsorption geometries: cadmia geometry
+ 7. Running calculations: cadmia prepare / run (local) / submit (HPC)
+ 8. Adsorption energetics: cadmia analyze
+ 9. Relative stability: cadmia stability
+10. Integrating report: cadmia report
+11. Electronic properties: DOS/PDOS and maps (cadmia electronic / density)
+12. Structural analysis: cadmia structure (ECN, plots, render)
+13. Engine benchmark: cadmia benchmark
+14. Database and traceability: cadmia db
+15. Optional LLM layer (narration, diagnosis, queries)
+16. The complete pipeline (cadmia pipeline / Orchestrator, and step by step)
+17. Common troubleshooting
+
+    APPENDIX A. Methods by agent: algorithm, justification and bibliography
+       (in order of usage sequence)
+       A.1   Import Agent — ingestion of outputs into the data core
+       A.2   Validation Agent — quality control of DFT outputs
+       A.3   CDFT Agent — conceptual descriptors and site ranking
+       A.4   Geometry Agent — adsorption starting configurations
+       A.5   Calculation Agent — preparation and execution of calculations
+       A.6   Analysis Agent — adsorption energetics and activation
+       A.7   Stability Agent — relative stability of the mixed oxide
+       A.8   Report Agent — integrating report
+       A.9   Diagnosis Agent — diagnosis of convergence failures
+       A.10  Benchmark Agent — engine comparison
+       A.11  Orchestrator — pipeline chaining
+       A.12  Literature Agent — bibliographic support
+
+
+====================================================================
+1. OVERVIEW AND ARCHITECTURE
+====================================================================
+
+CADMIA is not a monolithic program: it is a suite of CLI programs connected
+by a central data layer (cadmia.core). Every important result is recorded
+with its provenance: SHA256 hash of the source file, exact command line,
+CADMIA version and date.
+
+CADMIA is a SINGLE `cadmia` program with subcommands. The main ones:
+
+    cadmia cdft        CDFT descriptors and site ranking (+ full --report).
+    cadmia prepare     Generates DFT inputs per STAGE from .xyz or .out without
+                       running them
+                       (screen-opt|screen-freq|opt|freq|opt+freq|char|cdft).
+    cadmia validate    Quality control of DFT outputs.
+    cadmia geometry    CDFT-guided adsorption geometries.
+    cadmia run/submit  Local execution / HPC (SLURM).
+    cadmia analyze     Adsorption energetics and activation.
+    cadmia stability   Relative stability of the mixed oxide.
+    cadmia report      Integrating report (Markdown/LaTeX).
+    cadmia electronic  Electronic properties: dos | pdos | ir | mep | cube | vmd.
+    cadmia structure   Structural analysis: report | plot | render.
+    cadmia pipeline    Complete resumable flow (Orchestrator).
+    cadmia db / doctor / diagnose / benchmark / literature / guide / init / import.
+
+CADMIA is a single program: everything is invoked as `cadmia <subcommand>`. The former
+standalone CDFT, electronic-properties and structural-analysis programs no longer
+exist; their functionality lives under `cadmia cdft`, `cadmia electronic` and
+`cadmia structure` (the extended CDFT report is `cadmia cdft --report`).
+
+BILINGUAL help on every command and subcommand (including electronic/structure):
+
+    cadmia --help                  (English)
+    cadmia --ayuda                 (Spanish)
+    cadmia electronic dos --ayuda  (Spanish help for a specific subcommand)
+    cadmia guide [-es | -en]       (this guide, packaged)
+
+1.1 Output convention: artifacts and JSON sidecars
+.................................................
+
+Every command that writes files produces TWO different things:
+
+  - The ARTIFACTS: what the next engine run consumes (the .xyz geometries, the
+    .inp/.gjf inputs). They go wherever -o points.
+  - The JSON SIDECAR: the machine-readable record of what that step decided. It is
+    written on its own, with a canonical name, next to the artifacts. There is no
+    flag to ask for it and none to remember.
+
+        cadmia rank *.out -o ranked.xyz     →  ranked.xyz  +  ranked.json
+        cadmia prescreen ./configs/ -o dir/ →  dir/*_xtbopt.xyz + dir/prescreen.json
+        cadmia geometry ... -o dir/         →  dir/*.xyz    +  dir/geometry.json
+        cadmia submit ... -o dir/           →  dir/cadmia_jobs.json (cadmia monitor reads it)
+        cadmia benchmark generate -o dir/   →  dir/*.gjf|.inp + dir/benchmark.json
+
+The reason: the artifacts CANNOT carry the decision. An .xyz does not say how many
+imaginary frequencies its output had, nor why the other 40 configurations were
+dropped; the sidecar does. And when a later step needs that datum, it is already on
+disk without anyone having asked for it (which is what `cadmia monitor` has always
+done with cadmia_jobs.json).
+
+When a command's output IS a single result file (not a directory of artifacts), the
+EXTENSION of -o decides the format:
+
+        cadmia bonds x.out -o bonds.json    → JSON (the full analysis)
+        cadmia bonds x.out -o bonds.txt     → the table
+
+--no-table is a separate concept: it suppresses the table and emits the JSON on
+stdout, to chain into a pipe (| jq ...).
+
+1.2 Supported engines
+.....................
+
+CADMIA reads ORCA 6 and Gaussian 16 outputs with its own parsers, verified to the
+digit against Multiwfn (section 5). The engine is detected from the file content.
+A file that is neither ORCA nor Gaussian is rejected with a clear error; it is
+never half-read.
+
+Internal layers (cadmia/ package):
+
+    core/         Common types: Structure, Atom/Bond/Cell, ElectronicState,
+                  Calculation, Descriptor/DescriptorSet, AdsorptionSystem,
+                  VolumetricGrid, Provenance.
+    io/           Parsers: xyz, gaussian, orca, cube, wfn, electronic.
+    agents/       The analysis agents and the orchestrator.
+    calculators/  Input writers (.gjf/.inp), SLURM scripts,
+                  HPC executor (SSH) and local executor.
+    db/           SQLite with the v2 traceability schema.
+    llm/          Optional LLM layer (text only, never numbers).
+
+
+====================================================================
+2. INSTALLATION AND ENVIRONMENT CHECK
+====================================================================
+
+Two installation options, depending on what you need:
+
+  - Recommended (core): everything needed to work — Gaussian/ORCA parsing,
+    CDFT, geometries, database and reports.
+  - Complete ([full]): adds the optional dependencies for figures (matplotlib),
+    interactive plots (plotly) and volumetric isosurfaces (scipy, scikit-image).
+
+Requirement: Python >= 3.11. A virtual environment is ALWAYS recommended (on many
+modern Linux systems, pip even refuses the global install with
+"externally-managed-environment").
+
+2.1 Install from the package (.tar.gz) — for normal use
+.......................................................
+
+This is the usual way to install CADMIA on your machine from the
+`cadmia-0.3.0.tar.gz` package, in a dedicated environment (like any other
+program under ~/.programs):
+
+    # 1. Create the dedicated environment
+    python3 -m venv ~/.programs/cadmia/.venv
+
+    # 2. Install inside the environment (core)
+    ~/.programs/cadmia/.venv/bin/pip install /path/to/cadmia-0.3.0.tar.gz
+    #    …or the complete version:
+    ~/.programs/cadmia/.venv/bin/pip install "/path/to/cadmia-0.3.0.tar.gz[full]"
+
+pip resolves the dependencies on its own. The install creates ONE executable
+inside the environment: `cadmia` (the single program; everything is invoked as
+`cadmia <subcommand>`).
+
+To use it without activating the environment, define the alias in ~/.bashrc
+(adjust the path to your user):
+
+    alias cadmia='/home/USER/.programs/cadmia/.venv/bin/cadmia'
+
+Then `source ~/.bashrc` and you have `cadmia` from any folder.
+
+Alternatively, activating the environment makes `cadmia` available without an alias:
+
+    source ~/.programs/cadmia/.venv/bin/activate
+    # ... use cadmia ...
+    deactivate
+
+Alternative with pipx (if you have it): `pipx install /path/to/cadmia-0.3.0.tar.gz`
+creates the isolated environment and puts the executables on the PATH without aliases.
+
+About the `cadmia` executable (entry-point): after `pip install`, pip creates the
+`cadmia` executable in the environment's bin directory. It works WITHOUT an alias as
+long as that bin is on the PATH: with the environment activated, with pipx, or with
+`pip install --user` if ~/.local/bin is on the PATH. Only when it is installed in a
+dedicated venv that is not activated do you need to activate the environment or define
+an alias with the path to its bin (as above).
+
+2.1b Editable install — for development
+.......................................
+
+If you work on the repository source code:
+
+    cd /path/to/CADMIA
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -e .            # core
+    pip install -e ".[full]"    # complete option from source
+
+2.2 Verification: cadmia doctor
+...............................
+
+Always, after installing (on your PC, workstation or HPC node):
+
+    cadmia doctor
+
+It checks: Python version, required and optional dependencies, the seven
+cadmia subpackages, the atomic-data YAML, the LLM configuration, the external
+binaries (orca, g16, ssh, povray) and the database schema status. It exits with
+code 1 only if something required fails.
+
+IMPORTANT on desktop Linux: /usr/bin/orca is usually the GNOME SCREEN READER,
+not the chemical ORCA. cadmia doctor detects and warns about it. On a workstation
+or compute node always give the real ORCA path with --engine-path (section 7).
+
+2.3 Test data
+.............
+
+The repository includes real reference data under tests/fixtures/:
+1tial_cdft/ (three Gaussian states of Al2TiO5 + Multiwfn CDFT.txt reference)
+and 1tial_orca/ (three ORCA states of the same system). The test suite is run
+with:
+
+    pytest tests/ -q
+
+
+====================================================================
+3. THE BASE CALCULATIONS: THREE SCF STATES
+====================================================================
+
+The whole reactivity flow starts from THREE single points at the SAME geometry
+and the SAME level of theory:
+
+    N      the neutral cluster       (charge 0,  multiplicity of the system)
+    N+1    the anion                 (charge -1, adjusted multiplicity)
+    N-1    the cation                (charge +1, adjusted multiplicity)
+
+Recommended reference level of theory: PBE0 def2-TZVP def2/J D4 RIJCOSX TightSCF
+DefGrid3 (this is exactly what `--preset accurate` generates, section 7).
+Example ORCA input for state N:
+
+    ! PBE0 def2-TZVP def2/J D4 RIJCOSX TightSCF DefGrid3 CHELPG
+    %pal nprocs 12 end
+    %maxcore 3000
+    %scf MaxIter 512 end
+    %output
+       Print[P_Hirshfeld]  1     # Hirshfeld charges for the condensed Fukui
+       Print[P_OrbPopMO_L] 1     # needed for PDOS (section 11)
+       Print[P_Mayer]      1
+    end
+    * xyz 0 1
+    ...coordinates...
+    *
+
+For the ions only the charge/multiplicity of the "* xyz" line changes and, if
+the SCF is stubborn, it helps to start from the neutral orbitals:
+
+    ! MOREAD SlowConv ...
+    %moinp "N.gbw"
+
+The D3BJ dispersion correction is a purely geometric term: with the same geometry
+it cancels EXACTLY in IP and EA, so the CDFT descriptors do not depend on it. D4,
+which is the default, does NOT cancel completely: its C6 coefficients depend on
+the atomic charges, and those change between N, N+1 and N-1. The difference is
+small but real, and it is recorded in the provenance. Either way the level must
+be consistent when total energies are compared (stability, adsorption).
+
+Open-shell rule (project convention, verified against Multiwfn):
+HOMO = max(HOMO_alpha, HOMO_beta); LUMO = min(LUMO_alpha, LUMO_beta).
+
+3.1 Generate the three inputs automatically: cadmia prepare cdft
+................................................................
+
+To avoid writing the three inputs by hand, start from ONE already-optimized
+neutral geometry (mol.xyz) and let CADMIA write the three single points:
+
+    cadmia prepare cdft mol.xyz -o ./cdft_mol/
+
+It writes mol_N, mol_anion and mol_cation (single point at the SAME geometry):
+  neutral (N)   charge  0, mult 1 (closed shell by default)
+  anion   (N+1) charge -1, mult 2 (radical doublet)
+  cation  (N-1) charge +1, mult 2 (radical doublet)
+
+Adjust the electron count with --charge / --mult / --mult-anion /
+--mult-cation (e.g. an open-shell neutral). The command prints what it assumed
+and the `cadmia cdft` ready to paste after running the three.
+
+This is NOT exclusive to oxides or clusters: it works for ANY molecule (organic
+or inorganic) whose reactivity you want. The probe and adsorption flow
+(sections 6 onward) is optional; for reactivity alone, prepare cdft -> run ->
+cadmia cdft is enough.
+
+Example with an organic molecule (geometry styrene.xyz):
+
+    cadmia prepare cdft styrene.xyz --basis def2-SVP -o ./cdft_styrene/
+    cadmia run --jobs ./cdft_styrene/ --engine-path /opt/orca6 -o ./cdft_styrene/
+    cadmia cdft --n styrene_N.out --np1 styrene_anion.out \
+                --nm1 styrene_cation.out --report cdft_styrene.txt
+
+For loose geometries that are not CDFT (one input per file), use `cadmia prepare`
+(section 7), which converts one or several .xyz to .inp/.gjf without running them.
+
+
+====================================================================
+4. QUALITY CONTROL: VALIDATE AND DIAGNOSE
+====================================================================
+
+4.1 cadmia validate
+...................
+
+Validates one or more DFT outputs (Gaussian or ORCA, auto-detected):
+
+    cadmia validate N.out N+1.out N-1.out
+    cadmia validate ./outputs/*.out --bsse          # requires BSSE correction
+    cadmia validate N.out --db                       # records in run_log
+
+Six checks: normal termination, SCF convergence, spin contamination (⟨S²⟩),
+imaginary frequencies, geometric sanity and BSSE (optional). Global verdict:
+pass | warning | fail.
+
+4.2 cadmia diagnose
+...................
+
+For problematic calculations. The symptom extraction is deterministic (no
+network, no LLM):
+
+    cadmia diagnose failed_calc.out --no-llm
+    cadmia diagnose failed_calc.out -o diagnosis.json
+
+Symptoms detected: error termination, truncated output, non-converged SCF, SCF
+oscillation (amplitude > 1 Ha), variational collapse (drop > 10 Ha), negative
+gap, near-zero gap (< 0.5 eV), spin contamination. It also reports the final
+energy (dispersion included), the gap, the SCF iterations and the tail of the
+energy trace.
+
+If an API key is configured (section 15), it adds prioritized convergence
+suggestions with the keywords of the detected engine (ORCA: SlowConv, MOREAD,
+%scf shift/damp, SOSCF, TRAH; Gaussian: scf=(xqc), guess=read, stable=opt).
+They are suggestions to verify; nothing is executed.
+
+
+====================================================================
+5. CDFT REACTIVITY
+====================================================================
+
+5.1 cadmia cdft — reactive site ranking
+.......................................
+
+    cadmia cdft --n N.out --np1 N+1.out --nm1 N-1.out \
+                --cluster Al2TiO5 -o cdft.json --db
+
+From the three states it computes:
+  - Condensed Fukui functions per atom: f+, f-, Δf.
+  - Global descriptors by finite differences: vertical IP and EA, gap,
+    hardness η, chemical potential μ, electrophilicity ω, nucleophilicity N.
+  - Classification of each site: electrophilic (Δf > 0.02),
+    nucleophilic (Δf < -0.02) or ambiphilic; ranking by |Δf|.
+  - Lewis acid/base reading (HSAB): each site is labeled as a Lewis acid (accepts
+    e-, Δf > 0), Lewis base (donates e-, Δf < 0) or amphoteric, and the strongest
+    acid (by f+) and strongest base (by f-) are reported together with the global
+    hardness η (HSAB is comparative: contrast η against the probe). When structural
+    analysis is available it adds the site CN/ECN and flags a metal that is
+    coordinatively unsaturated relative to its element average (low ECN → stronger
+    Lewis acid). It appears in the CLI table (acid/base column + "Lewis sites"
+    line), in the JSON (acid_base + cn/ecn per site and acid_base_summary) and in
+    the report.
+
+Foundation. The global descriptors and the Fukui functions come from conceptual
+density functional theory [1, 2]: the chemical potential μ and the
+electronegativity χ as derivatives of the energy with respect to the number of
+electrons [3], the hardness η and softness S according to Parr and Pearson [4],
+the electrophilicity index ω according to Parr, Szentpály and Liu [5], the
+atom-condensed Fukui functions according to Yang and Mortier [6], the dual
+descriptor Δf according to Morell, Grand and Toro-Labbé [7] and the
+nucleophilicity index N (TCE reference) according to Domingo et al. [8]. The
+Lewis acid/base reading follows Pearson's hard and soft acids and bases (HSAB)
+principle [9]. Hirshfeld charges [10] are preferred for being weakly basis-set
+dependent; the CHELPG charges [11] are fitted to the molecular electrostatic
+potential. The global SCF descriptors are checked against Multiwfn [12].
+
+The resulting JSON (cdft.json) feeds cadmia geometry and cadmia report.
+It persists molecule + calculation + descriptors + provenance to the database
+(on by default; --no-db skips it).
+
+Full report under cadmia: with --report it also writes the extensive
+Multiwfn-style report (global + condensed per atom f+/f-/f0/CDD, local
+electro/nucleophilicity, softnesses):
+
+    cadmia cdft --n N.out --np1 N+1.out --nm1 N-1.out \
+                --report cdft_full.txt --report-format txt --no-table
+    # --tce-homo EV sets the HOMO(TCE) reference to your level of theory.
+
+Validation: the global SCF descriptors must match Multiwfn EXACTLY.
+
+Charges: Hirshfeld is preferred; if absent in the output, Mulliken is used with
+a notice in the run_log. The parsers also read Löwdin and CHELPG from ORCA
+(closed and open shell). The report (--report) names the scheme in the title of
+the Fukui section and, for Mulliken, recommends repeating the three single
+points with Pop=Hirshfeld (Gaussian). vIP, vEA, gap and η do not depend on the
+charges; f+, f-, f0 and Δf do.
+
+Provenance. The report opens with the CADMIA version and an "Input states"
+section: level of theory read from the output, Hartree→eV factor and, per
+state, charge, multiplicity, ⟨S²⟩ against its ideal value, energy and the
+largest geometry deviation from N (0 when N+1 and N−1 are vertical, as they
+must be). ⟨S²⟩ is read from Gaussian too (before annihilation), so the
+spin-contamination warning (>10 % above ideal) works with both engines.
+
+Open shell. HOMO = max(α, β) (verified against Multiwfn) and LUMO = min(α, β).
+For an open-shell neutral (e.g. a triplet) that gap joins two spin channels and
+is not a spin-conserving excitation: the report labels it "cross-spin" and also
+gives the α and β gaps (JSON: gap_alpha_eV, gap_beta_eV). Those are the ones to
+compare with the gap of a closed-shell species.
+
+5.2 Python API (cadmia.cdft)
+............................
+
+Without a subcommand of their own, from Python: `parse_multiwfn_cdft` reads a
+Multiwfn CDFT report, `compute_finite_difference_descriptors` gives the global
+descriptors from three energies and `run_cdft_workflow` runs the full workflow
+on states already read. .cube and .wfn files are read with `cadmia.io`.
+
+REFERENCES (5)
+[1]  R. G. Parr, W. Yang. "Density Functional Approach to the Frontier-Electron
+     Theory of Chemical Reactivity." J. Am. Chem. Soc. 1984, 106, 4049–4050.
+[2]  W. Yang, R. G. Parr. "Hardness, softness, and the Fukui function in the
+     electronic theory of metals and catalysis." Proc. Natl. Acad. Sci. USA
+     1985, 82, 6723–6726.
+[3]  R. G. Parr, R. A. Donnelly, M. Levy, W. E. Palke. "Electronegativity: The
+     density functional viewpoint." J. Chem. Phys. 1978, 68, 3801–3807.
+[4]  R. G. Parr, R. G. Pearson. "Absolute Hardness: Companion Parameter to
+     Absolute Electronegativity." J. Am. Chem. Soc. 1983, 105, 7512–7516.
+[5]  R. G. Parr, L. von Szentpály, S. Liu. "Electrophilicity Index."
+     J. Am. Chem. Soc. 1999, 121, 1922–1924.
+[6]  W. Yang, W. J. Mortier. "The Use of Global and Local Molecular Parameters
+     for the Analysis of the Gas-Phase Basicity of Amines." J. Am. Chem. Soc.
+     1986, 108, 5708–5711.
+[7]  C. Morell, A. Grand, A. Toro-Labbé. "New Dual Descriptor for Chemical
+     Reactivity." J. Phys. Chem. A 2005, 109, 205–212.
+[8]  L. R. Domingo, E. Chamorro, P. Pérez. "Understanding the Reactivity of
+     Captodatively Ethylenes in Polar Cycloaddition Reactions. A Theoretical
+     Study." J. Org. Chem. 2008, 73, 4615–4624.
+[9]  R. G. Pearson. "Hard and Soft Acids and Bases." J. Am. Chem. Soc. 1963,
+     85, 3533–3539.
+[10] F. L. Hirshfeld. "Bonded-Atom Fragments for Describing Molecular Charge
+     Densities." Theor. Chim. Acta 1977, 44, 129–138.
+[11] C. M. Breneman, K. B. Wiberg. "Determining atom-centered monopoles from
+     molecular electrostatic potentials. The need for high sampling density in
+     formamide conformational analysis." J. Comput. Chem. 1990, 11, 361–373.
+[12] T. Lu, F. Chen. "Multiwfn: A Multifunctional Wavefunction Analyzer."
+     J. Comput. Chem. 2012, 33, 580–592.
+
+
+====================================================================
+6. ADSORPTION GEOMETRIES: CADMIA GEOMETRY
+====================================================================
+
+Generates probe starting configurations on the top sites of the CDFT ranking:
+
+    cadmia geometry --cdft cdft.json --xyz cluster.xyz \
+                    --probe NH3 -o ./configs/ --db
+
+Supported probes (internal catalog): H2, CO2, NH3, CO, N2, O2, H2O, each with
+sensible binding modes. You can add or redefine probes without touching code in
+~/.cadmia/probes.yaml (or --probes-yaml PATH). The initial M–X distance is
+r_cov(site) + r_cov(anchor atom) + 0.5 A (covalent radii of Cordero et al. [1]).
+For each site several
+orientations are generated (polar × azimuthal angle); they come out as .xyz files
+(cluster + probe) ready for cadmia run/prepare.
+
+VERY IMPORTANT — the atom order: the cluster.xyz file MUST have the same atom
+order as the SCF outputs the CDFT came from. The safe way is to extract it from
+the output itself with cadmia xyz (engine auto-detected):
+
+    cadmia xyz N.out -o cluster.xyz
+
+`cadmia geometry --xyz` also accepts the .out/.log directly (it converts it
+internally), so you can pass `--xyz N.out` without generating the .xyz by hand.
+If the order does not match, the agent warns atom by atom and it must not be
+ignored.
+
+Adduct convention (the cluster+probe species; also called the adsorption complex,
+hereafter "adduct"): the cluster goes first and the probe is the LAST n atoms.
+The downstream agents (analyze) depend on this convention.
+
+6.1 Pre-screening with GFN2-xTB: cadmia prescreen (optional)
+............................................................
+
+When geometry generates many configurations per site, it pays to filter them
+BEFORE the expensive DFT. cadmia prescreen optimizes each .xyz with GFN2-xTB [2]
+(cheap), discards those that relax to the SAME minimum and keeps the survivors
+within an energy window:
+
+    cadmia prescreen ./configs/ --charge 0 --mult 1 \
+                     --window 20 --threads 8 -o ./prescreened/
+
+There is NO cap by default: ALL configurations inside the window are kept (if 10 of
+100 fall within --window, those 10 survive). --top N is optional and only limits the
+number of survivors inside the energy cut.
+
+Survival criterion, step by step:
+  - Sanity filter: nonphysical minima are discarded first (atoms collapsed below
+    0.5 Å, or an energy > 250 kcal/mol under the median = spurious xTB minimum), so
+    that a broken geometry cannot become the lowest-energy reference and ruin the
+    window. Disable it with --no-sanity.
+  - Deduplication: two optimized configurations are considered the SAME minimum if,
+    after optimal Kabsch alignment [3], NO atom is farther than 0.20 Å from its
+    counterpart AND their energy difference is ≤ ~0.5 kcal/mol; one of each group
+    is kept. The tolerance is measured on the atom that moves most, not on the
+    RMSD: a mean over the whole system loosens as the cluster grows, and the probe
+    — the part that tells two minima apart — weighs less and less.
+  - Ordering: the survivors are sorted by ascending GFN2-xTB energy.
+  - Window: ALL configurations within --window (10 kcal/mol by default) of the
+    minimum are kept. --top only caps that set to N (0 = no cap).
+  - Minimum guarantee (--min-keep, default 2): even if the window leaves a single
+    one, at least N DISTINCT minima are kept (the next lowest, tagged "beyond
+    window") so DFT always has ≥N candidates to compare. It is bounded by the number
+    of distinct minima found and by --top; 0 means window only.
+  - Output (-o directory):
+      * In the root, only the selected ones as *_xtbopt.xyz (what prepare/run/submit
+        consume; that directory is read with the *.xyz glob).
+      * pool/candidates_by_energy.xyz: ONE file with ALL the distinct physical minima
+        found (not only the selected ones) in ascending energy order; every block's
+        comment carries rank, ΔE, energy and a [DFT] (selected) or "reserve" tag.
+      * pool/reserve/*_xtbopt.xyz: the good ones NOT selected, as individual files
+        ready to promote. To send one to DFT later just copy it into the -o directory;
+        xTB does NOT have to run again.
+    (Pool files live under pool/ on purpose, so the *.xyz glob of prepare/run in the
+    root never ingests them by mistake.)
+
+The xTB energies ONLY serve to order and deduplicate; the survivors are
+re-optimized in DFT. It requires the `xtb` binary on PATH (--xtb-path for another
+path). Threading note: some old builds (apt 6.6.1) SIGSEGV with several threads;
+the official 6.7.1 binary runs fine with --threads N.
+
+6.2 Ordering DFT outputs by energy: cadmia rank
+...............................................
+
+Once a batch of configurations has been computed at a cheap level (e.g. PBE/def2-SVP
+or PBE0/def2-SVP), cadmia rank discriminates them by energy without re-optimizing or
+running xTB: it reads each output's final electronic energy and geometry, sorts them
+low→high and concatenates them into ONE .xyz, with the energy gap (kcal/mol) in every
+block's comment.
+
+    cadmia rank *.out ranked.xyz
+    cadmia rank *.out --window 5 -o rank/co2.xyz
+    cadmia rank *.out --top 5 ranked.xyz
+
+It is universal and engine-agnostic (Gaussian/ORCA auto-detected by content; they can
+be mixed). An .xyz argument is read as the output name; -o also accepts a directory
+(it writes ranked_by_energy.xyz inside).
+
+rank trims the high-energy tail by default (--window 25 kcal/mol, --top 15), at the
+DFT level (more reliable than the prescreen's xTB filter): the .xyz comes out with the
+winners only, to feed straight to cadmia prepare, and the ranked.json sidecar keeps the
+full ranking with a flag for which outputs passed the cut. The default is generous on
+purpose (it drops outliers without cutting conformers that may reorder at production);
+the fine cut goes at the end, on the production ΔG. With --window 0 --top 0, rank
+writes all.
+
+Before trimming, rank GROUPS the outputs that relaxed to the same minimum. The
+potential energy surface funnels different starting configurations into a single
+minimum, and the earlier semiempirical screening cannot anticipate which: a batch of
+many files commonly hides only a few distinct structures. The criterion is the
+largest atomic displacement after Kabsch alignment (--dedup-rmsd, default 0.20 Å)
+plus an energy tolerance, the same one prescreen uses. Only the lowest of each group
+is written; the duplicates are marked with "≡" in the table and stay in the JSON with
+the duplicate_of field pointing to the representative they collapsed into. So --top 15
+means fifteen structures, not fifteen files. --dedup-rmsd 0 turns it off.
+
+rank warns in two cases that silently invalidate the result: when the batch mixes
+different compositions (ranking a directory with several probes gives ΔE of tens of
+thousands of kcal/mol and a meaningless order: rank one species at a time), and when
+outputs of the same molecule list their atoms in a different ORDER. The grouping pairs
+atoms by position in the list, so it cannot compare across orders and a duplicate may
+go unnoticed.
+
+A caution about the site label: the files keep the name of the STARTING site, and a
+group can mix outputs labelled with different sites. Correlating a descriptor
+evaluated at site i against the energy of the file labelled i regresses against
+energies that do not belong to it. The grouping makes the problem visible; it does
+not solve it.
+
+The on-screen table carries a Neg Freq column (number of imaginary frequencies):
+
+      #  ΔE (kcal/mol)           E (Eh)  Neg Freq  output
+      1          0.000     -1000.470194         0  co2_site3.out
+      2          1.842     -1000.467258         1  co2_site7.out
+      3          4.905     -1000.462376         —  co2_site1.out
+
+  0    the output DOES carry frequencies and none is negative: a true minimum.
+  N>0  N imaginary frequencies: a saddle point, not a minimum (discard it or
+       re-optimize it).
+  —    the output carries NO frequencies (e.g. a bare Opt). "No Freq" is NOT the same
+       as "0 imaginary": that geometry is not verified yet.
+
+So rank is the screening filter: it orders by energy and discards saddle points in the
+same table, with no extra flags. The exported .xyz keeps only the essentials in every
+block's comment (ΔE + absolute energy + provenance).
+
+A JSON sidecar with the same name is written next to the .xyz (ranked.xyz →
+ranked.json) carrying the full ranking, including each output's n_imaginary. There is
+no flag to ask for it: the geometries are for the next engine run, the sidecar is for
+the next STEP (and for the record of what was decided). See 1.1.
+
+REFERENCES (6)
+[1] B. Cordero, V. Gómez, A. E. Platero-Prats, et al. "Covalent radii revisited."
+    Dalton Trans. 2008, 2832–2838.
+[2] C. Bannwarth, S. Ehlert, S. Grimme. "GFN2-xTB—An Accurate and Broadly
+    Parametrized Self-Consistent Tight-Binding Quantum Chemical Method with
+    Multipole Electrostatics and Density-Dependent Dispersion Contributions."
+    J. Chem. Theory Comput. 2019, 15, 1652–1671.
+[3] W. Kabsch. "A solution for the best rotation to relate two sets of vectors."
+    Acta Crystallogr. A 1976, 32, 922–923.
+
+
+====================================================================
+7. RUNNING CALCULATIONS: PREPARE, RUN (LOCAL) AND SUBMIT (HPC)
+====================================================================
+
+7.0 cadmia prepare STAGE — generate inputs in batch WITHOUT running them
+........................................................................
+
+Converts .xyz geometries into engine inputs (.inp ORCA / .gjf Gaussian) without
+running anything, to review them or send them in bulk to the queue. It does not
+need an engine installed: it only writes text.
+
+    cadmia prepare STAGE geometries... [options]
+
+STAGE is the first argument and standardizes the input for each phase of the
+workflow: it computes only what that phase needs, requesting no analysis in the
+early stages. The geometries follow (a single file, several, a directory or a
+glob).
+
+    STAGE        task          what it emits (ORCA)
+    ----------   -----------   ------------------------------------------------
+    screen-opt   Opt           def2-SVP + RIJCOSX; rank candidates by energy.
+    screen-freq  Freq          same as screen-opt; drops screening saddle points.
+    opt          Opt           def2-TZVP + RIJCOSX + TightSCF DefGrid3. No analysis.
+    freq         Freq          same as opt, frequencies: minimum + thermochemistry.
+    opt+freq     Opt Freq       geometry and frequencies in a single job.
+    char         SP            SP + Hirshfeld/CHELPG/Mayer/PDOS (characterization).
+    cdft         SP x3         N/N+1/N-1 triplet at fixed geometry (section 3.1).
+
+What it accepts as a geometry:
+
+    .xyz        a single geometry; if it holds several concatenated blocks (what
+                `cadmia rank` writes), it generates ONE input per block and keeps
+                the name of the originating output.
+    .out/.log   an ORCA/Gaussian output: the final geometry is extracted, so each
+                stage chains from the previous one's result without a detour
+                through `cadmia xyz`. The output's engine is auto-detected;
+                --engine only picks the engine the input is written for.
+    .inp/.gjf   an already-made input, from either engine: passed through unchanged.
+
+Any other extension is an error, not a silently ignored file. The closing summary
+tells generated inputs apart from the ones that merely passed through.
+
+BOTH engines get .inp. The extension is a CADMIA convention, not a requirement:
+ORCA takes the filename as an argument and Gaussian reads its input from stdin,
+so it does not care what the file is called (`.gjf` is a GaussView habit). That
+is why the engine of a ready input is read from its CONTENT — `%chk`/`%mem`/
+`%nprocshared` mark it as Gaussian; `!`, `%pal`, `%maxcore` or `* xyz` as ORCA —
+and not from its name, which cannot tell them apart. Existing `.gjf` files are
+still accepted unchanged.
+
+Dispersion on Gaussian: Gaussian 16 implements GD2/GD3/GD3BJ/PFD but has NO
+native D4. Since the CADMIA default is D4 (meant for ORCA), `--engine gaussian`
+requires an explicit `--dispersion d3bj` (or `none`); otherwise the command fails
+with a clear error instead of writing an input Gaussian would reject at startup.
+
+Why there are TWO Opt/Freq pairs (screen-* and opt/freq): a Freq is only
+meaningful on a geometry optimized at the SAME level, and the level includes the
+SCF threshold and the integration grid, not just the basis. Running the `freq`
+stage (TightSCF DefGrid3) on a `screen-opt` geometry (bare RIJCOSX) returns
+small spurious imaginary frequencies even if you pass --basis
+def2-SVP, and would discard good adducts. Each pair stays at its own level.
+
+Workflow examples:
+
+    # 1) pre-screening of the cadmia geometry configs:
+    cadmia prepare screen-opt ./configs/*.xyz --nprocs 26 -o ./screen/
+    cadmia submit  --jobs ./screen/ --hpc hpc1            # then, to the queue
+    # 2) rank and drop saddle points at the same cheap level:
+    cadmia rank    ./screen/*.out -o ./ranked.xyz
+    cadmia prepare screen-freq ./ranked.xyz -o ./screenfreq/
+    # 3) on the survivors, geometry + frequencies, and final characterization:
+    cadmia prepare opt+freq ./winners/*.out -o ./optfreq/
+    cadmia prepare char     ./finals/*.out  -o ./char/
+
+The stage owns the TASK and the accuracy block. To customize any other axis, an
+explicit flag OVERRIDES the stage's value (--functional/--basis/--dispersion/
+--charge/--mult/--nprocs/--mem-o/--preset); it applies to the WHOLE batch.
+--overwrite regenerates already-written inputs.
+
+Default dispersion = D4 [1] (ORCA emits `! D4`); change it with --dispersion
+d3bj|none (D3 with Becke-Johnson damping [2, 3]). For adsorption thermochemistry
+(ΔG/ΔH, section 8) use the `freq` or `opt+freq` stage on the adduct, the cluster
+and the free probe.
+
+7.0b Analysis output: the stage and --preset
+............................................
+
+Each stage already picks the appropriate output set (none in screen-*/opt/freq/
+opt+freq; the full set in char; charges in cdft). If you need a different
+combination, --preset overrides it: it sets at once the property set to request
+and, depending on the case, the engine's accuracy block, instead of listing the
+keywords by hand. The `accurate` preset selects the FULL property set together
+with the ORCA accuracy block `def2/J RIJCOSX TightSCF DefGrid3`.
+
+Two important warnings about `accurate`:
+  - AIM (QTAIM) and NPA are NOT ORCA input keywords. They are POST-PROCESSING
+    analyses on the density or the wavefunction (.gbw): QTAIM is done with
+    Multiwfn and NPA/NBO with NBO or JANPA; the preset does not request them as
+    keywords in the .inp.
+  - RIJCOSX is the RI (resolution of the identity) approximation for the Coulomb
+    and exchange terms. It speeds up the calculation, but slightly changes the
+    energies relative to a non-RI reference; keep it in mind when comparing
+    absolute energies with non-RI calculations.
+
+Fine customization (besides --functional/--basis/--dispersion).
+`cadmia prepare` (every stage) accepts:
+  - --extra-orca "TXT"     extra keywords on ORCA's `!` line.
+  - --extra-gaussian "TXT" extra keywords on the Gaussian route
+                           (the --extra-orca equivalent for the other engine).
+  - --scf-maxiter N        SCF iteration limit (0 = engine default). Writes
+                           `%scf MaxIter N` in ORCA and `SCF=(MaxCycle=N)` in
+                           Gaussian; raise it when ions or open-shell states
+                           are slow to converge.
+  - --geom-maxiter N       geometry optimization step limit (0 = engine default,
+                           max(50, 3N) in ORCA); raise it when the optimization
+                           has to rearrange the substrate.
+  - --chelpg-fine          adds a fine `%chelpg` block in ORCA (GRID 0.20,
+                           RMAX 3.50, VDWRADII COSMO); it only takes effect when
+                           the input requests CHELPG (e.g. with --preset cdft/
+                           analysis/accurate). It does not affect the condensed
+                           Fukui (which uses Hirshfeld); it only refines the
+                           accessory ESP charges.
+
+7.1 cadmia run — local queue on your machine
+...............................................
+
+Runs the jobs ON THIS MACHINE, one at a time (sequential queue), without SSH or
+SLURM. Each job uses the cores and memory declared in its input, so the machine
+never oversubscribes.
+
+    # The 27 NH3 configurations from cadmia geometry, with 12 cores and
+    # 3 GB per core (~36 GB peak; adjust --mem-o to your RAM):
+    cadmia run --jobs ./configs/ --task opt --nprocs 12 --mem-o 3000 \
+               --engine-path /opt/orca6 -o ./ads_nh3/ --db
+
+Accepted inputs:
+  - .inp / .gjf already written (run as is);
+  - .xyz (e.g. those from cadmia geometry): converted first to inputs with the
+    given level (--functional/--basis/--dispersion/--task/--charge/--mult/
+    --nprocs/--mem-o).
+
+Behavior:
+  - Progress is saved to cadmia_jobs.json AFTER EACH JOB, so an interruption
+    does not lose what is already computed. Re-running the same batch SKIPS
+    jobs whose output already exists and passed validation (resume): only what
+    is left is computed. --overwrite recomputes everything.
+  - Each output is validated automatically (Validation Agent) on completion.
+  - If a job fails, the queue CONTINUES with the next one (the failure is
+    recorded); if the engine is not found, the queue stops.
+  - --timeout S limits the wall time per job.
+  - Parallel ORCA requires being invoked with an absolute path: --engine-path
+    resolves it for you (point it at the ORCA install directory).
+
+Memory guide for the local machine: %maxcore is PER CORE. Rule of thumb:
+mem-o = (0.75 × total_RAM_MB) / nprocs. Examples: 64 GB and 12 cores →
+--mem-o 4000; 32 GB and 8 cores → --mem-o 3000.
+
+7.2 cadmia submit / monitor — HPC via SSH + SLURM
+.................................................
+
+For SLURM clusters (e.g. the institutional HPC):
+
+    cadmia profile add --name hpc1 --host hpc.example.mx --user user \
+        --work-dir /scratch/user/cadmia --partition compute
+    cadmia profile ping hpc1
+    cadmia submit --jobs ./configs/ --hpc hpc1 --wait -o ./ads_nh3/ --db
+    cadmia monitor --jobs ./ads_nh3/cadmia_jobs.json --hpc hpc1   # resume
+
+submit generates the sbatch script per engine, uploads the inputs via scp,
+enqueues, and with --wait polls, downloads and validates each output on
+completion. Credentials are never stored in code or in the database (SSH keys).
+
+7.3 SLURM on the local machine: local profile (no SSH)
+....................................................
+
+If THIS machine already has SLURM (a workstation or a node with SLURM), use a LOCAL profile: same
+`submit`/`monitor`, but it enqueues on the machine itself (no SSH/scp). Since the
+engine is usually on PATH, no modules are loaded; just give --orca-path.
+
+    cadmia profile add --name ws-local --local \
+        --work-dir /scratch/user/cadmia --orca-path /opt/orca6 --partition general
+    cadmia profile ping ws-local            # checks that sbatch is available
+    cadmia submit --jobs ./inputs/ --hpc ws-local --wait -o ./ads_nh3/ --db
+
+The same flow serves both scenarios: a `--local` profile for a machine with its own SLURM
+and a remote (SSH) profile for a cluster accessible over the network; only the name after --hpc
+changes. submit/monitor pick the backend according to the profile. To run WITHOUT
+a queue (one at a time, no SLURM) use `cadmia run` (section 7.1).
+
+REFERENCES (7)
+[1] E. Caldeweyher, S. Ehlert, A. Hellmann, et al. "A generally applicable
+    atomic-charge dependent London dispersion correction." J. Chem. Phys. 2019,
+    150, 154122.
+[2] S. Grimme, J. Antony, S. Ehrlich, H. Krieg. "A consistent and accurate ab
+    initio parametrization of density functional dispersion correction (DFT-D)
+    for the 94 elements H-Pu." J. Chem. Phys. 2010, 132, 154104.
+[3] S. Grimme, S. Ehrlich, L. Goerigk. "Effect of the damping function in
+    dispersion corrected density functional theory." J. Comput. Chem. 2011, 32,
+    1456–1465.
+
+
+====================================================================
+8. ADSORPTION ENERGETICS: CADMIA ANALYZE
+====================================================================
+
+With the optimized adduct, the isolated cluster and the free probe:
+
+    cadmia analyze --adduct config_site2.out --cluster N.out \
+                   --probe-free NH3.out --cdft cdft.json \
+                   --config-index 0 --bsse -o analysis_0.json --db
+
+It computes:
+  - E_ads = E(adduct) − E(cluster) − E(probe), in kcal/mol.
+  - BSSE-corrected E_ads (reads the counterpoise block of the adduct [1]).
+  - E_def(cluster), E_def(probe) and E_int if the single points at the adduct
+    geometry are given (--cluster-deformed / --probe-deformed); it is the
+    distortion/interaction (activation strain) partition [2].
+  - Elongation of the probe bonds with an ACTIVATION flag (≥ 5%).
+  - Cross-check with the CDFT ranking: is the bound site the rank 1 one?
+
+Scope of the activation flag: the current detection marks activation by
+ELONGATION of a probe bond ≥ 5% relative to the free molecule (a classic
+geometric indicator, e.g. in CO2 activation [3]). It holds for any probe with
+intramolecular bonds (H2, NH3, CO2, etc.). It does NOT yet detect ANGULAR modes
+(e.g. the umbrella opening of NH3) nor the DISSOCIATION of the probe; the 5%
+threshold is a CADMIA convention, not an energy barrier.
+
+8.1 Adsorption thermochemistry (ΔG/ΔH)
+......................................
+
+If the adduct, the cluster and the free probe were computed with --task opt+freq,
+analyze adds ΔH_ads, ΔG_ads and −TΔS_ads (at 298.15 K) by reading the ORCA
+THERMOCHEMISTRY block (enthalpy, Gibbs free energy, entropy term and ZPE). If ANY
+of the three species lacks frequencies, it reports only ΔE_ads and warns which
+species lacks them. For Gibbs/enthalpy you must run frequencies on ALL THREE
+(the adduct alone is not enough).
+
+8.2 Cluster → adduct: electronic and coordination (before/after)
+................................................................
+
+analyze also compares the species BEFORE (cluster) and AFTER (adduct):
+  - Electronic properties: HOMO, LUMO, gap and global descriptors (μ, η, ω) of
+    the cluster and the adduct, with Δgap on adsorption.
+  - Coordination of the binding site: coordination number (CN) and Hoppe ECN
+    [4, 5] before and after, with ΔCN/ΔECN (how much the coordination changes on
+    adsorption).
+Both appear in the analyze JSON and in the integrating report (section 10).
+
+8.3 Process all configurations in batch
+.......................................
+
+Instead of a shell loop, analyze accepts a directory of adducts and writes one
+JSON per adduct (index by file name):
+
+    cadmia analyze --adduct-dir ./ads_nh3/ --cluster N.out \
+                   --probe-free NH3.out --cdft cdft.json -o ./analysis/
+
+Then the report collects them all with --analysis-dir (section 10).
+
+REFERENCES (8)
+[1] S. F. Boys, F. Bernardi. "The calculation of small molecular interactions by
+    the differences of separate total energies. Some procedures with reduced
+    errors." Mol. Phys. 1970, 19, 553–566.
+[2] F. M. Bickelhaupt, K. N. Houk. "Analyzing Reaction Rates with the
+    Distortion/Interaction-Activation Strain Model." Angew. Chem. Int. Ed. 2017,
+    56, 10070–10086.
+[3] H.-J. Freund, M. W. Roberts. "Surface chemistry of carbon dioxide." Surf.
+    Sci. Rep. 1996, 25, 225–273.
+[4] R. Hoppe. "Effective coordination numbers (ECoN) and mean fictive ionic
+    radii (MEFIR)." Z. Kristallogr. 1979, 150, 23–52.
+[5] R. Hoppe, S. Voigt, H. Glaum, J. Kissel, H. P. Müller, K. Bernet. "A new
+    route to charge distributions in ionic solids." J. Less-Common Met. 1989,
+    156, 105–122.
+
+
+====================================================================
+9. RELATIVE STABILITY: CADMIA STABILITY
+====================================================================
+
+Formation stability of the mixed oxide against the pure oxides, with YOUR own
+references at the SAME level of theory:
+
+    cadmia stability --mixed Al2TiO5.out --ref TiO2.out --ref Al2O3.out \
+                     -o stability.json --db
+
+    E_rel = E(mixed) − Σ c_i · E(pure_i)
+
+The stoichiometric coefficients are resolved on their own by formula balance
+(least squares + verification), as exact fractions; --coeff fixes them by hand
+(1, 0.5 or 1/2). It reports kcal/mol, eV, eV/atom and kcal/mol per formula unit
+(n = gcd of the mixed oxide's counts). E_rel < 0 means the mixed oxide is more
+stable.
+
+SIZE OF THE REFERENCES. The report names the case (reference_size):
+  same-n      every reference has the mixed oxide's n units
+              ((AB)n = An + Bn, coefficients 1, 1);
+  equal-size  every reference has as many units as all the pure contributions
+              together ((AB)n = ½·A2n + ½·B2n); the value per formula unit is
+              the mixing energy at equal size, free of the bias of the small,
+              weakly bound pure clusters;
+  other       any other combination.
+Passing the references of the wanted size is enough; the ½ come out on their own.
+
+WHICH ENERGY. By default E is E0 = E + ZPE, the energy of the minimum
+at 0 K. --energy E0|E|H|G|Gq selects E0, the electronic energy, the enthalpy
+or the Gibbs energy (Gq: quasi-RRHO, see below). Every term uses THE SAME basis: if any
+output lacks frequencies, all of
+them fall back to E with a warning, because subtracting an E from an E0 gives a
+plausible, wrong number. The basis is shown in the table, in the JSON
+("energy_basis") and in the database. The JSON also carries E_rel in every basis
+all outputs provide ("e_rel_by_basis_kcal"): with opt+freq outputs a single call
+gives the E, E0, H and G columns.
+
+Gq (--energy Gq) is G with Grimme's quasi-RRHO vibrational entropy
+(Chem. Eur. J. 18 (2012) 9955; ν0 = 100 cm⁻¹, the scheme ORCA 6 applies by
+default). Harmonic entropy diverges as the frequency goes to zero, and modes
+below ~100 cm⁻¹ inflate S. Gaussian's (harmonic) G gets only S_vib corrected,
+over its own frequencies; ORCA's quasi-RRHO G is taken as printed. If an ORCA
+output does not say which entropy it used, there is no Gq and everything falls
+back to E with a warning.
+
+CHECKS PER TERM. Below the table, one line gives the multiplicity and the number
+of imaginary frequencies of every output ("multiplicities" and "n_imaginary" in
+the JSON; "—" = no frequency calculation). A warning is raised when:
+- an output has imaginary frequencies: it is not a minimum, and the engine
+  leaves that mode out of E0, H and G;
+- an output has no frequencies: it is not verified as a minimum;
+- multiplicities differ (e.g. a triplet reference): the difference includes the
+  change of spin state and should be declared;
+- with H or G, the outputs were computed at different temperatures;
+- with G, ORCA (Grimme quasi-RRHO entropy by default) and Gaussian (harmonic)
+  are mixed.
+A number of --coeff values different from the number of references is an error.
+
+SYMMETRY. The point group, σ and chirality are detected from the final
+geometry (tolerance 0.01 Å) and go in the JSON ("symmetry"). Gaussian keeps the
+point group of its input geometry: an input slightly off a symmetry gives a
+symmetric minimum that it still treats as C1, with σ = 1 in its G. When the
+detected σ differs from the engine's, G and Gq are corrected by
+RT·ln(σ/σ_engine) (+0.41 kcal/mol per factor 2 at 298 K) and a warning says so.
+E, E0 and H do not depend on σ.
+
+9.1 Size-dependent stability: cadmia stability-series
+.....................................................
+
+Stability descriptors along a series of (unit)n clusters, n = 1..N, of one
+family, mixed or pure:
+
+    cadmia stability-series --cluster n1.out --cluster n2.out --cluster n3.out \
+                            --ref A1.out --ref B1.out --ref A2.out --ref B2.out -o series.json
+
+    E_b      = E[Sn]/n − Σ c·E[size-1 pure]/n    (binding per unit vs the pure oxides)
+    ΔE_mix(n)    = E[Sn] − Σ c·E[pure of the same n]
+    ΔE_mix,eq    = (E[Sn] − Σ c·E[pure of equal size])/n   (per formula unit)
+    E_b,fam  = (n·E[S1] − E[Sn])/n               (binding per unit vs its own monomer)
+    E_f      = E[S(n-1)] + E[S1] − E[Sn]         (fragmentation energy)
+    Δ²E      = E[S(n-1)] + E[S(n+1)] − 2·E[Sn]   (second-order energy difference)
+
+E is E0 by default, as in stability (--energy selects another basis). E_b and
+E_b,fam answer different questions and must not be mixed. E_b,fam works for any
+family: passing (TiO2)n or (Al2O3)n as --cluster gives their own E_b,fam, E_f
+and Δ²E. n is inferred from each cluster's stoichiometry (gcd of the atom
+counts); every descriptor is emitted only where its inputs exist. Output in
+kcal/mol (eV in the JSON).
+
+PURE-OXIDE REFERENCES (--ref, repeatable). Outputs of any size, matched to each
+cluster by stoichiometry as in stability: size 1 gives E_b, the same n gives
+ΔE_mix(n), equal size gives ΔE_mix,eq. A missing size leaves the cell as "—",
+with a warning. References go through the same checks as the clusters.
+
+ISOMERS. Several --cluster with the same n are isomers; none is
+dropped and the order of the files changes nothing. Each isomer is reported
+with its point group, chirality, ΔE0 vs the E0 minimum and ΔG vs the G minimum
+(and Δ in the chosen basis, if another). The E0 and G minima may be different
+isomers: the report says so and keeps both. The lowest isomer in the chosen
+basis (E0 by default) represents n in the descriptors; the table names it.
+
+POPULATIONS (--pop, off by default). Given in two bases side by side:
+P_i = g_i·exp(−ΔG_i/RT)/Σ, with G corrected for σ (Gq if that is the basis), and
+P_i = g_i·exp(−ΔE0_i/RT)/Σ, without σ. In both, g = 2 if the geometry is chiral
+and T is the outputs' (298.15 K by default in Gaussian). Only isomers with frequencies
+enter; the others are named. The population holds only for the set of isomers
+given, and is indicative: a 1 kcal/mol error in ΔG changes it a lot. With
+--pop a second descriptor table uses E_avg(n) = Σ P_i·E_i (G weights), labelled
+"weighted average": it is not the free energy of the ensemble (no mixing
+entropy).
+
+9.2 Bond dissociation energy: cadmia bde
+........................................
+
+From the molecule and its fragments (at the SAME level, relaxed geometries):
+
+    cadmia bde --molecule AB.out --fragment A.out --fragment B.out -o bde.json
+
+    BDE = Σ E(fragment) − E(molecule)
+
+Positive = energy needed to break the bond (larger = stronger bond). CADMIA
+checks atom conservation (Σ fragments == molecule) and warns if it does not
+hold (the number only has a physical meaning when the fragments add up to the
+molecule). Output in kcal/mol and eV.
+
+
+====================================================================
+10. INTEGRATING REPORT: CADMIA REPORT
+====================================================================
+
+Consolidates the agents' JSON into a Markdown report (+ LaTeX):
+
+    cadmia report --cdft cdft.json --analysis-dir ./analysis/ \
+                  --stability stability.json \
+                  --literature refs.json \
+                  --title "Al2TiO5 n=1" -o report.md --latex --figures
+
+--analysis-dir collects all the *.json in the folder (equivalent to several
+--analysis, without listing them one by one). You can also list them with
+--analysis.
+
+Contents: global descriptors, site ranking, adsorption summary (with BSSE and
+ΔH_ads/ΔG_ads when there are frequencies), cluster→adduct electronic properties
+(HOMO/LUMO/gap/μ/η/ω + Δgap), binding-site coordination cluster→adduct (CN/ECN +
+ΔCN/ΔECN), stability, bibliography (--literature), and CORRELATIONS (site Δf vs
+E_ads, Pearson r). Configurations that relaxed to the SAME DFT minimum are
+deduplicated before the summary and the correlation. --figures uses matplotlib if
+present; otherwise it writes the (x, y) data to CSV.
+
+--narrate adds a discussion section written by the configured LLM (section 15),
+marked as a draft to review. The report numbers never come from the model.
+
+
+--------------------------------------------------------------------
+10.1 Correlation with experimental data: cadmia correlate
+--------------------------------------------------------------------
+Terminal step of a study. Fits a least-squares line descriptor → experimental
+observable across the systems of a study and reports slope, intercept, r, r² and a
+two-tailed p-value. It computes NOTHING new: it reads the JSON already emitted by
+cadmia cdft and cadmia analyze, merged per system identifier.
+
+   cadmia correlate -e experimental.csv -d study/ --y logk --x omega_minus --plot
+   cadmia correlate -e experimental.csv -d study/ --y mayr_N --x all -o corr/ranking.txt
+
+The experimental table is a CSV with a 'system' column and one or more observable
+columns (log k, Mayr N/E, TOF, ΔH_ads…). Descriptors are chosen by alias: mu, eta,
+omega, omega_minus, omega_plus, N, ip, ea, gap, e_ads, dG_ads, dH_ads, delta_n,
+e_stab, delta_gap, dq_probe, dq_site, plus atom-resolved ones such as f_plus@site or
+dual@N. With --x all every available descriptor is scanned and ranked by |r|. --abs-x
+correlates |x| (e.g. |ΔN|); --log-x/--log-y apply a logarithm. --plot writes the
+scatter with the fitted line (matplotlib; if missing, the point CSV is emitted). The
+system identifier comes from the file name (stripping the .cdft/.analysis suffixes) or
+from a 'system' field.
+
+
+====================================================================
+11. ELECTRONIC PROPERTIES: DOS/PDOS AND MAPS (ELECTRONIC / DENSITY)
+====================================================================
+
+electronic subcommands: dos, pdos, ir, cube, vmd, mep. Bilingual help:
+cadmia electronic SUB --ayuda. The generation of density cubes and Fukui/dual/Δρ maps
+is the `cadmia density` command (section 11.5).
+
+11.1 Total DOS
+..............
+
+    cadmia electronic dos N.out                          # terminal summary
+    cadmia electronic dos N.out -o dos.dat               # curve (Energy, DOS)
+    cadmia electronic dos N.out --format html -o dos.html
+
+Gaussian broadening of the eigenvalues (--sigma, def. 0.1 eV; --points, def. 2000).
+In open shell it separates the alpha/beta channels.
+
+11.2 PDOS per element
+.....................
+
+It requires the ORCA output to have the per-MO populations block:
+
+    %output Print[P_OrbPopMO_L] 1 end
+
+Usage:
+
+    cadmia electronic pdos N.out -o pdos.dat             # columns per element
+    cadmia electronic pdos N.out --format html -o pdos.html
+
+The HTML plot is SELF-CONTAINED and interactive (plotly.js from CDN, embedded
+data): HOMO/LUMO vertical lines, gap annotation, one curve per element (Ti/Al/O
+with fixed colors) and the total. It does not require installing plotly or
+matplotlib.
+
+.dat/.csv output format: Energy_eV, PDOS_<elem>..., DOS_total.
+
+11.3 Chemical interpretation (example)
+......................................
+
+In a metal oxide the HOMO is expected to be dominated by oxygen (O 2p
+character) and the low virtual band to have metal d character. The sum of
+projections should reproduce the total DOS within a few % (ORCA's print
+threshold is 0.1%).
+
+11.4 Before and after: cluster and adduct
+.........................................
+
+To see how the electronic structure changes on adsorption, run DOS/PDOS on the
+TWO species (isolated cluster and adduct) and compare them:
+
+    cadmia electronic dos N.out          -o dos_cluster.dat
+    cadmia electronic dos adduct.out     -o dos_adduct.dat
+    cadmia electronic pdos N.out         -o pdos_cluster.dat
+    cadmia electronic pdos adduct.out    -o pdos_adduct.dat
+
+The shift of HOMO/LUMO and the gap, and the weight per element near the Fermi
+level, tell you whether the site was oxidized/reduced on binding the probe. (The
+numerical HOMO/LUMO/gap/μ/η/ω cluster→adduct comparison is already summarized by
+`cadmia analyze`/`report`, sections 8.2 and 10; DOS/PDOS provide the band-wise
+version.)
+
+11.5 Densities and maps: cadmia density (cubes)
+...............................................
+
+Generates the volumetric fields (.cube) to visualize densities and reactivity,
+from the ORCA wavefunction (.gbw). Generation uses orca_plot (ships with ORCA,
+run where ORCA is); the difference maps are grid arithmetic.
+
+  - Per-species cubes (density / HOMO / LUMO / MEP):
+
+        cadmia density --gbw N.gbw --kind all --homo-index 41 -o ./cubes/
+
+  - Fukui maps and dual descriptor (from the N, N+1 and N-1 densities):
+
+        cadmia density --gbw N.gbw --np1 anion.gbw --nm1 cation.gbw -o ./cubes/
+        # writes fplus.cube, fminus.cube, f0.cube, dual.cube
+
+  - Deformation density Δρ of the adduct (cluster and probe at the adduct
+    geometry, on the same grid):
+
+        cadmia density --adduct ad.gbw --cluster cl.gbw \
+                       --probe co2.gbw -o ./cubes/        # deformation.cube
+
+The mode (species / Fukui / Δρ) is inferred from the flags: --adduct/--cluster/
+--probe select Δρ; no mode flag is needed. The grid is sized per axis for a
+uniform --step (in Bohr), so the lobes stay smooth.
+
+Definitions (on the grid): f+ = ρ(N+1) − ρ(N), f- = ρ(N) − ρ(N-1),
+f0 = (f+ + f-)/2, dual Δf = f+ − f-, Δρ = ρ(adduct) − ρ(cluster) − ρ(probe).
+For the subtractions to be valid the cubes must be aligned voxel by voxel:
+N/N±1 share geometry, so a single --step is enough; for Δρ, the cluster and the
+probe must be computed at the adduct geometry. The resulting .cube files can be
+visualized with `cadmia electronic cube` (HTML) or `cadmia electronic vmd`.
+
+  - MEP extremes and statistics on the isosurface (Vs,max / Vs,min):
+
+        cadmia electronic mep mep.cube --density density.cube --isovalue 0.001
+
+    Evaluates the MEP on the density isosurface rho = 0.001 a.u.: the points are
+    the crossings of the grid edges with the isosurface, with rho and V
+    interpolated along the edge, and each point weighs the surface area it
+    stands for. It reports Vs,min (the most nucleophilic, electron-rich region)
+    and Vs,max (the most electrophilic), with their position and nearest atom,
+    and the area-weighted Politzer-Murray statistics (total, positive and
+    negative area, sigma²+, sigma²-, sigma²_tot, balance nu, Pi, MPI). On the oxide
+    clusters tested, all of them agree with Multiwfn's function 12 within 0.52 %
+    for cubes with a 0.20 bohr step. Without --density it gives only the global
+    min/max. An isovalue that does not cross the grid, or axes other than x, y,
+    z, is an error. Generate the MEP and density cubes first with `cadmia density`.
+
+11.6 IR spectrum
+................
+
+Builds an infrared spectrum from the IR intensities of the normal modes of an
+ORCA frequency (! Freq) output:
+
+    cadmia electronic ir freq.out                        # terminal summary
+    cadmia electronic ir freq.out -o ir.dat              # curve (wavenumber, intensity)
+    cadmia electronic ir freq.out --format html -o ir.html
+
+Each mode is broadened with a Lorentzian profile (--lineshape gaussian for a
+Gaussian one) of full width at half maximum --fwhm (def. 16 cm⁻¹) over --points
+points (def. 4000). The empirical --scale factor (def. 1.0; e.g. 0.96 for hybrid
+DFT) rescales the wavenumbers to offset the harmonic overestimation. The HTML
+plot is self-contained and interactive, as in DOS/PDOS.
+
+
+====================================================================
+12. STRUCTURAL ANALYSIS (CADMIA STRUCTURE)
+====================================================================
+
+Subcommands: report, compare, plot, render.
+Bilingual help: cadmia structure SUB --ayuda.
+
+The report covers: bonds and per-pair statistics, CN and self-consistent Hoppe
+ECN, coordination polyhedra with their continuous shape measure (CShM),
+corner/edge/face connectivity between polyhedra, bond angles by element triplet
+plus the bridging M-O-M angles, rings of the metal-ligand subgraph, global shape
+from the gyration tensor, and coordination relative to the element mean.
+
+Two columns look alike and are not: CN counts EVERY neighbour, metals included,
+while CN_L counts only the ligands, because a coordination polyhedron is
+metal-ligand by definition. A Ti bonded to 4 O and 2 Al has CN = 6, CN_L = 4.
+
+A continuous shape measure [Pinsky & Avnir] asks how far a centre is from EACH
+candidate shape, minimising over rotation, scale and the ligand-to-vertex
+assignment. 0 is an exact match. Unlike the tabulated indices it is never NaN,
+because it needs no reference angle for the centre's own type. The central atom
+is part of the point set: without it a trigonal pyramid and a trigonal plane have
+the same ligands and no measure could tell them apart.
+
+Rings are Vismara's relevant cycles [8] (every cycle that is not a GF(2) sum of
+strictly shorter ones; Horton candidates [9]), searched on the METAL-LIGAND
+subgraph. Over the full bond graph a metal-metal contact short-circuits the
+metal-oxygen ring it crosses and every ring comes out as a triangle. The report
+prints the cyclomatic number mu = E − V + C, the rank of the rings found and
+whether the search is complete (rank = mu), plus the n-MR count (the subgraph is
+bipartite, so a ring of size s holds s/2 metals; 2-MR = M2O2). A per-bond search
+misses the large rings of a dense cluster.
+
+ECN WITHOUT A DISTANCE CUTOFF. ECN and its d_av run over ALL atom
+pairs, as in Da Silva [6, 7]: the Hoppe weight already damps distant atoms and a
+cutoff only adds a parameter the result depends on. Hoppe's ECN depends only on
+the ratios d/d_av and has no absolute scale: cation-anion (M-O) it is a robust
+effective coordination; metal-metal it describes the nearest shell of that
+element wherever it lies, so a Ti with no Ti within bridging distance still has
+a nonzero Ti-Ti ECN. Read the M-M ECN together with its d_av, as an effective
+cation separation, and take M-M coordination from the CATION NEIGHBORHOOD
+section: two metals are neighbours when one ligand is bonded to both (M-L
+cutoffs), averaged over ALL centres of the element (an isolated one counts
+zero), with the isolated count, the shortest M-M distance, per-centre values and
+the mu of every shared ligand (a mu6 and a mu2 oxygen both count as a bridge;
+mu tells them apart). CSV rows cation_neighbors, cation_neighbor_center and
+cation_bridge; JSON block "cation_neighbors".
+
+`cadmia structure compare ref.xyz candidates/*.xyz` answers two questions a bare
+RMSD cannot separate: the SKELETON says whether the connectivity is the same, and
+the DEVIATION says how far the atoms moved. A structure that merely bent has the
+same skeleton and a large deviation; one that rearranged has a different
+skeleton. Atoms are paired by element, not by position in the file.
+
+12.1 Structural report
+......................
+
+    cadmia structure report cluster.xyz -o report.txt
+    cadmia structure report clusters/*.xyz -o batch.csv --format csv
+    cadmia structure report outputs/*.out -o stages.txt   # also reads .out
+
+It computes bonds by pair cutoffs, coordination numbers CN, self-consistent Hoppe
+ECN [1, 2], average distances d_av, per-pair statistics and coordination polyhedra.
+The "Coordination Polyhedra (angles and distortion)" section lists, per metal centre
+with CN≥3: type (triangle/tetrahedron/octahedron…), mean distance, mean bond ANGLE,
+angular distortion (standard deviation of the ligand-centre-ligand angles), polyhedron
+volume (Å³, convex hull of the ligands), Robinson's quadratic elongation ⟨λ⟩ [4] (1.0
+for the ideal polyhedron; normalised by the EQUAL-VOLUME ideal, so it complements Baur's
+bond-length distortion, which normalises by the observed mean), and the relative
+off-centering of the metal (disp_r = displacement from the ligand centroid ÷ mean bond
+length). Volume and ⟨λ⟩ are NaN for flat polyhedra, and ⟨λ⟩ also for types with no
+regular counterpart (seesaw): never 0 or 1, which would claim the ideal value. In JSON it
+goes under the "polyhedra" key; in CSV as record_type=polyhedron rows. In TXT it reports
+the raw ECN and the presentation column ECN_1d (one decimal, Decimal ROUND_HALF_UP:
+2.985 → 3.0). Missing values in ECN tables are kept as NaN, never as zero.
+
+12.2 Compare structures
+.......................
+
+    cadmia structure compare reference.xyz candidates/*.xyz
+    cadmia structure compare reference.xyz cand.xyz --json
+
+It answers two questions that an RMSD alone does not tell apart.
+
+The SKELETON says whether the connectivity is the same, that is, whether any
+bond was made or broken. It is a signature of the topology, invariant to
+rotation, translation and the order in which the atoms are written.
+
+The DEVIATION says how far the atoms moved, after optimal superposition. Both
+the maximum and the RMSD are given, from the same matching, which is BY ELEMENT
+and not by position in the file.
+
+A structure that only bent has the same skeleton and a large deviation; one
+that rearranged has another skeleton. Distance alone does not separate them,
+because a deformation moves the atoms as much as a rearrangement.
+
+Structures with different compositions are declared not comparable instead of
+receiving a meaningless number, and a warning is given when a contact sits so
+close to the bond cutoff that the skeleton verdict is not safe.
+
+Any system: bond detection uses covalent/metallic radii backed by the full
+periodic table (covalent radii of Cordero et al. [3]), so it works for arbitrary
+clusters (bi/tri-metallic,
+oxides, mixed). If an element had no radius, it warns and does not detect its bonds
+(add it to atomic_data.yaml). The ECN trend/heatmap plots discover the present pairs
+dynamically; the order Ti-O, Al-O, Ti-Ti, Al-Al, Ti-Al is only the PREFERRED one
+when those pairs exist, and the rest are appended afterward.
+
+Editable oxide bias: atomic_data.yaml ships excluded_bonds: [O-O], which omits the
+O-O pairs from the reports (reasonable in oxides). If your system needs it
+(peroxides, O2 probes), remove or edit it in your atomic_data.yaml.
+
+12.3 Interactive plots (requires the [full] extra)
+..................................................
+
+    cadmia structure plot cluster.xyz                       # 3D molecule
+    cadmia structure plot cluster.xyz --kind ecn            # colored by ECN
+    cadmia structure plot cluster.xyz --kind bonds          # distance histogram
+    cadmia structure plot structural_report.txt --kind ecn-trend
+    cadmia structure plot structural_report.txt --kind ecn-heatmap
+
+Types: molecule, ecn, bonds, distances, ecn-trend, ecn-heatmap. ECN labels:
+--ecn-label both (def., "2.985 (3.0)"), rounded, raw.
+
+12.4 POV-Ray render
+...................
+
+    cadmia structure render cluster.xyz -o scene --align-inertia
+    cadmia structure render cluster.xyz --render --resolution publication -o scene
+    cadmia structure render cluster.xyz --cube homo.cube --iso-preset homo_lumo -o orbital
+
+POV-Ray is installed separately (sudo apt install povray). Resolution presets:
+preview, screen, publication (2560²), ultra.
+
+REFERENCES (12)
+[1] R. Hoppe. "Effective coordination numbers (ECoN) and mean fictive ionic
+    radii (MEFIR)." Z. Kristallogr. 1979, 150, 23–52.
+[2] R. Hoppe, S. Voigt, H. Glaum, J. Kissel, H. P. Müller, K. Bernet. "A new
+    route to charge distributions in ionic solids." J. Less-Common Met. 1989,
+    156, 105–122.
+[3] B. Cordero, V. Gómez, A. E. Platero-Prats, et al. "Covalent radii revisited."
+    Dalton Trans. 2008, 2832–2838. (The radii in CADMIA's atomic-data table are
+    covalent, used as a fallback for the bond cutoffs.)
+[4] K. Robinson, G. V. Gibbs, P. H. Ribbe. "Quadratic Elongation: A Quantitative
+    Measure of Distortion in Coordination Polyhedra." Science 1971, 172, 567–570.
+[5] M. Pinsky, D. Avnir. Inorg. Chem. 1998, 37, 5575; D. Casanova et al.
+    Chem. Eur. J. 2003, 9, 1281 (the SHAPE program).
+[6] J. L. F. Da Silva. "Effective coordination concept applied for phase change
+    (GeTe)m(Sb2Te3)n compounds." J. Appl. Phys. 2011, 109, 023502.
+[7] H. M. Cezar, G. G. Rondina, J. L. F. Da Silva. "Thermodynamic properties of
+    55-atom Pt-based nanoalloys: Phase changes and structural effects on the
+    electronic properties." J. Chem. Phys. 2019, 151, 204301.
+[8] P. Vismara. "Union of all the minimum cycle bases of a graph." Electron. J.
+    Combin. 1997, 4, R9.
+[9] J. D. Horton. "A polynomial-time algorithm to find the shortest cycle basis
+    of a graph." SIAM J. Comput. 1987, 16, 358–366.
+
+
+====================================================================
+13. ENGINE BENCHMARK: CADMIA BENCHMARK
+====================================================================
+
+    # Generate identical inputs for both engines:
+    cadmia benchmark generate --xyz cluster.xyz --task opt+freq -o ./bench/
+
+    # Compare finished outputs:
+    cadmia benchmark compare --gaussian g.log --orca o.out \
+                             --markdown bench.md --db
+
+It systematically compares Gaussian 16 [2] and ORCA [3] for the same system. It
+measures ΔE (threshold 0.1 kcal/mol), geometric RMSD (Kabsch alignment [1],
+threshold 0.01 Å), frequencies and times. BEWARE the dispersion: Gaussian GD3 and
+ORCA D3BJ are NOT the same correction; a ΔE of several kcal/mol between engines
+with different dispersions is expected and the agent flags it.
+
+REFERENCES (13)
+[1] W. Kabsch. "A solution for the best rotation to relate two sets of vectors."
+    Acta Crystallogr. A 1976, 32, 922–923.
+[2] M. J. Frisch, et al. "Gaussian 16, Revision C.01." Gaussian, Inc.,
+    Wallingford CT, 2016.
+[3] F. Neese. "Software update: the ORCA program system, version 5.0." WIREs
+    Comput. Mol. Sci. 2022, 12, e1606.
+
+
+====================================================================
+14. DATABASE AND TRACEABILITY: CADMIA DB
+====================================================================
+
+SQLite at ~/.cadmia/cadmia.db (or --db-path in each command).
+
+    cadmia db init        # create/migrate the schema
+    cadmia db status      # row count per table
+
+Ingest already-computed outputs (Import Agent, detailed in Appendix A.1):
+
+    cadmia import outputs/*.out                           # table in terminal
+    cadmia import outputs/*.out --functional PBE0 --basis def2-TZVP --dispersion d4
+
+For each Gaussian or ORCA .out/.log it detects the engine, parses the geometry
+and SCF energy, and records structure + calculation + provenance without
+reimplementing any parser. The level of theory is not inferred from the file:
+pass it with --functional/--basis/--dispersion so it is annotated on each
+calculation.
+
+Schema v2 (traceability): structures (canonical embedded geometry, id =
+SHA256 of the XYZ), calculations, descriptors, adsorption_configs (starting
+geometry: site, orientation, angles) + adsorption_results (E_ads, BSSE, E_def,
+E_int, activation), stability, hpc_jobs, workflow_runs (each CLI invocation with
+--db: exact command + produced ids), files and provenance (source file, hash,
+parser, command, version, date).
+
+With this you can always answer: from which file, command and version did this
+number come?
+
+Natural-language query (optional, requires LLM — section 15):
+
+    cadmia db ask "what is the relative stability of each mixed oxide?"
+    cadmia db ask "list the ORCA calculations with their energy" --limit 10
+    cadmia db ask "..." --sql-only      # see the SQL without running it
+
+The model only writes the SELECT query; it is validated to be read-only (a single
+statement, no mutation words) and run on a read-only connection. The numbers always
+come from SQLite.
+
+
+====================================================================
+15. OPTIONAL LLM LAYER
+====================================================================
+
+Experimental: this layer has not been validated yet and may change.
+
+The LLM only produces TEXT (drafts, suggestions, SQL); no scientific number
+depends on the model. Without an API key everything else works the same.
+
+Configuration in ~/.cadmia/llm.yaml:
+
+    provider: anthropic          # anthropic | openai | gemini
+    model: claude-sonnet-4-6     # optional; there is a default per provider
+    # max_tokens: 1024
+
+The API key goes ONLY in an environment variable (never in files or in the DB):
+
+    export ANTHROPIC_API_KEY=...     # or OPENAI_API_KEY / GEMINI_API_KEY
+
+Local models without a key (Ollama, llama.cpp, vLLM), via the openai provider:
+
+    provider: openai
+    model: llama3
+    base_url: http://localhost:11434/v1
+
+Use cases:
+  1. cadmia report ... --narrate --language en  → discussion draft.
+  2. cadmia diagnose file.out                    → convergence suggestions.
+  3. cadmia db ask "question"                    → read-only SQL query.
+
+
+====================================================================
+16. THE COMPLETE PIPELINE, FROM START TO FINISH
+====================================================================
+
+16.0 The recommended way: cadmia pipeline (Orchestrator)
+........................................................
+
+A single command chains everything in dependency order and is RESUMABLE:
+
+    validate → cdft → geometry → run → analyze → stability → report
+
+Progress is saved to pipeline.json after EACH stage. The calculation stage needs
+an engine; if there is none, it stays 'blocked' and the flow stops CLEANLY, so
+the engine-free leg (validate/cdft/geometry) runs on any machine and the rest is
+resumed on the machine with ORCA. The cluster geometry is extracted from the N output
+itself (correct atom order, no cluster.xyz by hand).
+
+    # Engine-free leg (any machine); stops at the run stage:
+    cadmia pipeline --n N.out --np1 N+1.out --nm1 N-1.out \
+                    --cluster Al2TiO5 --probe NH3 \
+                    --ref TiO2.out --ref Al2O3.out -o ./run/ --db
+
+    # On the machine with ORCA, resume the rest (probe-free can be given here):
+    cadmia pipeline --resume -o ./run/ --engine-path /opt/orca6 \
+                    --probe-free NH3.out --nprocs 12 --mem-o 3000 --db
+
+    # See the plan without running, or cut at a stage:
+    cadmia pipeline --resume -o ./run/ --dry-run
+    cadmia pipeline --n N.out --np1 N+1.out --nm1 N-1.out --until geometry -o ./r/
+
+Stages and states in the manifest: done | skipped | blocked | failed | pending.
+analyze is skipped without --probe-free; stability is skipped without --ref. A
+'blocked'/'failed' stops the flow; on resume it picks up from there.
+
+The run stage runs at the PRODUCTION level by default (--preset accurate and
+--task opt+freq): the adduct is optimized with the same accuracy block
+(RIJCOSX, def2/J, TightSCF, DefGrid3) as the cluster and the probe, so
+E_ads does not mix levels, and with frequencies for the ΔG/ΔH thermochemistry.
+For a faster, looser run, --task opt --preset analysis. The level of theory is
+--functional/--basis/--dispersion (PBE0/def2-TZVP/D4 by default). Note: the
+Orchestrator does NOT include the screening funnel (prescreen/rank) nor wire in
+electronic/structural analysis; for that, the step-by-step version (16.1).
+
+16.1 Step-by-step version (fine control or remote engine)
+.........................................................
+
+All the steps are non-interactive: the complete chain can run on its own from a
+shell script (or a cron) on the local machine. Skeleton:
+
+    #!/bin/bash
+    set -e                       # abort if a step fails
+    ORCA=/opt/orca6              # adjust to the real install
+
+    # 0. Environment and quality control of the three base states
+    cadmia doctor
+    cadmia validate N.out N+1.out N-1.out --db
+
+    # 1. CDFT reactivity
+    cadmia cdft --n N.out --np1 N+1.out --nm1 N-1.out \
+                -o cdft.json --db
+
+    # 2. Cluster geometry from the output itself (same atom order)
+    cadmia xyz N.out -o cluster.xyz
+
+    # 3. Adsorption configurations
+    cadmia geometry --cdft cdft.json --xyz cluster.xyz \
+                    --probe NH3 -o ./configs/ --db
+
+    # 4. Local queue: optimize the configurations (12 cores, 3 GB/core)
+    cadmia run --jobs ./configs/ --task opt --nprocs 12 --mem-o 3000 \
+               --engine-path $ORCA -o ./ads_nh3/ --db
+
+    # 4b. The free probe, if you don't have it already:
+    #     cadmia run --jobs NH3.xyz --task opt --nprocs 12 --engine-path $ORCA
+
+    # 5. Energetics of each finished configuration
+    for out in ./ads_nh3/*.out; do
+      cadmia analyze --adduct "$out" --cluster N.out --probe-free NH3.out \
+                     --cdft cdft.json -o "${out%.out}_analysis.json" --db
+    done
+
+    # 6. Relative stability (references at the same level)
+    cadmia stability --mixed N.out --ref TiO2.out --ref Al2O3.out \
+                     -o stability.json --db
+
+    # 7. Final report with correlations
+    cadmia report --cdft cdft.json \
+                  $(for j in ./ads_nh3/*_analysis.json; do echo --analysis $j; done) \
+                  --stability stability.json \
+                  -o report.md --latex
+
+    # 8. Electronics and structure
+    cadmia electronic dos  N.out --format html -o dos.html
+    cadmia electronic pdos N.out --format html -o pdos.html
+    cadmia structure report cluster.xyz -o structure.txt
+
+Robustness notes:
+  - cadmia run saves cadmia_jobs.json after each job: if interrupted, the
+    finished ones are not lost (check the JSON before relaunching).
+  - cadmia run returns code 1 if any job failed; with set -e the script stops
+    there so you can check (cadmia diagnose helps).
+  - Each --db leaves the provenance row and the workflow_run with the exact
+    command: the complete run is audited in the database.
+
+
+====================================================================
+17. COMMON TROUBLESHOOTING
+====================================================================
+
+"orca: command not found" or it runs the screen reader
+    Use --engine-path /path/to/orca6 in cadmia run. cadmia doctor tells you
+    which binary it is finding.
+
+ORCA runs in serial even though I asked for %pal
+    Parallel ORCA requires being invoked with an ABSOLUTE path. cadmia run
+    already does this when you give --engine-path.
+
+The cation/anion does not converge
+    cadmia diagnose gives you the symptoms. Usual recipe:
+    MOREAD from the neutral's .gbw + SlowConv (escalate to VerySlowConv and
+    TRAH if it resists).
+
+cadmia geometry warns that the site symbol does not match
+    The cluster.xyz does not have the same atom order as the SCF outputs.
+    Extract the geometry from the .out itself (section 6). Do not ignore the
+    warning.
+
+electronic pdos says the per-MO block is missing
+    The ORCA output was not run with %output Print[P_OrbPopMO_L] 1 end.
+    You have to re-run the single point with that option.
+
+NPA absent ("NBOEXE not set")
+    ORCA needs the NBOEXE variable pointing to gennbo/nbo7:
+    export NBOEXE=/path/to/gennbo  and re-run the single point.
+
+Large ΔE between Gaussian and ORCA in benchmark
+    Verify that both use the SAME dispersion correction (GD3 ≠ D3BJ) and the
+    same grid/basis. The benchmark flag is correct: do not average engines with
+    different levels.
+
+The DB does not have the new tables
+    cadmia db init applies the migrations (additive and idempotent) to an
+    existing database without touching the data.
+
+--narrate / db ask / LLM suggestions do not work
+    The API key is missing from the environment or the ~/.cadmia/llm.yaml.
+    cadmia doctor shows the configured provider and which environment variable
+    it expects. Everything else works without an LLM.
+
+
+====================================================================
+APPENDIX A. METHODS BY AGENT: ALGORITHM, JUSTIFICATION AND BIBLIOGRAPHY
+====================================================================
+
+This appendix documents, agent by agent, WHAT each one does, HOW it does it
+(the algorithm, step by step and faithful to the code) and WHY the method
+decisions are justified, with the bibliography that backs them. The sections
+follow the usage-sequence order of the workflow (same as the body of the guide);
+each one includes its own references at the end.
+
+
+A.1  IMPORT AGENT — INGESTION OF OUTPUTS INTO THE DATA CORE
+--------------------------------------------------------------------
+(module: cadmia/agents/import_agent.py; CLI: cadmia import; section 14)
+
+WHAT IT DOES
+Converts a collection of already-computed outputs (.out/.log of Gaussian or ORCA)
+into traceable database rows: for each file it detects the engine, parses the
+geometry and the SCF energy, and records structure + calculation + provenance.
+It does not reimplement any parser: it reuses those of cadmia/io.
+
+ALGORITHM, STEP BY STEP
+1. Engine detection per file (Gaussian/ORCA), or forced with engine.
+2. Parsing with the existing readers: geometry and electronic state (energy).
+3. Termination state: "done" if the engine's normal-termination marker appears
+   ("Normal termination" / "ORCA TERMINATED NORMALLY"); otherwise "incomplete".
+4. Provenance: a record is built with the file's SHA256 hash, the command line
+   and the CADMIA version, and persisted IDEMPOTENTLY on the geometry hash
+   (re-importing the same file does not duplicate rows).
+5. Mayer bond orders (if the ORCA output carries Print[P_Mayer] 1) are stored
+   associated to the calculation.
+6. Batch robustness: a file that fails is reported per item and does NOT abort
+   the batch.
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Traceability and reproducibility. Recording provenance (source, hash, command,
+  version) materializes the FAIR principles of scientific data [1]; the SHA256
+  hash [2] gives a stable fingerprint of the source file for idempotency.
+- Mayer bond orders. When available, Mayer's bond indices [3] are used as a bond
+  order descriptor.
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It does not run calculations nor validate quality (that is validate/diagnose);
+  it only ingests.
+- It depends on the parsers recognizing the format of the engine version.
+
+REFERENCES (A.1)
+[1] M. D. Wilkinson, et al. "The FAIR Guiding Principles for scientific data
+    management and stewardship." Sci. Data 2016, 3, 160018.
+[2] National Institute of Standards and Technology. "Secure Hash Standard
+    (SHS)." FIPS PUB 180-4, 2015.
+[3] I. Mayer. "Charge, Bond Order and Valence in the Ab Initio SCF Theory."
+    Chem. Phys. Lett. 1983, 97, 270–274.
+
+
+A.2  VALIDATION AGENT — QUALITY CONTROL OF DFT OUTPUTS
+--------------------------------------------------------------------
+(module: cadmia/agents/validation_agent.py; CLI: cadmia validate; section 4)
+
+WHAT IT DOES
+Applies a scientific quality control to a DFT output before trusting its numbers:
+it checks termination, SCF convergence, spin contamination, imaginary frequencies,
+anomalous interatomic distances and, optionally, the BSSE correction (only in
+adsorption calculations). It returns a per-check verdict (pass/fail/warning/skip)
+and a global one.
+
+ALGORITHM, STEP BY STEP (EACH CHECK)
+1. Termination. Looks for the engine's normal-termination or error marker.
+2. SCF convergence. Detects "SCF converged"/"convergence criterion not met"
+   (Gaussian) or "SCF CONVERGED"/"SCF NOT CONVERGED" (ORCA); as a fallback, the
+   presence of the final energy counts as converged.
+3. Spin contamination. Reads ⟨S²⟩ and compares it with the exact value S(S+1)
+   corresponding to the multiplicity. Singlet: any ⟨S²⟩ > 0.02 → warning.
+   Open shell: relative deviation > 10 % → warning, > 25 % → fail.
+4. Frequencies. If there is vibrational analysis, any imaginary (negative)
+   frequency marks a fail: the geometry is not a true minimum.
+5. Geometric sanity. Walks all atom pairs; if a distance falls below the
+   physical minimum (fraction of the sum of covalent radii), it marks a steric
+   clash.
+6. BSSE (optional, adsorption only). Verifies that a counterpoise correction
+   exists; its absence is a fail in adsorption calculations.
+7. Global verdict: fail if any check fails; warning if there are warnings;
+   otherwise pass.
+
+THRESHOLDS
+   singlet spin:          ⟨S²⟩ > 0.02            → warning
+   open-shell spin:       rel. dev. > 10 %       → warning; > 25 % → fail
+   imaginary frequency:   any < 0 cm⁻¹           → fail
+   anomalous distance:    d < fraction·(r_i+r_j) → fail
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Spin contamination. In unrestricted methods (UHF/UDFT) the ⟨S²⟩ eigenvalue
+  should approach S(S+1); a deviation signals mixing of higher spin states [1].
+- Imaginary frequencies. Vibrational analysis on the Hessian distinguishes minima
+  (all real) from transition states or saddle points (imaginary frequencies) [2].
+- Geometric sanity. The minimum-distance criterion uses covalent radii [3].
+- BSSE. The counterpoise verification is grounded in the Boys and Bernardi method
+  to correct the basis-set superposition error [4].
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It does not fix the problems: it detects them. The cause diagnosis and the fix
+  recipes are given by the Diagnosis Agent (A.9).
+- It depends on textual markers; an unforeseen version format may fall into
+  "warning/skip" instead of pass.
+
+REFERENCES (A.2)
+[1] A. Szabo, N. S. Ostlund. "Modern Quantum Chemistry: Introduction to Advanced
+    Electronic Structure Theory." Dover, New York, 1996.
+[2] F. Jensen. "Introduction to Computational Chemistry." 3rd ed., Wiley,
+    Chichester, 2017.
+[3] B. Cordero, V. Gómez, A. E. Platero-Prats, et al. "Covalent radii revisited."
+    Dalton Trans. 2008, 2832–2838.
+[4] S. F. Boys, F. Bernardi. "The calculation of small molecular interactions by
+    the differences of separate total energies. Some procedures with reduced
+    errors." Mol. Phys. 1970, 19, 553–566.
+
+
+A.3  CDFT AGENT — CONCEPTUAL DESCRIPTORS AND SITE RANKING
+--------------------------------------------------------------------
+(module: cadmia/agents/cdft_agent.py + cadmia/cdft/; CLI: cadmia cdft; section 5)
+
+WHAT IT DOES
+From three SCF outputs at the SAME geometry — the neutral system (N), its anion
+(N+1) and its cation (N-1) — the CDFT Agent computes the global descriptors of
+conceptual density functional theory (chemical potential, electronegativity,
+hardness, softness, electrophilicity, nucleophilicity index) and the condensed
+Fukui functions per atom, classifies each atom as an electrophilic, nucleophilic
+or ambiphilic site, and delivers a ranking of reactive sites with full
+traceability (JSON + provenance).
+
+WHY THREE CALCULATIONS AT THE SAME GEOMETRY
+The descriptors are obtained by VERTICAL FINITE DIFFERENCES: the energies and
+populations of N+1 and N-1 are evaluated at the optimized geometry of the
+neutral, without relaxing. This approximates the derivatives of the energy with
+respect to the number of electrons (∂E/∂N) at fixed electron number, which is the
+operational definition of the conceptual descriptors [1, 2].
+
+ALGORITHM, STEP BY STEP
+1. Engine detection. Gaussian or ORCA is identified by stable file markers
+   (e.g. "FINAL SINGLE POINT ENERGY"/"ORBITAL ENERGIES" for ORCA; "Entering
+   Gaussian System" for Gaussian). It can be forced with engine.
+
+2. Reading the three states. From each output the SCF energy, atomic charges
+   (population scheme; which one is recorded) and, when present, HOMO/LUMO are
+   extracted. In open shell HOMO = max(HOMO_alpha, HOMO_beta) and LUMO =
+   min(LUMO_alpha, LUMO_beta).
+
+3. Global descriptors (finite differences):
+       IP = E(N-1) - E(N)            ionization potential
+       EA = E(N)   - E(N+1)          electron affinity
+       η  = IP - EA                  hardness (= fundamental gap, Multiwfn criterion)
+       μ  = -(IP + EA)/2             electronic chemical potential
+       χ  = -μ                       electronegativity
+       S  = 1/η                      global softness
+       ω  = μ² / (2η)                electrophilicity index
+       N  = HOMO(N) - HOMO(TCE)      empirical nucleophilicity index
+   The nucleophilicity zero is the HOMO of tetracyanoethylene (TCE) = -9.1212 eV
+   (B3LYP/6-31G*, Multiwfn internal value). η > 0 (IP > EA) is required.
+
+4. Condensed Fukui functions (from atomic charges q):
+       f+(i) = q_N(i) - q_{N+1}(i)   nucleophilic attack / electron addition
+       f-(i) = q_{N-1}(i) - q_N(i)   electrophilic attack / electron removal
+       f0(i) = (f+ + f-)/2           radical attack
+       Δf(i) = f+ - f-               dual descriptor (CDD)
+   Derived local descriptors when global data are present: local softnesses
+   s± = S·f±, local electrophilicity ω·f+, local nucleophilicity N·f-, local
+   hardness η·f0, donicity IP·f-, acceptor capacity EA·f+, and the relative
+   s+/s- and s-/s+.
+
+5. Classification and ranking. Δf > +0.02 → electrophilic (favors nucleophilic
+   attack); Δf < -0.02 → nucleophilic; |Δf| < 0.02 → ambiphilic. The sites are
+   sorted by descending |Δf|; that ranking is what the Geometry Agent consumes.
+
+6. Provenance and validation. A SHA256 hash of the three source files
+   (calculation_id) is computed and their paths are stored. Optionally it is
+   checked against internal reference values by number of atoms (gap and top
+   sites).
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Conceptual framework. The Fukui functions and the global/local response
+  descriptors come from conceptual density functional theory [1, 2]; the
+  atom-condensed Fukui functions follow the Yang and Mortier formulation [6].
+- Chemical potential and electronegativity. μ and χ as derivatives of the energy
+  with respect to N [3].
+- Hardness and softness. η and S according to Parr and Pearson [4]. Convention
+  note: the original Parr-Pearson definition carries a factor 1/2 (η = (IP-EA)/2);
+  CADMIA uses the FULL GAP η = IP - EA, like Multiwfn [10], and consistently
+  S = 1/η. That is why μ appears divided by 2 but η does not: they are different
+  but internally consistent conventions (the ω below uses this same η).
+- Electrophilicity. ω = μ²/(2η) according to Parr, Szentpály and Liu [5], who in
+  their original definition also use η = IP - EA (full gap), consistent with the
+  above.
+- Dual descriptor. Δf = f+ - f- as a dual reactivity index [7].
+- Nucleophilicity index. N = HOMO(Nu) - HOMO(TCE), with TCE as reference [8].
+- Agreement with Multiwfn. The global SCF descriptors are checked against
+  Multiwfn [10]; the charges for Fukui are reported with their population scheme
+  (e.g. Hirshfeld [11], less basis-set dependent).
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It does not run the SCF: it consumes already-computed outputs (cadmia
+  prepare cdft prepares them and run/submit executes them).
+- Vertical finite differences: it does not relax anion or cation (which is
+  correct for these descriptors, but does not give adiabatic energies).
+- The quality of the Fukui functions depends on the charge scheme; a
+  less basis-dependent scheme is recommended.
+- The nucleophilicity index uses a fixed reference (TCE at B3LYP/6-31G*);
+  compare only among systems computed consistently.
+
+REFERENCES (A.3)
+[1]  R. G. Parr, W. Yang. "Density Functional Approach to the Frontier-Electron
+     Theory of Chemical Reactivity." J. Am. Chem. Soc. 1984, 106, 4049–4050.
+[2]  P. Geerlings, F. De Proft, W. Langenaeker. "Conceptual Density Functional
+     Theory." Chem. Rev. 2003, 103, 1793–1873.
+[3]  R. G. Parr, R. A. Donnelly, M. Levy, W. E. Palke. "Electronegativity: The
+     density functional viewpoint." J. Chem. Phys. 1978, 68, 3801–3807.
+[4]  R. G. Parr, R. G. Pearson. "Absolute Hardness: Companion Parameter to
+     Absolute Electronegativity." J. Am. Chem. Soc. 1983, 105, 7512–7516.
+[5]  R. G. Parr, L. von Szentpály, S. Liu. "Electrophilicity Index."
+     J. Am. Chem. Soc. 1999, 121, 1922–1924.
+[6]  W. Yang, W. J. Mortier. "The Use of Global and Local Molecular Parameters
+     for the Analysis of the Gas-Phase Basicity of Amines." J. Am. Chem. Soc.
+     1986, 108, 5708–5711.
+[7]  C. Morell, A. Grand, A. Toro-Labbé. "New Dual Descriptor for Chemical
+     Reactivity." J. Phys. Chem. A 2005, 109, 205–212.
+[8]  L. R. Domingo, E. Chamorro, P. Pérez. "Understanding the Reactivity of
+     Captodatively Ethylenes in Polar Cycloaddition Reactions. A Theoretical
+     Study." J. Org. Chem. 2008, 73, 4615–4624.
+[9]  R. G. Pearson. "Hard and Soft Acids and Bases." J. Am. Chem. Soc. 1963,
+     85, 3533–3539.
+[10] T. Lu, F. Chen. "Multiwfn: A Multifunctional Wavefunction Analyzer."
+     J. Comput. Chem. 2012, 33, 580–592.
+[11] F. L. Hirshfeld. "Bonded-Atom Fragments for Describing Molecular Charge
+     Densities." Theor. Chim. Acta 1977, 44, 129–138.
+
+
+A.4  GEOMETRY AGENT — ADSORPTION STARTING CONFIGURATIONS
+--------------------------------------------------------------------
+(module: cadmia/agents/geometry_agent.py; CLI: cadmia geometry; section 6)
+
+WHAT IT DOES
+The Geometry Agent takes the reactive-site ranking from the CDFT analysis and,
+for each top-ranked site, places a probe molecule (H2, CO2, NH3, CO, N2, O2, H2O
+or a user-defined one) in several orientations, generating the adduct .xyz files
+(cluster + probe) that will serve as the STARTING GEOMETRY for a later DFT
+optimization. It does not optimize nor use machine learning: it is a rigid,
+deterministic and reproducible placement.
+
+NATURE OF THE GENERATED GEOMETRIES
+The structures the agent produces are starting guesses, not energy minima. They
+are built with explicit physical criteria — site chosen by CDFT reactivity,
+initial distance from covalent radii and internal probe geometry taken from
+experimental data — and the real minimum is found by the DFT optimization run
+afterward (cadmia run / submit). The agent provides reproducible, unbiased and
+traceable starting points covering distinct binding modes so that the
+optimization is not confined to a single arbitrary orientation.
+
+ALGORITHM, STEP BY STEP
+1. Site selection. The sites are read from the CDFT JSON and the top n_sites are
+   taken, in ranking order. The default is 0, which means EVERY site: narrowing
+   it biases the sampling toward the extremes of the dual descriptor, and that is
+   not where every probe binds. The atomic index is 1-based, as emitted by the
+   CDFT Agent.
+
+2. Atom-order verification. For each site it checks that the symbol of the atom
+   in cluster.xyz matches the symbol the CDFT reports. If it does not match, the
+   agent issues an atom-by-atom warning (the .xyz order must be the same as the
+   SCF output). If the index falls out of range, the site is skipped with a
+   warning.
+
+3. Initial site–probe distance (M–X). Computed as
+       d = r_cov(site) + r_cov(anchor atom) + 0.5 Å
+   where r_cov are covalent radii and the anchor atom is the one that binds in
+   each probe mode (e.g. C in CO2, N in NH3, O in H2O). The 0.5 Å addend is a
+   conservative margin to avoid steric clashes in the starting geometry; it lets
+   the DFT optimization bring the probe in to the real minimum. If a covalent
+   radius is missing for an element, a fallback distance of 2.5 Å is used and a
+   warning is issued.
+
+4. Internal probe geometry. Each probe is defined with the anchor atom at the
+   origin and the molecule oriented along +z, using bond lengths and angles of
+   the free molecule taken from experimental data (see table below). For H2, CO,
+   N2 and O2 there are terminal (η¹) and side-on (η²) modes; CO offers anchoring
+   by C or by O; NH3 and H2O are oriented with the lone pair toward the surface.
+
+5. Orientation sampling. For each site and each probe mode it sweeps:
+     - a set of POLAR approach angles (default 0°, 20°, 40°, 60° measured from +z),
+       and
+     - n_configs equispaced AZIMUTHAL angles around z (default 6, i.e. every 60°).
+   At the pole (polar = 0°) the azimuthals are equivalent only for an axial
+   probe, which is written once; any other probe keeps its own rotation.
+
+6. Rigid placement. For each (polar, azimuthal) the approach vector is built, the
+   anchor atom is placed at distance d above the site and the rigid body of the
+   probe is rotated to align its +z axis with that vector via the Rodrigues
+   rotation formula. The cluster stays frozen and the probe is appended as the
+   LAST atoms of the file (a convention used by the downstream agents, e.g.
+   analyze).
+
+7. Overlap control. The distance d of step 3 is measured to the anchor atom
+   alone, so the rest of the probe can end up closer to the cluster than the
+   anchor does — which is what happens in the bent and side-on CO2 modes, where
+   an oxygen ends up nearer the site than the carbon it binds through. After
+   placement the shortest probe–cluster contact is measured in units of the sum
+   of covalent radii; if it falls below 0.80, the whole probe is slid outward
+   along its own approach direction in steps of 0.05 Å until it clears. Sliding
+   preserves the sampling direction, which is information; dropping would lose
+   it to a placement artefact. If it still overlaps after 2.0 Å, it is dropped:
+   that site has no room for that orientation. Both cases are counted and
+   reported, and the displacement applied is recorded per configuration.
+
+8. Output. One .xyz per configuration is written, with a comment recording
+   cluster, probe, site, orientation, angles, distance and the displacement
+   applied if any, and a GeometryResult is returned with all the configurations
+   and warnings (dumpable to JSON and to the database).
+
+PARAMETERS AND DEFAULTS
+   n_sites = 0            CDFT-ranked sites (0 = all)
+   n_configs = 6          azimuthals per (site × mode × polar)
+   polar_angles = 0,20,40,60 ° from the site's local normal
+   d = r_cov+r_cov+0.5 Å  (fallback 2.5 Å if a radius is missing)
+   overlap floor = 0.80 × (r_cov + r_cov); maximum push-out 2.0 Å
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Site choice by CDFT. The Fukui functions and the descriptors of conceptual
+  density functional theory identify the sites of highest local reactivity; using
+  them to decide where to adsorb is well established [1, 2].
+- Initial distance from covalent radii. The sum of covalent radii is the standard
+  estimate of a starting bond length; the revised radii of Cordero et al. [3] are
+  used (complemented, where applicable, by those of Pyykkö and Atsumi [4]). The
+  +0.5 Å margin is a slack to avoid overlaps in the initial guess, not a bond
+  value.
+- Internal probe geometries. The bond lengths and angles of the free molecules
+  come from tabulated experimental data [5, 6]:
+     H2  d(H–H) = 0.741 Å            [5]
+     CO  d(C≡O) = 1.128 Å            [5]
+     N2  d(N≡N) = 1.098 Å            [5]
+     O2  d(O=O) = 1.208 Å (triplet)  [5]
+     CO2 d(C=O) = 1.160 Å            [6]
+     NH3 d(N–H) = 1.012 Å, ∠HNH = 106.7°   [6]
+     H2O d(O–H) = 0.9572 Å, ∠HOH = 104.5°  [6]
+- Orientation sampling (polar × azimuthal). Sweeping several approach directions
+  avoids biasing the search toward a single orientation and lets the later
+  optimization explore distinct binding modes (terminal η¹, side-on η²,
+  monodentate, by C or by O, etc.).
+- Rigid-body rotation. Aligning the probe axis with the approach direction uses
+  the Rodrigues rotation formula, a standard identity of rotation algebra [7].
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It does not optimize the geometry: it delivers starting points, not minima.
+- It does not predict adsorption energies (that is cadmia analyze, on the
+  already-optimized geometries).
+- The probe is treated as a rigid body in the placement; its internal structure
+  is relaxed later in the DFT optimization.
+- It depends on cluster.xyz having the same atom order as the SCF output; the
+  agent warns if it detects discrepancies.
+
+REFERENCES (A.4)
+[1] R. G. Parr, W. Yang. "Density Functional Approach to the Frontier-Electron
+    Theory of Chemical Reactivity." J. Am. Chem. Soc. 1984, 106, 4049–4050.
+[2] P. Geerlings, F. De Proft, W. Langenaeker. "Conceptual Density Functional
+    Theory." Chem. Rev. 2003, 103, 1793–1873.
+[3] B. Cordero, V. Gómez, A. E. Platero-Prats, et al. "Covalent radii
+    revisited." Dalton Trans. 2008, 2832–2838.
+[4] P. Pyykkö, M. Atsumi. "Molecular Single-Bond Covalent Radii for Elements
+    1–118." Chem. Eur. J. 2009, 15, 186–197.
+[5] K. P. Huber, G. Herzberg. "Molecular Spectra and Molecular Structure IV:
+    Constants of Diatomic Molecules." Van Nostrand Reinhold, New York, 1979.
+[6] NIST Computational Chemistry Comparison and Benchmark Database (CCCBDB),
+    NIST Standard Reference Database 101. https://cccbdb.nist.gov/
+[7] O. Rodrigues. "Des lois géométriques qui régissent les déplacements d'un
+    système solide dans l'espace." J. Math. Pures Appl. 1840, 5, 380–440.
+
+
+A.5  CALCULATION AGENT — PREPARATION AND EXECUTION OF CALCULATIONS
+--------------------------------------------------------------------
+(module: cadmia/agents/calculation_agent.py; CLI: cadmia prepare / prepare cdft /
+ run / submit / monitor; section 7)
+
+WHAT IT DOES
+It is the bridge between the geometries (.xyz) and the quantum calculations.
+Three functions: (1) PREPARE DFT inputs (.inp of ORCA or .gjf of Gaussian) from
+.xyz, without running them; (2) a special case prepare cdft that generates the
+THREE states of the CDFT flow; (3) EXECUTE those inputs, either in a local
+locally (run) or by sending them to a SLURM scheduler (local or
+over SSH).
+
+ALGORITHM, STEP BY STEP
+1. Job resolution. Given a source (files, directory or glob), the jobs are
+   resolved; in a directory .inp/.gjf are preferred over .xyz and the choice is
+   reported.
+2. Input generation (prepare). For each .xyz the engine input is written with the
+   calculation parameters (functional, basis, dispersion, charge, multiplicity,
+   nprocs, memory); already-existing inputs are passed through as is. An existing
+   target is not overwritten unless overwrite.
+3. Three CDFT states (prepare cdft). From a single geometry, task = single point
+   is forced and three inputs are written at the SAME geometry:
+       <stem>_N        neutral   (charge q,   multiplicity auto/even)
+       <stem>_anion    N+1       (charge q-1, multiplicity auto/odd)
+       <stem>_cation   N-1       (charge q+1, multiplicity auto/odd)
+   in the order [N, anion, cation] that the CDFT Agent consumes. The default
+   multiplicity is 'auto': deduced from the electron parity (Σ Z − charge), even
+   → singlet, odd → doublet; pass it by hand (--mult/--mult-anion/--mult-cation
+   with an integer) for high-spin states. With --preset the input already requests
+   the outputs the analysis reads later (Hirshfeld/CHELPG charges, Mayer orders,
+   per-MO populations for PDOS).
+4. Local execution (run). Sequential queue on the local machine: runs each input
+   with the engine and collects its output; the engine's absolute path
+   (--engine-path) is what parallel ORCA requires.
+5. SLURM submission (submit/monitor). According to the profile the executor is
+   chosen: local (subprocess: sbatch/squeue/sacct) or remote (SSH). monitor
+   follows the jobs until completion; with a SLURM lacking accounting (no sacct)
+   it falls back to the CADMIA_DONE:<code> marker that the script itself leaves
+   in the output.
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Three single points at fixed geometry. This is the requirement of the vertical
+  finite differences of CDFT (see A.3) [1, 2]: anion and cation are evaluated at
+  the neutral's geometry, without relaxing.
+- Level of theory. Functional and basis are recorded explicitly; the dispersion
+  correction follows Grimme's D3 scheme [3], with Becke-Johnson damping D3(BJ)
+  when requested [4].
+- Engines. Inputs are generated for Gaussian 16 [5] and ORCA [6], the two
+  supported electronic-structure engines.
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It does not choose the level of theory for you: it prepares it with the given
+  parameters.
+- prepare cdft assumes default multiplicities (1/2/2); review the real spin state
+  of the system before running.
+- The local queue is sequential (a single machine), not a scheduler.
+
+REFERENCES (A.5)
+[1] R. G. Parr, W. Yang. "Density Functional Approach to the Frontier-Electron
+    Theory of Chemical Reactivity." J. Am. Chem. Soc. 1984, 106, 4049–4050.
+[2] P. Geerlings, F. De Proft, W. Langenaeker. "Conceptual Density Functional
+    Theory." Chem. Rev. 2003, 103, 1793–1873.
+[3] S. Grimme, J. Antony, S. Ehrlich, H. Krieg. "A consistent and accurate ab
+    initio parametrization of density functional dispersion correction (DFT-D)
+    for the 94 elements H-Pu." J. Chem. Phys. 2010, 132, 154104.
+[4] S. Grimme, S. Ehrlich, L. Goerigk. "Effect of the damping function in
+    dispersion corrected density functional theory." J. Comput. Chem. 2011, 32,
+    1456–1465.
+[5] M. J. Frisch, et al. "Gaussian 16, Revision C.01." Gaussian, Inc.,
+    Wallingford CT, 2016.
+[6] F. Neese. "Software update: the ORCA program system, version 5.0." WIREs
+    Comput. Mol. Sci. 2022, 12, e1606.
+
+
+A.6  ANALYSIS AGENT — ADSORPTION ENERGETICS AND ACTIVATION
+--------------------------------------------------------------------
+(module: cadmia/agents/analysis_agent.py; CLI: cadmia analyze; section 8)
+
+WHAT IT DOES
+From three validated outputs — the adduct (cluster + probe), the isolated cluster
+and the free probe — it computes the adsorption energy, its optional BSSE
+correction, the decomposition into deformation and interaction energies, the
+elongation of the probe bond with its activation flag, and identifies the binding
+site by cross-checking it against the CDFT ranking.
+
+ALGORITHM, STEP BY STEP
+1. Adsorption energy:
+       E_ads = E(adduct) − E(cluster) − E(probe)
+   converted to kcal/mol. A negative value indicates favorable adsorption.
+2. Probe block and binding site. By the "cluster first, probe last" convention,
+   the last n atoms of the adduct are the probe; the binding site is the cluster
+   atom closest to any probe atom.
+3. Elongation and activation. For each intramolecular bond of the free probe its
+   length is measured in the adduct; the largest percentage elongation defines
+   the activation: ≥ 5 % marks the probe as activated.
+4. BSSE (optional). If requested and the output carries counterpoise:
+       E_ads(BSSE) = E_ads + E_BSSE.
+5. Deformation and interaction (optional, with deformed geometries):
+       E_def = E(fragment at adduct geometry) − E(relaxed fragment)
+       E_int = E_ads − E_def(cluster) − E_def(probe)
+6. Cross-check with CDFT. The binding site is looked up in the CDFT ranking and
+   its rank and character are recorded; if the site is not rank 1, a warning is
+   issued.
+
+THRESHOLDS AND CONSTANTS
+   activation:           elongation ≥ 5 %
+   bond cutoff:          d ≤ 1.3 × (r_i + r_j)   (covalent radii)
+   conversion:           1 Hartree = 627.509 kcal/mol
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Supermolecular adsorption energy. E_ads as adduct minus fragments is the
+  standard scheme; its basis-set superposition error is corrected by counterpoise
+  [1].
+- Deformation/interaction. The partition into deformation (preparation) and
+  interaction energy corresponds to the distortion/interaction-activation strain
+  model [2].
+- Activation by elongation. The lengthening of the adsorbate bonds relative to
+  the free molecule is a geometric indicator of its activation on the site; a
+  classic well-documented case is CO2 activation, which on adsorption and
+  receiving charge bends and elongates its C=O bonds [3]. The 5 % threshold is a
+  project convention, not a value taken from the reference.
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It assumes the convention atom order (cluster + probe); if not met, it warns and
+  skips the site/bond analysis.
+- BSSE and deformation require those calculations to have been run separately.
+- The 5 % activation is a geometric threshold, not an energy barrier.
+
+REFERENCES (A.6)
+[1] S. F. Boys, F. Bernardi. "The calculation of small molecular interactions by
+    the differences of separate total energies." Mol. Phys. 1970, 19, 553–566.
+[2] F. M. Bickelhaupt, K. N. Houk. "Analyzing Reaction Rates with the
+    Distortion/Interaction-Activation Strain Model." Angew. Chem. Int. Ed. 2017,
+    56, 10070–10086.
+[3] H.-J. Freund, M. W. Roberts. "Surface chemistry of carbon dioxide." Surf.
+    Sci. Rep. 1996, 25, 225–273.
+
+
+A.7  STABILITY AGENT — RELATIVE STABILITY OF THE MIXED OXIDE
+--------------------------------------------------------------------
+(module: cadmia/agents/stability_agent.py; CLI: cadmia stability; section 9)
+
+WHAT IT DOES
+Measures the (formation) stability of a mixed oxide against its pure oxides, an
+intrinsic thermodynamic descriptor of the cluster, independent of adsorption:
+       E_rel = E(mixed) − Σ_i c_i · E(pure_i)
+A negative E_rel means the mixed oxide is more stable than the sum of its pure
+constituents.
+
+ALGORITHM, STEP BY STEP
+1. Formula count of the mixed oxide and of each reference (from their parsed
+   geometries).
+2. Stoichiometry. If no coefficients are given, the c_i that balance the mixed
+   formula against the references are solved by least squares, as small
+   fractions (denominator ≤ 1000), and the per-element balance is verified
+   exactly. They can be forced with --coeff.
+3. Relative energy. With the total energies of the mixed oxide and the references:
+       E_rel = E(mixed) − Σ c_i · E(pure_i)
+   reported in Hartree, kcal/mol, eV and eV/atom.
+4. Balance warning. If the stoichiometry does not close, it warns and asks for
+   --coeff.
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Relative energy as reaction energy. E_rel is the energy of the formation
+  reaction of the mixed oxide from the pure ones, computed with total energies at
+  the same level of theory [1]; it is the same convention of formation energy
+  relative to references used by materials databases [2].
+- Consistency. The reference energies MUST come from the user's own calculations
+  at the SAME level of theory as the mixed oxide (same functional, basis and
+  dispersion), so that the difference is physically comparable.
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It is a relative electronic energy: it does not include zero-point correction,
+  entropy or temperature (it is not a free energy).
+- It requires consistent references; mixing levels of theory invalidates E_rel.
+
+REFERENCES (A.7)
+[1] F. Jensen. "Introduction to Computational Chemistry." 3rd ed., Wiley,
+    Chichester, 2017.
+[2] A. Jain, S. P. Ong, G. Hautier, et al. "Commentary: The Materials Project: A
+    materials genome approach to accelerating materials innovation." APL Mater.
+    2013, 1, 011002.
+
+
+A.8  REPORT AGENT — INTEGRATING REPORT
+--------------------------------------------------------------------
+(module: cadmia/agents/report_agent.py; CLI: cadmia report; section 10)
+
+WHAT IT DOES
+Consolidates the results of the CDFT, Analysis, Stability and Benchmark agents
+into a single report: comparative tables in Markdown and LaTeX, a summary of
+adsorption energies (with BSSE) and correlations between descriptors, such as
+site Δf versus E_ads. The figures are generated only if matplotlib is installed;
+otherwise it emits the (x, y) data in CSV to plot elsewhere.
+
+ALGORITHM, STEP BY STEP
+1. Input normalization. Each result (object, dict or JSON path) is reduced to a
+   common dictionary.
+2. Tables. CDFT global descriptors, site ranking, adsorption and benchmark
+   summary, each in Markdown and LaTeX.
+3. Δf vs E_ads correlation. Pairs each analyzed configuration with the Δf of its
+   site and computes the Pearson correlation coefficient (if there are ≥ 2 points).
+4. Output. Writes the Markdown always; LaTeX and figures (or CSV) on demand. With
+   full=True it adds a header (program, version, author, date), a run-information
+   section and a "normal termination" footer.
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Descriptor–energy correlation. The Pearson coefficient [1] quantifies the linear
+  relationship between the dual reactivity descriptor Δf [2] and the adsorption
+  energy, a common validation of the predictive power of the conceptual
+  descriptors [3].
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It does not interpret: it tabulates and correlates. The prose narration is
+  optional and provided by the LLM layer (text only, never numbers).
+- The correlation needs ≥ 2 configurations with a matched CDFT site.
+
+REFERENCES (A.8)
+[1] K. Pearson. "Note on Regression and Inheritance in the Case of Two Parents."
+    Proc. R. Soc. Lond. 1895, 58, 240–242.
+[2] C. Morell, A. Grand, A. Toro-Labbé. "New Dual Descriptor for Chemical
+    Reactivity." J. Phys. Chem. A 2005, 109, 205–212.
+[3] P. Geerlings, F. De Proft, W. Langenaeker. "Conceptual Density Functional
+    Theory." Chem. Rev. 2003, 103, 1793–1873.
+
+
+A.9  DIAGNOSIS AGENT — DIAGNOSIS OF CONVERGENCE FAILURES
+--------------------------------------------------------------------
+(module: cadmia/agents/diagnosis_agent.py; CLI: cadmia diagnose; section 4)
+
+WHAT IT DOES
+Examines a problematic output and extracts structured symptoms of convergence
+pathologies: error termination, non-converged SCF, SCF oscillation, variational
+collapse of the energy, negative or near-zero HOMO-LUMO gap, and spin
+contamination. It is deterministic (parsing + rules, no LLM); the optional LLM
+layer then turns the symptoms into fix suggestions.
+
+ALGORITHM, STEP BY STEP
+1. Reuses the Validation Agent checks (termination, SCF, spin).
+2. SCF trace. Reconstructs the energy per iteration (Gaussian scf=verbose;
+   ORCA DIIS/SOSCF blocks) and analyzes the tail:
+   - oscillation: amplitude of the last energies > 1 Ha in a non-converged SCF;
+   - variational collapse: drop > 10 Ha below the first iteration without
+     converging (unphysical state). The threshold is applied only to
+     non-converged SCFs, because in a healthy run the first iteration is
+     naturally far above the converged one and that drop scales with the system
+     size.
+3. Frontier orbitals. HOMO/LUMO (open shell: HOMO = max(α, β)); gap < 0 →
+   critical (wrong occupation / collapse); 0 < gap < 0.5 eV → warning (near-
+   degenerate frontier, SCF prone to oscillate).
+4. Spin. Retrieves ⟨S²⟩ from the validation check and adds it as a symptom.
+5. Returns a Diagnosis object with energy, frontier, trace and the list of
+   symptoms with severity and evidence.
+
+THRESHOLDS
+   SCF oscillation:      tail amplitude > 1 Ha
+   variational collapse: drop > 10 Ha below the 1st iteration (only if not converged)
+   small gap:            < 0.5 eV   →  warning
+   negative gap:         < 0 eV     →  critical
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Variational collapse. By the variational principle, an energy that drops far
+  below without stabilizing betrays an unphysical state [1].
+- SCF oscillation. The self-consistent field iteration can oscillate; DIIS-type
+  accelerators [2] are the standard response (hence the SlowConv/TRAH recipes the
+  LLM layer suggests).
+- Near-degenerate frontier. A very small or negative HOMO-LUMO gap points to
+  instability of the SCF solution; wavefunction stability analysis diagnoses this
+  case [3].
+- Spin contamination. Same grounding as in A.2 [1].
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It does not fix nor relaunch: it describes symptoms. The actionable suggestions
+  are optional and come from the LLM layer.
+- The SCF trace requires output with iterations (scf=verbose in Gaussian).
+
+REFERENCES (A.9)
+[1] A. Szabo, N. S. Ostlund. "Modern Quantum Chemistry." Dover, New York, 1996.
+[2] P. Pulay. "Convergence acceleration of iterative sequences. The case of SCF
+    iteration." Chem. Phys. Lett. 1980, 73, 393–398.
+[3] R. Seeger, J. A. Pople. "Self-consistent molecular orbital methods. XVIII.
+    Constraints and stability in Hartree-Fock theory." J. Chem. Phys. 1977, 66,
+    3045–3050.
+
+
+A.10  BENCHMARK AGENT — ENGINE COMPARISON
+--------------------------------------------------------------------
+(module: cadmia/agents/benchmark_agent.py; CLI: cadmia benchmark; section 13)
+
+WHAT IT DOES
+Systematically compares Gaussian 16 and ORCA for the SAME system and level of
+theory, contrasting energy, optimized geometry, frequencies and compute time, and
+issues a recommendation.
+
+ALGORITHM, STEP BY STEP
+1. Energy. ΔE = |E(Gaussian) − E(ORCA)| × 627.509 kcal/mol; flagged if
+   |ΔE| > 0.1 kcal/mol.
+2. Geometry. RMSD between the optimized geometries after optimal alignment by the
+   Kabsch algorithm; flagged if RMSD > 0.01 Å.
+3. Frequencies. RMSD of the first 6 non-trivial modes (modes with |freq| ≤ 10 cm⁻¹,
+   translation/rotation, are excluded).
+4. Time. Ratio of ORCA/Gaussian wall times.
+5. Recommendation from the above flags.
+
+THRESHOLDS
+   |ΔE|:            > 0.1 kcal/mol   → flag
+   geometry RMSD:  > 0.01 Å          → flag
+   trivial mode:   |freq| ≤ 10 cm⁻¹  → excluded
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Geometry alignment. The RMSD is computed after optimal superposition by the
+  Kabsch algorithm [1], which gives the rotation that minimizes the RMSD between
+  two sets of points.
+- Comparability. It only makes sense to compare Gaussian 16 [2] and ORCA [3] at
+  the SAME level (same functional, basis, dispersion and grid); the agent does
+  not average engines at different levels.
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It does not decide the level of theory: it compares two already-done
+  calculations.
+- The frequency comparison is limited to the first non-trivial modes.
+
+REFERENCES (A.10)
+[1] W. Kabsch. "A solution for the best rotation to relate two sets of vectors."
+    Acta Crystallogr. A 1976, 32, 922–923.
+[2] M. J. Frisch, et al. "Gaussian 16, Revision C.01." Gaussian, Inc.,
+    Wallingford CT, 2016.
+[3] F. Neese. "Software update: the ORCA program system, version 5.0." WIREs
+    Comput. Mol. Sci. 2022, 12, e1606.
+
+
+A.11  ORCHESTRATOR — PIPELINE CHAINING
+--------------------------------------------------------------------
+(module: cadmia/agents/orchestrator.py; CLI: cadmia pipeline; section 16)
+
+WHAT IT DOES
+Chains the specialized agents into a single resumable flow, in dependency order:
+validate → cdft → geometry → run → analyze → stability → report. It persists a
+manifest (pipeline.json) with the state of each stage to be able to stop and
+resume the run. It is deterministic: no decision depends on an LLM, and every
+stage decision is recorded.
+
+ALGORITHM, STEP BY STEP
+1. Plan. Creates (or loads) the manifest with the stages in dependency order and
+   their state (pending/done/skipped/blocked/failed).
+2. Per-stage execution. Runs each stage in order, passing the outputs of one as
+   input to the next; after each stage it updates and saves the manifest.
+3. Clean cut without engine. The run stage needs a quantum engine; if none is
+   reachable, it is marked blocked and the pipeline stops cleanly, so the
+   engine-free stages (validate → cdft → geometry) run on any machine and the
+   rest is resumed later on the machine with the engine (ORCA).
+4. Resumption. --resume picks up from the first unfinished stage; --until cuts at
+   a stage; --dry-run plans without running.
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Resumable and traceable flow. The persistent manifest and the recording of each
+  stage decision make the process reproducible and auditable, in line with the
+  FAIR principles of scientific data [1] and with scientific workflow management
+  [2].
+- Determinism. There is no natural-language parsing or LLM in the orchestration:
+  given the same inputs, the pipeline makes the same decisions.
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It does not optimize starting geometries nor choose parameters: it chains
+  agents.
+- It starts from the given SCF outputs/inputs; it does not start from a single
+  geometry with a preset (future improvement).
+
+REFERENCES (A.11)
+[1] M. D. Wilkinson, et al. "The FAIR Guiding Principles for scientific data
+    management and stewardship." Sci. Data 2016, 3, 160018.
+[2] E. Deelman, D. Gannon, M. Shields, I. Taylor. "Workflows and e-Science: An
+    overview of workflow system features and capabilities." Future Gener. Comput.
+    Syst. 2009, 25, 528–540.
+
+
+A.12  LITERATURE AGENT — BIBLIOGRAPHIC SUPPORT
+--------------------------------------------------------------------
+(module: cadmia/agents/literature_agent.py; CLI: cadmia literature)
+
+WHAT IT DOES
+Discovers bibliographic references for a topic or by DOI by querying open APIs
+(Crossref, OpenAlex and Semantic Scholar) over HTTP, normalizes the results to a
+common record, removes duplicates by DOI, sorts them and presents them in
+Markdown, BibTeX or JSON. The identifiers and numbers (DOI, year, citation count)
+come ALWAYS from the API, never from a language model; an optional
+LLM pass adds only a prose relevance note. It requires internet access, but no API
+key or compute resources (local CPU or HPC). Its references can be integrated into the report
+(cadmia report --literature).
+
+ALGORITHM, STEP BY STEP
+1. Query. By topic (free text) and/or explicit DOIs, to Crossref, OpenAlex and/or
+   Semantic Scholar; it over-queries so the deduplication leaves enough results.
+2. Normalization. Each result is mapped to a common Reference record (title,
+   authors, year, journal, DOI, URL, citations, type, source, abstract). The
+   abstract is reconstructed from the OpenAlex inverted index and cleaned of the
+   Crossref JATS when available.
+3. Deduplication. Merges by DOI (or by normalized title), keeping the richest
+   record (more citations / more authors) and preserving the abstract.
+4. Sorting. By relevance (API order), by citation count or by year.
+5. Presentation. Markdown (with trimmed abstract), BibTeX or JSON; optional LLM
+   relevance note.
+
+JUSTIFICATION AND BIBLIOGRAPHY
+- Metadata sources. Crossref [1], OpenAlex [2] and Semantic Scholar [3] are open
+  indexes of academic literature; the DOI [4] is the persistent identifier used
+  to deduplicate.
+- Separation of numbers and text: the
+  bibliographic data come from the API; the LLM, if used, only writes prose.
+
+LIMITATIONS (WHAT IT DOES NOT DO)
+- It requires internet; the coverage and order depend on the external APIs.
+- It does not judge the scientific quality of the references; it sorts by
+  metadata.
+- The abstract appears only when the API exposes it.
+
+REFERENCES (A.12)
+[1] G. Hendricks, D. Tkaczyk, J. Lin, P. Feeney. "Crossref: The sustainable
+    source of community-owned scholarly metadata." Quant. Sci. Stud. 2020, 1,
+    414–427.
+[2] J. Priem, H. Piwowar, R. Orr. "OpenAlex: A fully-open index of scholarly
+    works, authors, venues, institutions, and concepts." arXiv:2205.01833, 2022.
+[3] W. Ammar, et al. "Construction of the Literature Graph in Semantic Scholar."
+    Proc. NAACL-HLT 2018, 84–91.
+[4] International Organization for Standardization. "Information and documentation
+    — Digital object identifier system." ISO 26324:2012.

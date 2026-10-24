@@ -1,0 +1,54 @@
+# CADMIA — user-defined adsorption probes
+#
+# The built-in probes already ship with several binding modes each, so you do NOT
+# need this file for the standard molecules:
+#   H2   : eta1, eta2
+#   CO2  : eta1_c (C-down), o_down, side_on, bidentate (bent carbonate precursor)
+#   NH3  : n_down (N-donor), tripod (H toward surface)
+#   CO   : c_down, o_down
+#   N2   : eta1, eta2
+#   O2   : eta1, eta2
+#   H2O  : o_down (O-donor), h_down (H-bond donor)
+#
+# Use this file only to add a probe that is NOT built in, or to override a built-in
+# with your own set of modes. Copy it to ~/.cadmia/probes.yaml (loaded automatically)
+# or pass it with --probes-yaml. A name that matches a built-in overrides it.
+#
+# Geometry convention (same as the built-ins):
+#   - Coordinates are in Ångström, in the probe's own local frame.
+#   - The binding point sits at the local origin and is translated to the M–X distance.
+#     Local +z points AWAY from the surface; local −z points TOWARD it (so the atoms
+#     you want near the surface go at negative z).
+#   - binding_atom selects the covalent radius used for the initial M–X distance. It can
+#     be set per-probe or per-mode; if omitted it defaults to the first atom's symbol.
+#   - Each mode is one starting orientation; list several to sample binding modes.
+
+probes:
+
+  # Methane, bound atop through carbon (C-down, one C–H toward the surface).
+  CH4:
+    binding_atom: C
+    modes:
+      - orientation: c_down
+        atoms:
+          - [C,  0.0,      0.0,      0.0]
+          - [H,  0.0,      0.0,     -1.09]     # the other three H point upward
+          - [H,  1.0277,   0.0,      0.3633]
+          - [H, -0.5138,   0.8900,   0.3633]
+          - [H, -0.5138,  -0.8900,   0.3633]
+
+  # A single noble-gas atom (useful as a weakly-interacting reference).
+  XE:
+    modes:
+      - orientation: atop
+        atoms:
+          - [Xe, 0.0, 0.0, 0.0]
+
+  # Example of overriding a built-in to seed a dissociative (reaction-product) start.
+  # Dissociative modes are not built in because a rigid dissociated fragment is a
+  # surface-specific guess, not a universal probe geometry — define your own here.
+  NH3_DISSOCIATIVE:
+    binding_atom: N
+    modes:
+      - orientation: amide                     # NH2 bound + one H stretching toward the surface
+        atoms: [[N, 0.0, 0.0, 0.0], [H, 0.8, 0.0, 0.62], [H, -0.8, 0.0, 0.62], [H, 1.5, 0.0, -0.7]]

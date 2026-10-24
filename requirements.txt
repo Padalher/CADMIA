@@ -1,0 +1,20 @@
+# CADMIA — core dependencies
+# Source of truth: pyproject.toml. To install: `pip install .`
+# (this file mirrors the core dependencies for manual installs).
+
+numpy>=1.21.0
+PyYAML>=6.0
+click>=8.1
+rich>=13.0
+
+# Optional (figures, plots, volumetric): `pip install "cadmia[full]"`
+#   matplotlib>=3.5
+#   plotly>=5.0
+#   scipy>=1.7
+#   scikit-image>=0.19
+
+# Development: `pip install "cadmia[dev]"`
+#   pytest>=6.0
+#   pytest-cov>=3.0
+#   black>=22.0
+#   flake8>=4.0

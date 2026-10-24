@@ -1,0 +1,17 @@
+ Entering Gaussian System, Link 0=g16
+ Synthetic test file: only the lines CADMIA reads from a counterpoise job.
+ ----------------------------------------
+ #P MP2/6-311++G(d,p) counterpoise=2 opt
+ ----------------------------------------
+ SCF Done:  E(RHF) =  -1000.60319980     A.U. after    8 cycles
+ Counterpoise: doing DCBS calculation for fragment   1 NewBq=T
+ SCF Done:  E(RHF) =  -500.30333939     A.U. after    7 cycles
+ Counterpoise: doing DCBS calculation for fragment   2 NewBq=T
+ SCF Done:  E(RHF) =  -500.30333951     A.U. after    7 cycles
+ Counterpoise: doing MCBS calculation for fragment   1
+ SCF Done:  E(RHF) =  -500.30298167     A.U. after    7 cycles
+ Counterpoise: doing MCBS calculation for fragment   2
+ SCF Done:  E(RHF) =  -500.30298180     A.U. after    7 cycles
+ Counterpoise: corrected energy =   -1001.408680229182
+ Counterpoise: BSSE energy =       0.001604618594
+ Normal termination of Gaussian 16.

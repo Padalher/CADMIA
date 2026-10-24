@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg
+*.egg-info/
+
+# Local environments and dependencies
+.venv/
+
+# Build artifacts
+build/
+dist/
+
+# Typeset guide: generated from cadmia/usage_guide*.txt with tools/guide_to_latex.py.
+# The .txt files are the sources; the .tex and .pdf are derived.
+docs/latex/
+
+# Tool caches
+.xtb_scratch/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# OS clutter
+.DS_Store

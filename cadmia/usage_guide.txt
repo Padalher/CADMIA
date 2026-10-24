@@ -1,0 +1,2521 @@
+====================================================================
+
+   ____    _    ____  __  __ ___    _
+  / ___|  / \  |  _ \|  \/  |_ _|  / \
+ | |     / _ \ | | | | |\/| || |  / _ \
+ | |___ / ___ \| |_| | |  | || | / ___ \
+  \____/_/   \_\____/|_|  |_|___/_/   \_\
+
+       CADMIA — Computational Agent-Driven
+        Molecular Intelligence Architecture
+
+====================================================================
+GUÍA DE USO
+====================================================================
+
+Versión del programa: CADMIA 0.3.0 (alfa)
+Año de edición:       2026
+
+Autor:        Pablo Daniel Álvarez Hernández
+Institución:  Universidad Juárez Autónoma de Tabasco (UJAT) /
+              Centro de Investigación de Ciencia y Tecnología
+              Aplicada de Tabasco (CICTAT)
+Correo:       pablo.alvarez@padalher.com
+
+--------------------------------------------------------------------
+
+Programa CLI para el estudio de reactividad y adsorción en nanocúmulos
+mediante química cuántica (Gaussian 16, ORCA 6), con núcleo de datos
+común y trazabilidad científica completa. CADMIA es un programa único
+expuesto a través del comando `cadmia` con subcomandos.
+
+Compatible con: salidas de Gaussian 16 y ORCA 6, Python 3.11+
+(probado en 3.14).
+
+Organización de la guía: siguiendo el estilo de manuales de referencia como el
+de Multiwfn, cada sección documenta un tipo de análisis con su comando, sus
+opciones principales y, donde aplica, su API de Python, acompañados de ejemplos
+reproducibles. El análisis estructural es parte integrada de CADMIA; la sección 12
+resume su uso como `cadmia structure`.
+
+
+====================================================================
+ÍNDICE
+====================================================================
+
+ 1. Visión general y arquitectura
+ 2. Instalación y verificación del entorno (cadmia doctor)
+ 3. Los cálculos base: tres estados SCF (N, N+1, N-1)
+ 4. Control de calidad: cadmia validate y cadmia diagnose
+ 5. Reactividad CDFT: cadmia cdft
+ 6. Geometrías de adsorción: cadmia geometry
+ 7. Ejecución de cálculos: cadmia prepare / run (local) / submit (HPC)
+ 8. Energética de adsorción: cadmia analyze
+ 9. Estabilidad relativa: cadmia stability
+10. Reporte integrador: cadmia report
+11. Propiedades electrónicas: DOS/PDOS y mapas (cadmia electronic / density)
+12. Análisis estructural: cadmia structure (ECN, gráficas, render)
+13. Benchmark entre motores: cadmia benchmark
+14. Base de datos y trazabilidad: cadmia db
+15. Capa LLM opcional (narración, diagnóstico, consultas)
+16. El pipeline completo (cadmia pipeline / Orchestrator, y por pasos)
+17. Solución de problemas frecuentes
+
+    APÉNDICE A. Métodos por agente: algoritmo, justificación y bibliografía
+       (en orden de secuencia de uso)
+       A.1   Import Agent — ingestión de salidas al núcleo de datos
+       A.2   Validation Agent — control de calidad de salidas DFT
+       A.3   CDFT Agent — descriptores conceptuales y ranking de sitios
+       A.4   Geometry Agent — configuraciones de partida de adsorción
+       A.5   Calculation Agent — preparación y ejecución de cálculos
+       A.6   Analysis Agent — energética de adsorción y activación
+       A.7   Stability Agent — estabilidad relativa del óxido mixto
+       A.8   Report Agent — reporte integrador
+       A.9   Diagnosis Agent — diagnóstico de fallos de convergencia
+       A.10  Benchmark Agent — comparación entre motores
+       A.11  Orchestrator — encadenamiento del pipeline
+       A.12  Literature Agent — apoyo bibliográfico
+
+
+====================================================================
+1. VISIÓN GENERAL Y ARQUITECTURA
+====================================================================
+
+CADMIA no es un programa monolítico: es una suite de programas CLI conectados
+por una capa central de datos (cadmia.core). Cada resultado importante queda
+registrado con su procedencia: hash SHA256 del archivo fuente, línea de
+comando exacta, versión de CADMIA y fecha.
+
+CADMIA es un PROGRAMA ÚNICO `cadmia` con subcomandos. Los principales:
+
+    cadmia cdft        Descriptores CDFT y ranking de sitios (+ --report completo).
+    cadmia prepare     Genera inputs DFT por ETAPA desde .xyz u .out sin ejecutarlos
+                       (screen-opt|screen-freq|opt|freq|opt+freq|char|cdft).
+    cadmia validate    Control de calidad de salidas DFT.
+    cadmia geometry    Geometrías de adsorción guiadas por CDFT.
+    cadmia run/submit  Ejecución local / HPC (SLURM).
+    cadmia analyze     Energética de adsorción y activación.
+    cadmia stability   Estabilidad relativa del óxido mixto.
+    cadmia stability-series  E_b, ΔE_mix, E_f (fragmentación), Δ²E e isómeros a lo largo de la serie.
+    cadmia bde         Energía de disociación de enlace desde fragmentos.
+    cadmia report      Reporte integrador (Markdown/LaTeX).
+    cadmia electronic  Propiedades electrónicas: dos | pdos | ir | mep | cube | vmd.
+    cadmia structure   Análisis estructural: report | plot | render.
+    cadmia pipeline    Flujo completo reanudable (Orchestrator).
+    cadmia db / doctor / diagnose / benchmark / literature / guide / init / import.
+
+CADMIA es un programa único: todo se invoca como `cadmia <subcomando>`. Los antiguos
+programas sueltos de CDFT, propiedades electrónicas y análisis estructural ya no
+existen; su funcionalidad vive bajo `cadmia cdft`, `cadmia electronic` y
+`cadmia structure` (el reporte CDFT extenso es `cadmia cdft --report`).
+
+Ayuda BILINGÜE en todos los comandos y subcomandos (incluidos electronic/structure):
+
+    cadmia --help                  (inglés)
+    cadmia --ayuda                 (español)
+    cadmia electronic dos --ayuda  (ayuda en español de un subcomando concreto)
+    cadmia guide [-es | -en]       (esta guía, empaquetada)
+
+1.1 Convención de salidas: artefactos y sidecars JSON
+....................................................
+
+Cada comando que escribe archivos produce DOS cosas distintas:
+
+  - Los ARTEFACTOS: lo que consume el siguiente motor de cálculo (las geometrías
+    .xyz, los inputs .inp/.gjf). Van donde apunta -o.
+  - El SIDECAR JSON: el registro legible por máquina de lo que ese paso decidió.
+    Se escribe SOLO, con nombre canónico, junto a los artefactos. No hay bandera
+    que pedir ni que recordar.
+
+        cadmia rank *.out -o ranked.xyz   →  ranked.xyz  +  ranked.json
+        cadmia prescreen ./configs/ -o dir/  →  dir/*_xtbopt.xyz + dir/prescreen.json
+        cadmia geometry ... -o dir/       →  dir/*.xyz    +  dir/geometry.json
+        cadmia submit ... -o dir/         →  dir/cadmia_jobs.json (lo lee cadmia monitor)
+        cadmia benchmark generate -o dir/ →  dir/*.gjf|.inp + dir/benchmark.json
+
+La razón: los artefactos NO pueden cargar la decisión. Un .xyz no dice cuántas
+frecuencias imaginarias tenía su salida, ni por qué las otras 40 configuraciones
+se descartaron; el sidecar sí. Y cuando un paso posterior necesita ese dato, ya
+está en disco sin que nadie lo haya pedido (es lo que `cadmia monitor` hace desde
+siempre con cadmia_jobs.json).
+
+Cuando la salida de un comando ES un solo archivo de resultado (no un directorio
+de artefactos), la EXTENSIÓN de -o decide el formato:
+
+        cadmia bonds x.out -o enlaces.json    → JSON (el análisis completo)
+        cadmia bonds x.out -o enlaces.txt     → la tabla
+
+--no-table es un concepto aparte: suprime la tabla y saca el JSON por pantalla,
+para encadenar con una tubería (| jq ...).
+
+1.2 Motores soportados
+......................
+
+CADMIA lee salidas de ORCA 6 y de Gaussian 16 con parsers propios, verificados al
+dígito contra Multiwfn (sección 5). El motor se detecta por el contenido del
+archivo. Un archivo que no es de ORCA ni de Gaussian se rechaza con un error claro;
+no se lee a medias.
+
+Capas internas (paquete cadmia/):
+
+    core/         Tipos comunes: Structure, Atom/Bond/Cell, ElectronicState,
+                  Calculation, Descriptor/DescriptorSet, AdsorptionSystem,
+                  VolumetricGrid, Provenance.
+    io/           Parsers: xyz, gaussian, orca, cube, wfn, electronic.
+    agents/       Los agentes de análisis y el orquestador.
+    calculators/  Escritores de inputs (.gjf/.inp), scripts SLURM,
+                  ejecutor HPC (SSH) y ejecutor local.
+    db/           SQLite con esquema v2 de trazabilidad.
+    llm/          Capa LLM opcional (solo texto, nunca números).
+
+
+====================================================================
+2. INSTALACIÓN Y VERIFICACIÓN DEL ENTORNO
+====================================================================
+
+Hay dos opciones de instalación, según para qué la quieras:
+
+  - Recomendada (núcleo): todo lo necesario para funcionar — parseo Gaussian/ORCA,
+    CDFT, geometrías, base de datos y reportes.
+  - Completa ([full]): añade las dependencias opcionales para figuras (matplotlib),
+    gráficas interactivas (plotly) e isosuperficies volumétricas (scipy, scikit-image).
+
+Requisito: Python >= 3.11. Se recomienda SIEMPRE un entorno virtual (en muchos Linux
+modernos, además, pip rechaza la instalación global con "externally-managed-environment").
+
+2.1 Instalación desde el paquete (.tar.gz) — para uso normal
+............................................................
+
+Es la forma habitual de instalar CADMIA en tu equipo a partir del paquete
+`cadmia-0.3.0.tar.gz`, en un entorno dedicado (como un programa más bajo ~/.programs):
+
+    # 1. Crear el entorno dedicado
+    python3 -m venv ~/.programs/cadmia/.venv
+
+    # 2. Instalar dentro del entorno (núcleo)
+    ~/.programs/cadmia/.venv/bin/pip install /ruta/a/cadmia-0.3.0.tar.gz
+    #    …o la versión completa:
+    ~/.programs/cadmia/.venv/bin/pip install "/ruta/a/cadmia-0.3.0.tar.gz[full]"
+
+pip resuelve solo las dependencias. La instalación crea UN ejecutable dentro del
+entorno: `cadmia` (el programa único; todo se invoca como `cadmia <subcomando>`).
+
+Para usarlo sin activar el entorno, define el alias en ~/.bashrc (ajusta la ruta a tu
+usuario):
+
+    alias cadmia='/home/USUARIO/.programs/cadmia/.venv/bin/cadmia'
+
+Luego `source ~/.bashrc` y tendrás `cadmia` desde cualquier carpeta.
+
+Como alternativa, activar el entorno deja `cadmia` disponible sin alias:
+
+    source ~/.programs/cadmia/.venv/bin/activate
+    # ... usar cadmia ...
+    deactivate
+
+Alternativa con pipx (si lo tienes): `pipx install /ruta/a/cadmia-0.3.0.tar.gz` crea el
+entorno aislado y pone los ejecutables en el PATH sin necesidad de alias.
+
+Sobre el ejecutable `cadmia` (entry-point): tras `pip install`, pip crea el ejecutable
+`cadmia` en el directorio bin del entorno. Funciona SIN alias siempre que ese bin esté
+en el PATH: con el entorno activado, con pipx, o con `pip install --user` si ~/.local/bin
+está en el PATH. Solo cuando se instala en un venv dedicado y no se activa hay que activar
+el entorno o definir un alias con la ruta a su bin (como arriba).
+
+2.1b Instalación en modo editable — para desarrollo
+...................................................
+
+Si trabajas sobre el código fuente del repositorio:
+
+    cd /ruta/a/CADMIA
+    python -m venv .venv
+    source .venv/bin/activate
+    pip install -e .            # núcleo
+    pip install -e ".[full]"    # opción completa desde el código fuente
+
+2.2 Verificación: cadmia doctor
+...............................
+
+Siempre, después de instalar (en tu PC, estación de trabajo o nodo HPC):
+
+    cadmia doctor
+
+Revisa: versión de Python, dependencias requeridas y opcionales, los siete
+subpaquetes de cadmia, el YAML de datos atómicos, la configuración LLM, los
+binarios externos (orca, g16, ssh, povray) y el estado del esquema de la base
+de datos. Sale con código 1 solo si falla algo requerido.
+
+IMPORTANTE en Linux de escritorio: /usr/bin/orca suele ser el LECTOR DE
+PANTALLA de GNOME, no ORCA químico. cadmia doctor lo detecta y lo avisa.
+En una estación de trabajo o nodo de cálculo indica siempre la ruta real de
+ORCA con --engine-path (sección 7).
+
+2.3 Datos de prueba
+...................
+
+El repositorio incluye datos reales de referencia en tests/fixtures/:
+1tial_cdft/ (tres estados Gaussian de Al2TiO5 + referencia Multiwfn CDFT.txt)
+y 1tial_orca/ (tres estados ORCA del mismo sistema). La suite de pruebas se
+corre con:
+
+    pytest tests/ -q
+
+
+====================================================================
+3. LOS CÁLCULOS BASE: TRES ESTADOS SCF
+====================================================================
+
+Todo el flujo de reactividad parte de TRES single points a la MISMA geometría
+y el MISMO nivel de teoría:
+
+    N      el cúmulo neutro          (carga 0,  multiplicidad del sistema)
+    N+1    el anión                  (carga -1, multiplicidad ajustada)
+    N-1    el catión                 (carga +1, multiplicidad ajustada)
+
+Nivel de teoría de referencia recomendado: PBE0 def2-TZVP def2/J D4
+RIJCOSX TightSCF DefGrid3 (es justo lo que genera `--preset accurate`, sección 7).
+Ejemplo de input ORCA del estado N:
+
+    ! PBE0 def2-TZVP def2/J D4 RIJCOSX TightSCF DefGrid3 CHELPG
+    %pal nprocs 12 end
+    %maxcore 3000
+    %scf MaxIter 512 end
+    %output
+       Print[P_Hirshfeld]  1     # cargas Hirshfeld para el Fukui condensado
+       Print[P_OrbPopMO_L] 1     # necesario para PDOS (sección 11)
+       Print[P_Mayer]      1
+    end
+    * xyz 0 1
+    ...coordenadas...
+    *
+
+Para los iones solo cambian la carga/multiplicidad de la línea "* xyz" y,
+si el SCF resiste, conviene arrancar de los orbitales del neutro:
+
+    ! MOREAD SlowConv ...
+    %moinp "N.gbw"
+
+La corrección de dispersión D3BJ es un término puramente geométrico: con la
+misma geometría se cancela EXACTAMENTE en IP y EA, así que los descriptores CDFT
+no dependen de ella. D4, que es el valor por defecto, NO se cancela del todo: sus
+coeficientes C6 dependen de las cargas atómicas, y entre N, N+1 y N-1 esas cargas
+cambian. La diferencia es pequeña, pero existe y queda registrada en la
+procedencia. En cualquier caso el nivel debe ser consistente cuando se comparan
+energías totales (estabilidad, adsorción).
+
+Regla de capa abierta (convención de CADMIA, verificada contra Multiwfn):
+HOMO = max(HOMO_alfa, HOMO_beta); LUMO = min(LUMO_alfa, LUMO_beta).
+
+3.1 Generar los tres inputs automáticamente: cadmia prepare cdft
+...............................................................
+
+Para no escribir los tres inputs a mano, parte de UNA geometría del neutro ya
+optimizada (mol.xyz) y deja que CADMIA escriba los tres single points:
+
+    cadmia prepare cdft mol.xyz -o ./cdft_mol/
+
+Escribe mol_N, mol_anion y mol_cation (single point en la MISMA geometría):
+  neutro (N)   carga  0, mult 1 (capa cerrada por defecto)
+  anión  (N+1) carga -1, mult 2 (radical doblete)
+  catión (N-1) carga +1, mult 2 (radical doblete)
+
+Ajusta el conteo de electrones con --charge / --mult / --mult-anion /
+--mult-cation (p. ej. un neutro de capa abierta). El comando imprime qué
+supuso y el `cadmia cdft` listo para pegar tras correr los tres.
+
+Esto NO es exclusivo de óxidos ni de cúmulos: sirve para CUALQUIER molécula
+(orgánica o inorgánica) de la que se quiera la reactividad. El flujo de sondas
+y adsorción (secciones 6 en adelante) es opcional; para sólo reactividad basta
+prepare cdft -> correr -> cadmia cdft.
+
+Ejemplo con una molécula orgánica (geometría estireno.xyz):
+
+    cadmia prepare cdft estireno.xyz --basis def2-SVP -o ./cdft_estireno/
+    cadmia run --jobs ./cdft_estireno/ --engine-path /opt/orca6 -o ./cdft_estireno/
+    cadmia cdft --n estireno_N.out --np1 estireno_anion.out \
+                --nm1 estireno_cation.out --report cdft_estireno.txt
+
+Para geometrías sueltas que no son CDFT (un solo input por archivo), usa
+`cadmia prepare` (sección 7), que convierte uno o varios .xyz a .inp/.gjf sin
+ejecutarlos.
+
+
+====================================================================
+4. CONTROL DE CALIDAD: VALIDATE Y DIAGNOSE
+====================================================================
+
+4.1 cadmia validate
+...................
+
+Valida una o varias salidas DFT (Gaussian u ORCA, autodetección):
+
+    cadmia validate N.out N+1.out N-1.out
+    cadmia validate ./salidas/*.out --bsse          # exige corrección BSSE
+    cadmia validate N.out --db                      # registra en run_log
+
+Seis chequeos: terminación normal, convergencia SCF, contaminación de espín
+(⟨S²⟩), frecuencias imaginarias, sanidad geométrica y BSSE (opcional).
+Veredicto global: pass | warning | fail.
+
+4.2 cadmia diagnose
+...................
+
+Para cálculos problemáticos. La extracción de síntomas es determinista
+(sin red, sin LLM):
+
+    cadmia diagnose calculo_fallido.out --no-llm
+    cadmia diagnose calculo_fallido.out -o diagnostico.json
+
+Síntomas detectados: terminación con error, salida truncada, SCF no
+convergido, oscilación del SCF (amplitud > 1 Ha), colapso variacional
+(caída > 10 Ha), gap negativo, gap casi nulo (< 0.5 eV), contaminación
+de espín. Reporta además la energía final (incluida la dispersión), el gap,
+las iteraciones SCF y la cola de la traza de energías.
+
+Si hay una API key configurada (sección 15), añade sugerencias de
+convergencia priorizadas con los keywords del motor detectado (ORCA:
+SlowConv, MOREAD, %scf shift/damp, SOSCF, TRAH; Gaussian: scf=(xqc),
+guess=read, stable=opt). Son sugerencias a verificar; nada se ejecuta.
+
+
+====================================================================
+5. REACTIVIDAD CDFT
+====================================================================
+
+5.1 cadmia cdft — ranking de sitios reactivos
+.............................................
+
+    cadmia cdft --n N.out --np1 N+1.out --nm1 N-1.out \
+                --cluster Al2TiO5 -o cdft.json --db
+
+Calcula con los tres estados:
+  - Funciones de Fukui condensadas por átomo: f+, f-, Δf.
+  - Descriptores globales por diferencias finitas: IP y EA verticales,
+    gap, dureza η, potencial químico μ, electrofilicidad ω, nucleofilicidad N.
+  - Clasificación de cada sitio: electrofílico (Δf > 0.02),
+    nucleofílico (Δf < -0.02) o ambifílico; ranking por |Δf|.
+  - Lectura ácido/base de Lewis (HSAB): cada sitio se etiqueta como ácido de
+    Lewis (acepta e-, Δf > 0), base de Lewis (dona e-, Δf < 0) o anfótero, y se
+    reporta el ácido más fuerte (por f+) y la base más fuerte (por f-) junto con
+    la dureza global η (HSAB es comparativo: contrasta η contra la sonda). Si hay
+    análisis estructural, añade CN/ECN del sitio y avisa si el metal está
+    coordinativamente insaturado respecto a la media de su elemento (ECN bajo →
+    ácido de Lewis más fuerte). Sale en la tabla del CLI (columna acid/base +
+    titular "Lewis sites"), en el JSON (acid_base + cn/ecn por sitio y
+    acid_base_summary) y en el reporte.
+
+Fundamento. Los descriptores globales y las funciones de Fukui provienen de la
+teoría conceptual del funcional de la densidad [1, 2]: el potencial químico μ y
+la electronegatividad χ como derivadas de la energía respecto al número de
+electrones [3], la dureza η y la blandura S según Parr y Pearson [4], el índice
+de electrofilia ω según Parr, Szentpály y Liu [5], las funciones de Fukui
+condensadas por átomo según Yang y Mortier [6], el descriptor dual Δf según
+Morell, Grand y Toro-Labbé [7] y el índice de nucleofilia N (referencia TCE)
+según Domingo et al. [8]. La lectura ácido/base de Lewis sigue el principio de
+ácidos y bases duros y blandos (HSAB) de Pearson [9]. Las cargas Hirshfeld [10]
+son preferentes por ser poco dependientes de la base; las CHELPG [11] se ajustan
+al potencial electrostático molecular. Los descriptores globales SCF se
+contrastan contra Multiwfn [12].
+
+El JSON resultante (cdft.json) alimenta a cadmia geometry y cadmia report.
+Persiste molécula + cálculo + descriptores + procedencia en la base de datos
+(activo por defecto; --no-db lo omite).
+
+Reporte completo bajo cadmia: con --report se escribe además el reporte
+extenso estilo Multiwfn (global + condensados por átomo f+/f-/f0/CDD,
+electro/nucleofilicidad local, softnesses):
+
+    cadmia cdft --n N.out --np1 N+1.out --nm1 N-1.out \
+                --report cdft_full.txt --report-format txt --no-table
+    # --tce-homo EV fija la referencia HOMO(TCE) a tu nivel de teoría.
+
+Validación: los descriptores globales SCF deben coincidir EXACTAMENTE con
+Multiwfn.
+
+Cargas: se prefieren Hirshfeld; si no están en la salida se usa Mulliken
+con aviso en el run_log. Los parsers leen además Löwdin y CHELPG de ORCA
+(capa cerrada y abierta). El reporte (--report) nombra el esquema usado en el
+título de la sección de Fukui y, si es Mulliken, recomienda repetir los tres
+single points con Pop=Hirshfeld (Gaussian). vIP, vEA, gap y η no dependen de las
+cargas; f+, f-, f0 y Δf sí.
+
+Procedencia. El reporte abre con la versión de CADMIA y una sección "Input
+states": nivel de teoría leído de la salida, factor Hartree→eV y, por estado,
+carga, multiplicidad, ⟨S²⟩ frente a su valor ideal, energía y la desviación
+máxima de la geometría respecto a N (0 si N+1 y N−1 son verticales, como deben).
+⟨S²⟩ se lee también de Gaussian (antes de la aniquilación), así que el aviso de
+contaminación de espín (>10 % sobre el ideal) funciona con ambos motores.
+
+Capa abierta. HOMO = máx(α, β) (verificado contra Multiwfn) y LUMO = mín(α, β). Para un
+neutro de capa abierta (p. ej. un triplete), ese gap une dos canales de espín y
+no es una excitación que conserve el espín: el reporte lo etiqueta "cross-spin"
+y da además los gaps α y β por separado (JSON: gap_alpha_eV, gap_beta_eV). Son
+estos los que deben compararse con el gap de una especie de capa cerrada.
+
+5.2 API de Python (cadmia.cdft)
+...............................
+
+Sin subcomando propio, desde Python: `parse_multiwfn_cdft` lee un reporte CDFT
+de Multiwfn, `compute_finite_difference_descriptors` da los descriptores
+globales a partir de tres energías y `run_cdft_workflow` corre el flujo completo
+sobre estados ya leídos. Los archivos .cube y .wfn se leen con `cadmia.io`.
+
+REFERENCIAS (5)
+[1]  R. G. Parr, W. Yang. "Density Functional Approach to the Frontier-Electron
+     Theory of Chemical Reactivity." J. Am. Chem. Soc. 1984, 106, 4049–4050.
+[2]  W. Yang, R. G. Parr. "Hardness, softness, and the Fukui function in the
+     electronic theory of metals and catalysis." Proc. Natl. Acad. Sci. USA
+     1985, 82, 6723–6726.
+[3]  R. G. Parr, R. A. Donnelly, M. Levy, W. E. Palke. "Electronegativity: The
+     density functional viewpoint." J. Chem. Phys. 1978, 68, 3801–3807.
+[4]  R. G. Parr, R. G. Pearson. "Absolute Hardness: Companion Parameter to
+     Absolute Electronegativity." J. Am. Chem. Soc. 1983, 105, 7512–7516.
+[5]  R. G. Parr, L. von Szentpály, S. Liu. "Electrophilicity Index."
+     J. Am. Chem. Soc. 1999, 121, 1922–1924.
+[6]  W. Yang, W. J. Mortier. "The Use of Global and Local Molecular Parameters
+     for the Analysis of the Gas-Phase Basicity of Amines." J. Am. Chem. Soc.
+     1986, 108, 5708–5711.
+[7]  C. Morell, A. Grand, A. Toro-Labbé. "New Dual Descriptor for Chemical
+     Reactivity." J. Phys. Chem. A 2005, 109, 205–212.
+[8]  L. R. Domingo, E. Chamorro, P. Pérez. "Understanding the Reactivity of
+     Captodatively Ethylenes in Polar Cycloaddition Reactions. A Theoretical
+     Study." J. Org. Chem. 2008, 73, 4615–4624.
+[9]  R. G. Pearson. "Hard and Soft Acids and Bases." J. Am. Chem. Soc. 1963,
+     85, 3533–3539.
+[10] F. L. Hirshfeld. "Bonded-Atom Fragments for Describing Molecular Charge
+     Densities." Theor. Chim. Acta 1977, 44, 129–138.
+[11] C. M. Breneman, K. B. Wiberg. "Determining atom-centered monopoles from
+     molecular electrostatic potentials. The need for high sampling density in
+     formamide conformational analysis." J. Comput. Chem. 1990, 11, 361–373.
+[12] T. Lu, F. Chen. "Multiwfn: A Multifunctional Wavefunction Analyzer."
+     J. Comput. Chem. 2012, 33, 580–592.
+
+
+====================================================================
+6. GEOMETRÍAS DE ADSORCIÓN: CADMIA GEOMETRY
+====================================================================
+
+Genera configuraciones de partida de la sonda sobre los mejores sitios del
+ranking CDFT:
+
+    cadmia geometry --cdft cdft.json --xyz cluster.xyz \
+                    --probe NH3 -o ./configs/ --db
+
+Sondas soportadas (catálogo interno): H2, CO2, NH3, CO, N2, O2, H2O. Cada sonda
+trae VARIOS modos de enlace por defecto, de modo que el muestreo no queda confinado
+a una sola orientación:
+  - H2 : η¹ (terminal), η² (lateral)
+  - CO2: eta1_c (por C, doblado — el CO2 activado), o_down (lineal, por un O),
+         side_on (lineal, paralelo), bidentado (doblado, ambos O al sitio,
+         precursor de carbonato)
+  - NH3: n_down (N donor, par libre al sitio), tripod (H hacia la superficie)
+  - CO : c_down, o_down
+  - N2 : η¹, η²
+  - O2 : η¹, η²
+  - H2O: o_down (O donor), h_down (H hacia la superficie, puente-H)
+Solo necesitas un probes.yaml para AÑADIR una sonda que no esté en el catálogo, o
+para sembrar un modo especial (p. ej. una disociación, que depende de la superficie
+y por eso no es un built-in). Pásalo con --probes-yaml RUTA (o ~/.cadmia/probes.yaml
+para que se cargue solo); un nombre que coincida con un built-in lo sobreescribe.
+Formato y convención de coordenadas: ver docs/probes.example.yaml. La distancia
+inicial M–X es r_cov(sitio) + r_cov(átomo de anclaje) + 0.5 Å (radios covalentes
+de Cordero et al. [1]).
+
+Amplitud del muestreo (por sonda): --n-sites (nº de sitios del ranking CDFT a
+usar; por defecto 0, que significa TODOS), --n-configs (orientaciones azimutales
+por sitio, modo y ángulo polar; por defecto 6) y --polar (ángulos de aproximación
+en grados; por defecto 0 20 40 60).
+
+Recortar --n-sites sesga el muestreo hacia los extremos del descriptor dual, que
+no es donde se ata toda sonda; por eso el valor por defecto los toma todos. En
+polar=0 la sonda ya no colapsa a una sola orientación salvo que sea axial, porque
+también se muestrea su giro propio sobre el eje de aproximación.
+Salen como archivos .xyz (cúmulo + sonda) listos para cadmia prescreen/run/prepare.
+
+MUY IMPORTANTE — el orden de los átomos: el archivo cluster.xyz DEBE tener
+el mismo orden atómico que las salidas SCF de donde salió el CDFT. La forma
+segura es extraerlo del propio output con cadmia xyz (motor autodetectado):
+
+    cadmia xyz N.out -o cluster.xyz
+
+`cadmia geometry --xyz` también acepta el .out/.log directamente (lo convierte
+por dentro), así que puedes pasar `--xyz N.out` sin generar el .xyz a mano.
+Si el orden no coincide, el agente avisa átomo por átomo y no debe ignorarse.
+
+Convención de los aductos (la especie cúmulo+sonda; también llamada complejo
+de adsorción, en adelante "aducto"): el cúmulo va primero y la sonda son los
+ÚLTIMOS n átomos. Los agentes posteriores (analyze) dependen de esta convención.
+
+6.1 Pre-cribado con GFN2-xTB: cadmia prescreen (opcional)
+.........................................................
+
+Cuando geometry genera muchas configuraciones por sitio, conviene filtrarlas
+ANTES del DFT caro. cadmia prescreen optimiza cada .xyz con GFN2-xTB [2]
+(barato), descarta las que relajan al MISMO mínimo y conserva las supervivientes
+dentro de una ventana de energía:
+
+    cadmia prescreen ./configs/ --charge 0 --mult 1 \
+                     --window 20 --threads 8 -o ./prescreened/
+
+Por defecto NO hay tope: se conservan TODOS los que caen dentro de la ventana
+(si de 100 hay 10 dentro de --window, quedan esos 10). --top N es opcional y solo
+sirve para limitar a N el nº de supervivientes dentro del corte de energía.
+
+Criterio de supervivencia, paso a paso:
+  - Filtro de sanidad: se descartan primero los mínimos NO físicos (átomos
+    colapsados a < 0.5 Å, o energía > 250 kcal/mol por debajo de la mediana =
+    mínimo espurio de xTB), para que una geometría rota no se vuelva la
+    referencia de menor energía y arruine la ventana. Se puede desactivar con
+    --no-sanity.
+  - Deduplicado: dos configuraciones optimizadas se consideran el MISMO mínimo si,
+    tras la alineación óptima de Kabsch [3], NINGÚN átomo queda a más de 0.20 Å de
+    su pareja Y su diferencia de energía es ≤ ~0.5 kcal/mol; de cada grupo se
+    conserva una. La tolerancia se mide sobre el átomo que más se desplaza, no
+    sobre el RMSD: un promedio sobre todo el sistema se relaja conforme crece el
+    cúmulo, y la sonda —que es lo que distingue dos mínimos— pesa cada vez menos.
+  - Orden: las supervivientes se ordenan por energía GFN2-xTB ascendente.
+  - Ventana: se conservan TODAS las que caen dentro de --window (10 kcal/mol por
+    defecto) respecto al mínimo. --top solo limita ese conjunto a N (0 = sin tope).
+  - Garantía de mínimo (--min-keep, def. 2): aunque la ventana deje uno solo,
+    se conservan al menos N mínimos DISTINTOS (los siguientes más bajos, marcados
+    "beyond window") para que el DFT siempre tenga ≥N candidatos que comparar.
+    Queda limitado por el nº de mínimos distintos hallados y por --top; con 0 se
+    usa solo la ventana. Si xTB solo encuentra 1 mínimo distinto, amplía el
+    muestreo (más --n-sites o modos de enlace) en vez de forzar un duplicado.
+  - Salida (carpeta -o):
+      * En la raíz, solo los seleccionados como *_xtbopt.xyz (lo que prepare/run/
+        submit consumen; ese directorio se lee con glob *.xyz).
+      * pool/candidates_by_energy.xyz: UN solo archivo con TODOS los mínimos
+        físicos distintos hallados (no solo los seleccionados) en orden de energía
+        ascendente; el comentario de cada bloque lleva rango, ΔE, energía y una
+        etiqueta [DFT] (seleccionado) o "reserve" (bueno pero fuera de la ventana).
+      * pool/reserve/*_xtbopt.xyz: los buenos NO seleccionados, como archivos
+        individuales listos para promover. Para mandar uno a DFT más adelante basta
+        copiarlo a la carpeta -o; NO hay que volver a correr xTB.
+    (Los archivos del pool viven bajo pool/ a propósito, para que el glob *.xyz de
+    prepare/run en la raíz nunca los ingiera por error.)
+    Al terminar se imprime una tabla de candidatos (# / ΔE / configuración) y las
+    rutas del pool.
+
+Las energías xTB SÓLO sirven para ordenar y deduplicar; los supervivientes se
+re-optimizan en DFT. Requiere el binario `xtb` en PATH (--xtb-path para otra
+ruta). Nota de hilos: algunas builds antiguas (apt 6.6.1) hacen SIGSEGV con
+varios hilos; el binario oficial 6.7.1 corre bien con --threads N.
+
+6.2 Ordenar salidas DFT por energía: cadmia rank
+................................................
+
+Cuando ya calculaste un lote de configuraciones a un nivel barato (p. ej.
+PBE/def2-SVP o PBE0/def2-SVP), cadmia rank las discrimina por energía sin volver a
+optimizar ni correr xTB: lee la energía electrónica final y la geometría de cada
+salida, las ordena de menor a mayor y las concatena en UN solo .xyz, con la
+diferencia de energía (kcal/mol) en el comentario de cada bloque.
+
+    cadmia rank *.out ranked.xyz
+    cadmia rank *.out --window 5 -o rank/co2.xyz
+    cadmia rank *.out --top 5 ranked.xyz
+
+Es universal y agnóstico del motor (Gaussian/ORCA autodetectado por contenido; se
+pueden mezclar). Un argumento .xyz se interpreta como el nombre de salida; con -o
+también se acepta un directorio (escribe ranked_by_energy.xyz dentro).
+
+rank recorta la cola de alta energía por defecto (--window 25 kcal/mol, --top 15),
+a nivel DFT (más fiable que el filtro xTB del prescreen): el .xyz sale ya con los
+ganadores para encadenar directo con cadmia prepare, y el sidecar ranked.json guarda
+el ranking completo con la marca de cuáles pasaron el recorte. El default es generoso
+a propósito (descarta outliers sin cortar confórmeros que podrían reordenarse en
+producción); el corte fino va al final, sobre el ΔG de producción. Con --window 0
+--top 0, rank escribe todos.
+
+Antes de recortar, rank AGRUPA las salidas que relajaron al mismo mínimo. La
+superficie de energía potencial embudona configuraciones de partida distintas hacia
+un solo mínimo, y el cribado semiempírico previo no puede anticipar cuáles: es normal
+que un lote de muchos archivos esconda pocas estructuras distintas. El criterio es el mayor
+desplazamiento atómico tras alineación de Kabsch (--dedup-rmsd, por defecto 0.20 Å)
+más una tolerancia de energía, el mismo que usa prescreen. Del grupo se escribe solo el de menor energía; los duplicados se
+marcan con "≡" en la tabla y quedan en el JSON con el campo duplicate_of apuntando al
+representante al que colapsaron. Así --top 15 significa quince estructuras y no
+quince archivos. Con --dedup-rmsd 0 se desactiva.
+
+rank avisa en dos casos que invalidan el resultado en silencio: cuando el lote mezcla
+composiciones distintas (rankear un directorio con varias sondas produce ΔE de decenas
+de miles de kcal/mol y un orden sin sentido: rankea una especie a la vez), y cuando las
+salidas de una misma molécula traen los átomos en ORDEN distinto. El agrupamiento empareja
+átomos por posición en la lista, así que no puede comparar entre órdenes distintos y algún
+duplicado puede pasar inadvertido.
+
+Advertencia sobre el rótulo del sitio: los archivos conservan el nombre del sitio de
+PARTIDA, y un grupo puede mezclar salidas rotuladas con sitios distintos. Correlacionar
+un descriptor evaluado en el sitio i contra la energía del archivo rotulado i regresa
+contra energías que no le corresponden. El agrupamiento hace visible el problema; no
+lo resuelve.
+
+La tabla en pantalla lleva una columna Neg Freq (nº de frecuencias imaginarias):
+
+      #  ΔE (kcal/mol)           E (Eh)  Neg Freq  output
+      1          0.000     -1000.470194         0  co2_site3.out
+      2          1.842     -1000.467258         1  co2_site7.out
+      3          4.905     -1000.462376         —  co2_site1.out
+
+  0    la salida SÍ trae frecuencias y ninguna es negativa: es un mínimo.
+  N>0  hay N frecuencias imaginarias: es un punto silla, no un mínimo (se descarta
+       o se re-optimiza).
+  —    la salida NO trae frecuencias (p. ej. una Opt sola). "Sin Freq" NO es lo
+       mismo que "0 imaginarias": esa geometría todavía no está verificada.
+
+Así rank es el filtro del cribado: se ordena por energía y se descartan los puntos
+silla en la misma tabla, sin banderas extra. El .xyz exportado guarda solo lo
+indispensable en el comentario de cada bloque (ΔE + energía absoluta + procedencia).
+
+Junto al .xyz se escribe un sidecar JSON con el mismo nombre (ranked.xyz →
+ranked.json) con el ranking completo, incluido n_imaginary de cada salida. No hay
+bandera que pedir: las geometrías son para el siguiente cálculo, el sidecar es para
+el siguiente PASO (y para el registro de lo que se decidió). Ver 1.1.
+
+REFERENCIAS (6)
+[1] B. Cordero, V. Gómez, A. E. Platero-Prats, et al. "Covalent radii revisited."
+    Dalton Trans. 2008, 2832–2838.
+[2] C. Bannwarth, S. Ehlert, S. Grimme. "GFN2-xTB—An Accurate and Broadly
+    Parametrized Self-Consistent Tight-Binding Quantum Chemical Method with
+    Multipole Electrostatics and Density-Dependent Dispersion Contributions."
+    J. Chem. Theory Comput. 2019, 15, 1652–1671.
+[3] W. Kabsch. "A solution for the best rotation to relate two sets of vectors."
+    Acta Crystallogr. A 1976, 32, 922–923.
+
+
+====================================================================
+7. EJECUCIÓN DE CÁLCULOS: PREPARE, RUN (LOCAL) Y SUBMIT (HPC)
+====================================================================
+
+7.0 cadmia prepare ETAPA — generar inputs en lote SIN ejecutarlos
+.................................................................
+
+Convierte geometrías a inputs de motor (.inp para ambos) sin
+correr nada, para revisarlos o mandarlos en bloque a la cola. No necesita motor
+instalado: sólo escribe texto.
+
+    cadmia prepare ETAPA geometrías... [opciones]
+
+La ETAPA es el primer argumento y estandariza el input de cada fase del flujo:
+calcula únicamente lo que esa fase necesita, sin pedir análisis en las etapas
+tempranas. Las geometrías van después (un archivo suelto, varios, un directorio
+o un glob).
+
+    ETAPA        tarea        qué emite (ORCA)
+    ----------   ----------   -------------------------------------------------
+    screen-opt   Opt          def2-SVP + RIJCOSX; ordena candidatos por energía.
+    screen-freq  Freq         idem screen-opt; descarta puntos silla del cribado.
+    opt          Opt          def2-TZVP + RIJCOSX + TightSCF DefGrid3. Sin análisis.
+    freq         Freq         idem opt, frecuencias: mínimo + termoquímica G/H/S.
+    opt+freq     Opt Freq      geometría y frecuencias en un solo job.
+    char         SP           SP + Hirshfeld/CHELPG/Mayer/PDOS (caracterización).
+    cdft         SP x3        trío N/N+1/N−1 a geometría fija (sección 3.1).
+
+Qué acepta como geometría:
+
+    .xyz        geometría suelta; si trae varios bloques concatenados (lo que
+                escribe `cadmia rank`), genera UN input por bloque y conserva el
+                nombre del output de origen.
+    .out/.log   output de ORCA/Gaussian: extrae la geometría final, de modo que
+                cada etapa encadena con el resultado de la anterior sin pasar por
+                `cadmia xyz`. El motor del output se detecta solo; --engine
+                únicamente elige el formato que se escribe.
+    .inp/.gjf   input ya hecho, de cualquier motor: se deja pasar tal cual.
+
+Cualquier otra extensión es un error, no un archivo ignorado en silencio. El
+resumen final distingue los inputs generados de los que sólo pasaron de largo.
+
+Los DOS motores escriben .inp. La extensión es una convención de CADMIA, no un
+requisito: ORCA recibe el nombre del archivo como argumento y Gaussian lee su
+input por la entrada estándar, así que le da igual cómo se llame (`.gjf` es una
+costumbre de GaussView). Por eso el motor de un input ya hecho se deduce de su
+CONTENIDO — `%chk`/`%mem`/`%nprocshared` lo delatan como Gaussian; `!`, `%pal`,
+`%maxcore` o `* xyz` como ORCA — y no de su nombre, que no puede distinguirlos.
+Los `.gjf` que ya tengas se siguen aceptando sin cambios.
+
+Dispersión en Gaussian: Gaussian 16 implementa GD2/GD3/GD3BJ/PFD, pero NO tiene
+D4 nativo. Como el valor por defecto de CADMIA es D4 (pensado para ORCA), al
+pedir `--engine gaussian` hay que elegir explícitamente `--dispersion d3bj` (o
+`none`); si no, el comando falla con un error claro en vez de escribir un input
+que Gaussian rechazaría al arrancar.
+
+Por qué hay DOS parejas Opt/Freq (screen-* y opt/freq): una Freq sólo tiene
+sentido sobre una geometría optimizada AL MISMO NIVEL, y el nivel incluye el
+umbral SCF y la malla de integración, no sólo la base. Correr la etapa `freq`
+(TightSCF DefGrid3) sobre una geometría de `screen-opt` (sólo RIJCOSX) devuelve
+frecuencias imaginarias espurias pequeñas aunque se pase --basis
+def2-SVP, y llevaría a descartar aductos buenos. Cada pareja se queda en su nivel.
+
+Ejemplos del flujo:
+
+    # 1) pre-cribado de las configuraciones de cadmia geometry:
+    cadmia prepare screen-opt ./configs/*.xyz --nprocs 26 -o ./screen/
+    cadmia submit  --jobs ./screen/ --hpc hpc1            # luego, a la cola
+    # 2) ordenar y descartar puntos silla al mismo nivel barato:
+    cadmia rank    ./screen/*.out -o ./ranked.xyz
+    cadmia prepare screen-freq ./ranked.xyz -o ./screenfreq/
+    # 3) sobre los supervivientes, geometría + frecuencias, y caracterización:
+    cadmia prepare opt+freq ./ganadores/*.out -o ./optfreq/
+    cadmia prepare char     ./finales/*.out   -o ./char/
+
+La etapa es dueña de la TAREA y del bloque de exactitud. Para personalizar
+cualquier otro eje, una bandera explícita SOBRESCRIBE el valor de la etapa
+(--functional/--basis/--dispersion/--charge/--mult/--nprocs/--mem-o/--preset);
+se aplica a TODO el lote. --overwrite regenera inputs ya escritos.
+
+Dispersión por defecto = D4 [1] (ORCA emite `! D4`); cámbiala con --dispersion
+d3bj|none (D3 con amortiguamiento de Becke-Johnson [2, 3]). Para termoquímica de
+adsorción (ΔG/ΔH, sección 8) usa la etapa `freq` o `opt+freq` en el aducto, el
+cúmulo y la sonda libre.
+
+7.0b Salidas de análisis: la etapa y --preset
+.............................................
+
+Cada etapa ya elige el conjunto de salidas apropiado (ninguno en screen-*/opt/
+freq/opt+freq; el set completo en char; cargas en cdft). Si necesitas otra
+combinación, --preset la sobrescribe: fija de una vez el conjunto de propiedades
+a solicitar y, según el caso, el bloque de exactitud del motor, en lugar de
+listar las palabras clave a mano. El preset `accurate` selecciona el SET COMPLETO
+de propiedades junto con el bloque de exactitud de ORCA `def2/J RIJCOSX TightSCF
+DefGrid3`.
+
+Dos advertencias importantes sobre `accurate`:
+  - AIM (QTAIM) y NPA NO son palabras clave de input de ORCA. Son análisis de
+    POST-PROCESO sobre la densidad o la función de onda (.gbw): QTAIM se hace con
+    Multiwfn y NPA/NBO con NBO o JANPA; el preset no las pide como keywords en el
+    .inp.
+  - RIJCOSX es la aproximación RI (resolución de la identidad) para los términos
+    de Coulomb e intercambio. Acelera el cálculo, pero cambia ligeramente las
+    energías frente a una referencia SIN RI; tenlo en cuenta al comparar energías
+    absolutas con cálculos no-RI.
+
+Personalización fina (además de --functional/--basis/--dispersion).
+`cadmia prepare` (en todas sus etapas) acepta:
+  - --extra-orca "TXT"     palabras clave extra en la línea `!` de ORCA.
+  - --extra-gaussian "TXT" palabras clave extra en la ruta de Gaussian
+                           (equivalente a --extra-orca, para el otro motor).
+  - --scf-maxiter N        límite de iteraciones SCF (0 = default del motor).
+                           Emite `%scf MaxIter N` en ORCA y `SCF=(MaxCycle=N)` en
+                           Gaussian; sube este valor si los iones o estados de
+                           capa abierta cuestan converger.
+  - --geom-maxiter N       límite de pasos de la optimización (0 = default del
+                           motor, max(50, 3N) en ORCA); súbelo cuando la
+                           optimización tiene que reacomodar el sustrato.
+  - --chelpg-fine          añade un bloque `%chelpg` fino en ORCA (GRID 0.20,
+                           RMAX 3.50, VDWRADII COSMO); solo surte efecto si el
+                           input pide CHELPG (p. ej. con --preset cdft/analysis/
+                           accurate). No afecta el Fukui condensado (usa
+                           Hirshfeld); solo afina las cargas ESP accesorias.
+
+7.1 cadmia run — cola local en tu máquina
+.............................................
+
+Corre los trabajos EN ESTA MÁQUINA, uno a la vez (cola secuencial), sin
+SSH ni SLURM. Cada trabajo usa los núcleos y memoria declarados en su input,
+de modo que la máquina nunca se sobresuscribe.
+
+    # Las 27 configuraciones NH3 de cadmia geometry, con 12 núcleos y
+    # 3 GB por núcleo (~36 GB pico; ajusta --mem-o a tu RAM):
+    cadmia run --jobs ./configs/ --task opt --nprocs 12 --mem-o 3000 \
+               --engine-path /opt/orca6 -o ./ads_nh3/ --db
+
+Entradas aceptadas:
+  - .inp / .gjf ya escritos (se ejecutan tal cual);
+  - .xyz (p. ej. los de cadmia geometry): se convierten primero a inputs
+    con el nivel indicado (--functional/--basis/--dispersion/--task/
+    --charge/--mult/--nprocs/--mem-o).
+
+Comportamiento:
+  - El avance se guarda en cadmia_jobs.json DESPUÉS DE CADA TRABAJO, así
+    una interrupción no pierde lo ya calculado. Al re-lanzar el mismo lote,
+    los trabajos cuya salida ya existe y no falló la validación SE SALTAN
+    (reanudación): solo se calcula lo que falta. --overwrite recalcula todo.
+  - Cada salida se valida automáticamente (Validation Agent) al terminar.
+  - Si un trabajo falla, la cola CONTINÚA con el siguiente (el fallo queda
+    registrado); si el motor no se encuentra, la cola se detiene.
+  - --timeout S limita el tiempo de pared por trabajo.
+  - ORCA en paralelo requiere invocarse con ruta absoluta: --engine-path
+    lo resuelve por ti (apunta al directorio de instalación de ORCA).
+  - Al terminar cada trabajo, los archivos accesorios (.bibtex, .property.txt,
+    .chelpg.xyz, .pc_chelpg, .vpot, .xyz) se mueven a una subcarpeta aux/ para
+    reducir el ruido visual. Lo esencial (.inp, .out, .gbw y, para los cubos,
+    .densities/.densitiesinfo) se queda en su sitio. Desactívalo con --no-tidy.
+    `cadmia submit` hace lo mismo dentro del script SLURM, en el nodo de cálculo.
+
+Guía de memoria para la máquina local: %maxcore es POR NÚCLEO. Regla práctica:
+mem-o = (0.75 × RAM_total_MB) / nprocs. Ejemplos: 64 GB y 12 núcleos →
+--mem-o 4000; 32 GB y 8 núcleos → --mem-o 3000.
+
+7.2 cadmia submit / monitor — HPC vía SSH + SLURM
+.................................................
+
+Para clústeres con SLURM (p. ej. un clúster institucional):
+
+    cadmia profile add --name hpc1 --host hpc.ejemplo.mx --user usuario \
+        --work-dir /scratch/usuario/cadmia --partition compute
+    cadmia profile ping hpc1
+    cadmia submit --jobs ./configs/ --hpc hpc1 --wait -o ./ads_nh3/ --db
+    cadmia monitor --jobs ./ads_nh3/cadmia_jobs.json --hpc hpc1   # reanudar
+
+submit genera el script sbatch por motor, sube los inputs por scp, encola,
+y con --wait sondea, descarga y valida cada salida al terminar. Las
+credenciales nunca se guardan en código ni en la base (llaves SSH).
+
+7.3 SLURM en la máquina local: perfil local (sin SSH)
+...................................................
+
+Si ESTA máquina ya tiene SLURM (una estación de trabajo o un nodo con SLURM), usa un perfil LOCAL: mismo
+`submit`/`monitor`, pero encola en la propia máquina (sin SSH/scp). Como el
+motor suele estar en PATH, no se cargan módulos; basta indicar --orca-path.
+
+    cadmia profile add --name ws-local --local \
+        --work-dir /scratch/usuario/cadmia --orca-path /opt/orca6 --partition general
+    cadmia profile ping ws-local            # comprueba que sbatch está disponible
+    cadmia submit --jobs ./inputs/ --hpc ws-local --wait -o ./ads_nh3/ --db
+
+El mismo flujo sirve para los dos escenarios: un perfil `--local` para una
+máquina con SLURM propio y un perfil remoto (SSH) para un clúster accesible por
+red; sólo cambia el nombre tras --hpc. submit/monitor eligen el backend según el perfil.
+Para correr SIN cola (uno a la vez, sin SLURM) está `cadmia run` (sección 7.1).
+
+REFERENCIAS (7)
+[1] E. Caldeweyher, S. Ehlert, A. Hellmann, et al. "A generally applicable
+    atomic-charge dependent London dispersion correction." J. Chem. Phys. 2019,
+    150, 154122.
+[2] S. Grimme, J. Antony, S. Ehrlich, H. Krieg. "A consistent and accurate ab
+    initio parametrization of density functional dispersion correction (DFT-D)
+    for the 94 elements H-Pu." J. Chem. Phys. 2010, 132, 154104.
+[3] S. Grimme, S. Ehrlich, L. Goerigk. "Effect of the damping function in
+    dispersion corrected density functional theory." J. Comput. Chem. 2011, 32,
+    1456–1465.
+
+
+====================================================================
+8. ENERGÉTICA DE ADSORCIÓN: CADMIA ANALYZE
+====================================================================
+
+Con el aducto optimizado, el cúmulo aislado y la sonda libre:
+
+    cadmia analyze --adduct config_site2.out --cluster N.out \
+                   --probe-free NH3.out --cdft cdft.json \
+                   --config-index 0 --bsse -o analisis_0.json --db
+
+Calcula:
+  - E_ads = E(aducto) − E(cúmulo) − E(sonda), en kcal/mol.
+  - E_ads corregida por BSSE (lee el bloque counterpoise del aducto [1]).
+  - E_def(cúmulo), E_def(sonda) y E_int si se dan los single points a la
+    geometría del aducto (--cluster-deformed / --probe-deformed); es la
+    partición tensión-activación / interacción [2].
+  - Elongación de los enlaces de la sonda con bandera de ACTIVACIÓN (≥ 5%).
+  - Cruce con el ranking CDFT: ¿el sitio donde se enlazó es el rank 1?
+
+Alcance de la bandera de activación: la detección actual marca activación por
+ELONGACIÓN de un enlace de la sonda ≥ 5% respecto a la molécula libre (un
+indicador geométrico clásico, p. ej. en la activación del CO2 [3]). Vale para
+cualquier sonda con enlaces intramoleculares (H2, NH3, CO2, etc.). NO detecta
+todavía modos ANGULARES (p. ej. la apertura paraguas de NH3) ni la DISOCIACIÓN
+de la sonda; el umbral del 5% es una convención de CADMIA, no una barrera
+energética.
+
+8.1 Termoquímica de adsorción (ΔG/ΔH)
+.....................................
+
+Si el aducto, el cúmulo y la sonda libre se calcularon con --task opt+freq,
+analyze añade ΔH_ads, ΔG_ads y −TΔS_ads (a 298.15 K) leyendo el bloque
+THERMOCHEMISTRY de ORCA (entalpía, energía libre de Gibbs, término de entropía
+y ZPE). Si a ALGUNA de las tres especies le faltan frecuencias, reporta sólo
+ΔE_ads y avisa qué especie no las trae. Para Gibbs/entalpía hay que correr las
+frecuencias en las TRES (no basta el aducto).
+
+8.2 Cúmulo → aducto: electrónico y coordinación (antes/después)
+...............................................................
+
+analyze también compara la especie ANTES (cúmulo) y DESPUÉS (aducto):
+  - Propiedades electrónicas: HOMO, LUMO, gap y descriptores globales (μ, η, ω)
+    del cúmulo y del aducto, con Δgap al adsorber.
+  - Coordinación del sitio de enlace: número de coordinación (CN) y ECN de Hoppe
+    [4, 5] antes y después, con ΔCN/ΔECN (cuánto cambia la coordinación al
+    adsorber).
+Ambas salen en el JSON de analyze y en el reporte integrador (sección 10).
+
+8.3 Procesar todas las configuraciones en lote
+..............................................
+
+En vez de un bucle de shell, analyze acepta un directorio de aductos y escribe
+un JSON por cada uno (índice por nombre de archivo):
+
+    cadmia analyze --adduct-dir ./ads_nh3/ --cluster N.out \
+                   --probe-free NH3.out --cdft cdft.json -o ./analysis/
+
+Luego el reporte los recoge todos con --analysis-dir (sección 10).
+
+REFERENCIAS (8)
+[1] S. F. Boys, F. Bernardi. "The calculation of small molecular interactions by
+    the differences of separate total energies. Some procedures with reduced
+    errors." Mol. Phys. 1970, 19, 553–566.
+[2] F. M. Bickelhaupt, K. N. Houk. "Analyzing Reaction Rates with the
+    Distortion/Interaction-Activation Strain Model." Angew. Chem. Int. Ed. 2017,
+    56, 10070–10086.
+[3] H.-J. Freund, M. W. Roberts. "Surface chemistry of carbon dioxide." Surf.
+    Sci. Rep. 1996, 25, 225–273.
+[4] R. Hoppe. "Effective coordination numbers (ECoN) and mean fictive ionic
+    radii (MEFIR)." Z. Kristallogr. 1979, 150, 23–52.
+[5] R. Hoppe, S. Voigt, H. Glaum, J. Kissel, H. P. Müller, K. Bernet. "A new
+    route to charge distributions in ionic solids." J. Less-Common Met. 1989,
+    156, 105–122.
+
+
+====================================================================
+9. ESTABILIDAD RELATIVA: CADMIA STABILITY
+====================================================================
+
+Estabilidad de formación del óxido mixto frente a los óxidos puros, con TUS
+propias referencias al MISMO nivel de teoría:
+
+    cadmia stability --mixed Al2TiO5.out --ref TiO2.out --ref Al2O3.out \
+                     -o stability.json --db
+
+    E_rel = E(mixto) − Σ c_i · E(puro_i)
+
+Los coeficientes estequiométricos se resuelven solos por balance de fórmula
+(mínimos cuadrados + verificación), como fracciones exactas; --coeff los fija a
+mano (1, 0.5 o 1/2). Reporta kcal/mol, eV, eV/átomo y kcal/mol por unidad
+fórmula (n = gcd de los conteos del mixto). E_rel < 0 significa que el mixto es
+más estable.
+
+TAMAÑO DE LAS REFERENCIAS. El reporte nombra el caso (reference_size):
+  same-n      cada referencia tiene las mismas n unidades que el mixto
+              ((AB)n = An + Bn, coeficientes 1, 1);
+  equal-size  cada referencia tiene tantas unidades como todas las
+              contribuciones puras juntas ((AB)n = ½·A2n + ½·B2n); el valor por
+              unidad fórmula es la energía de mezcla a igual tamaño, que no
+              arrastra el sesgo de los puros pequeños, poco ligados;
+  other       cualquier otra combinación.
+Basta pasar las referencias del tamaño deseado; los coeficientes ½ salen solos.
+
+QUÉ ENERGÍA. Por defecto, E es E0 = E + ZPE, la energía del mínimo a
+0 K. --energy E0|E|H|G|Gq elige E0, la energía electrónica, la entalpía o la
+energía de Gibbs (Gq: cuasi-RRHO, ver abajo). Todos los términos usan LA MISMA base: si a
+alguna salida le faltan las
+frecuencias, todos pasan a E y se avisa, porque restar una E de una E0 da un
+número plausible y erróneo. La base usada figura en la tabla, en el JSON
+("energy_basis") y en la base de datos. El JSON trae además E_rel en cada base
+que tengan todas las salidas ("e_rel_by_basis_kcal"): con salidas de opt+freq,
+una sola llamada da las columnas E, E0, H y G.
+
+Gq (--energy Gq) es G con la entropía vibracional cuasi-RRHO de Grimme
+(Chem. Eur. J. 18 (2012) 9955; ν0 = 100 cm⁻¹, el esquema que ORCA 6 aplica por
+defecto). La entropía armónica diverge cuando la frecuencia tiende a cero, y los
+modos por debajo de ~100 cm⁻¹ inflan S. A la G de Gaussian (armónica) se le
+corrige solo S_vib con sus propias frecuencias; la de ORCA con cuasi-RRHO se toma
+tal cual. Si una salida de ORCA no dice qué entropía usó, no hay Gq y todo pasa a
+E con aviso.
+
+COMPROBACIONES POR TÉRMINO. Debajo de la tabla, una línea da la multiplicidad y
+el número de frecuencias imaginarias de cada salida ("multiplicities" y
+"n_imaginary" en el JSON; "—" = sin cálculo de frecuencias). Se avisa cuando:
+- alguna salida tiene frecuencias imaginarias: no es un mínimo, y el programa
+  deja fuera ese modo de E0, H y G;
+- alguna salida no tiene frecuencias: no está verificada como mínimo;
+- las multiplicidades difieren (p. ej. una referencia triplete): la diferencia
+  incluye el cambio de estado de espín y conviene declararlo;
+- con H o G, las salidas se calcularon a temperaturas distintas;
+- con G, se mezclan ORCA (entropía cuasi-RRHO de Grimme por defecto) y Gaussian
+  (armónica).
+Un número de --coeff distinto del de referencias es un error.
+
+SIMETRÍA. El grupo puntual, σ y la quiralidad se detectan desde la
+geometría final (tolerancia 0.01 Å); van en el JSON ("symmetry"). Gaussian
+conserva el grupo puntual de la geometría de entrada: si la entrada estaba apenas
+fuera de la simetría, trata como C1 un mínimo simétrico y su G lleva σ = 1. Cuando
+el σ detectado difiere del que usó el programa, G y Gq se corrigen con
+RT·ln(σ/σ_programa) (+0.41 kcal/mol por factor 2 a 298 K) y se avisa. E, E0 y H no
+dependen de σ.
+
+9.1 Estabilidad dependiente del tamaño: cadmia stability-series
+...............................................................
+
+Descriptores de estabilidad relativa a lo largo de una serie de cúmulos
+(unidad)n, n = 1..N, de una misma familia, mixta o pura:
+
+    cadmia stability-series --cluster n1.out --cluster n2.out --cluster n3.out \
+                            --ref A1.out --ref B1.out --ref A2.out --ref B2.out -o serie.json
+
+    E_b      = E[Sn]/n − Σ c·E[puros de tamaño 1]/n  (enlace por unidad frente a los puros)
+    ΔE_mix(n)    = E[Sn] − Σ c·E[puros del mismo n]
+    ΔE_mix,eq    = (E[Sn] − Σ c·E[puros de igual tamaño])/n   (por unidad fórmula)
+    E_b,fam  = (n·E[S1] − E[Sn])/n               (enlace por unidad frente al monómero propio)
+    E_f      = E[S(n-1)] + E[S1] − E[Sn]         (energía de fragmentación)
+    Δ²E      = E[S(n-1)] + E[S(n+1)] − 2·E[Sn]   (segunda diferencia de energía)
+
+Como en stability, E es E0 por defecto y --energy elige otra base.
+E_b y E_b,fam responden preguntas distintas y no deben mezclarse. E_b,fam sirve
+para cualquier familia: pasar (TiO2)n o (Al2O3)n como --cluster da sus propios
+E_b,fam, E_f y Δ²E. El número de unidades n se infiere de la estequiometría de
+cada cúmulo (gcd de los conteos atómicos). Cada descriptor se emite solo donde
+existen sus entradas (E_f y E_b,fam no se definen para n=1; Δ²E solo para n con
+ambos vecinos). Salida en kcal/mol (y eV en el JSON). E_b, ΔE_mix < 0 = mixto más
+estable que los óxidos puros; E_b,fam > 0 = ligado frente a su monómero; E_f > 0
+= estable frente a fragmentación.
+
+ÓXIDOS PUROS DE REFERENCIA (--ref, repetible). Salidas de cualquier tamaño. Se
+emparejan con cada cúmulo por estequiometría, como en stability: las de tamaño 1
+dan E_b, las del mismo n dan ΔE_mix(n) y las de igual tamaño, ΔE_mix,eq. Donde
+falta la referencia de un tamaño, la celda queda «—» y se avisa. Las referencias
+pasan por las mismas comprobaciones que los cúmulos (base, imaginarias,
+multiplicidad, simetría).
+
+ISÓMEROS. Varios --cluster con el mismo n son isómeros; ninguno se
+descarta y el orden de los archivos no cambia nada. Se reporta cada isómero con
+su grupo puntual, su quiralidad, ΔE0 frente al mínimo en E0 y ΔG frente al
+mínimo en G (y Δ en la base elegida, si es otra). El mínimo en E0 y el mínimo
+en G pueden ser isómeros distintos: el reporte lo dice y conserva ambos. Al
+isómero más bajo en la base elegida (E0 por defecto) le toca representar a n en
+los descriptores; la tabla dice cuál es.
+
+POBLACIONES (--pop, apagado por defecto). Se dan en dos bases, lado a lado: P_i = g_i·exp(−ΔG_i/RT)/Σ, con G corregida por σ (Gq si esa es la
+base), y P_i = g_i·exp(−ΔE0_i/RT)/Σ, sin σ. En ambas, g = 2 si la geometría es
+quiral y T es la de las salidas (298.15 K en Gaussian por defecto). Solo entran isómeros con
+frecuencias; los demás se nombran. La población vale solo para el conjunto de
+isómeros que se pasa, y es indicativa: un error de 1 kcal/mol en ΔG la cambia
+mucho. Con --pop sale además una tabla de descriptores con
+E_avg(n) = Σ P_i·E_i (pesos de G), rotulada «promedio ponderado»: no es la energía libre del
+conjunto, porque no incluye la entropía de mezcla.
+
+9.2 Energía de disociación de enlace: cadmia bde
+................................................
+
+Desde la molécula y sus fragmentos (al MISMO nivel, geometrías relajadas):
+
+    cadmia bde --molecule AB.out --fragment A.out --fragment B.out -o bde.json
+
+    BDE = Σ E(fragmento) − E(molécula)
+
+Positiva = energía necesaria para romper el enlace (mayor = enlace más fuerte).
+CADMIA verifica la conservación de átomos (Σ fragmentos == molécula) y avisa si
+no cuadra (el número solo tiene sentido físico si los fragmentos suman la
+molécula). Salida en kcal/mol y eV.
+
+
+====================================================================
+10. REPORTE INTEGRADOR: CADMIA REPORT
+====================================================================
+
+Consolida los JSON de los agentes en un reporte Markdown (+ LaTeX):
+
+    cadmia report --cdft cdft.json --analysis-dir ./analysis/ \
+                  --stability stability.json \
+                  --literature refs.json \
+                  --title "Al2TiO5 n=1" -o reporte.md --latex --figures
+
+--analysis-dir recoge todos los *.json de la carpeta (equivale a varios
+--analysis, sin escribirlos uno a uno). También puedes listarlos con --analysis.
+
+Contenido: descriptores globales, ranking de sitios, resumen de adsorción
+(con BSSE y ΔH_ads/ΔG_ads cuando hay frecuencias), propiedades electrónicas
+cúmulo→aducto (HOMO/LUMO/gap/μ/η/ω/ω-/ω+ + Δgap), transferencia de carga CDFT
+cúmulo↔sonda (Parr-Pearson: ΔN, ΔE de estabilización y dirección donante→aceptor,
+a contrastar con la Δq de poblaciones observada), coordinación del sitio de enlace
+cúmulo→aducto (CN/ECN + ΔCN/ΔECN), estabilidad, bibliografía (--literature),
+y CORRELACIONES (Δf del sitio vs E_ads, r de Pearson). Las configuraciones que
+relajaron al MISMO mínimo DFT se deduplican antes del resumen y la correlación.
+--figures usa matplotlib si está; si no, escribe los datos (x, y) en CSV.
+
+--narrate añade una sección de discusión redactada por el LLM configurado
+(sección 15), marcada como borrador a revisar. Los números del reporte nunca
+provienen del modelo.
+
+
+--------------------------------------------------------------------
+10.1 Correlación con datos experimentales: cadmia correlate
+--------------------------------------------------------------------
+Paso terminal de un estudio. Ajusta una recta por mínimos cuadrados descriptor →
+observable experimental sobre el conjunto de sistemas y reporta pendiente, ordenada,
+r, r² y un p-valor de dos colas. NO calcula nada nuevo: lee los JSON que ya emiten
+cadmia cdft y cadmia analyze, fusionados por identificador de sistema.
+
+   cadmia correlate -e experimental.csv -d study/ --y logk --x omega_minus --plot
+   cadmia correlate -e experimental.csv -d study/ --y mayr_N --x all -o corr/ranking.txt
+
+La tabla experimental es un CSV con una columna 'system' y una o más columnas de
+observables (log k, N/E de Mayr, TOF, ΔH_ads…). Los descriptores se eligen por alias:
+mu, eta, omega, omega_minus, omega_plus, N, ip, ea, gap, e_ads, dG_ads, dH_ads, delta_n,
+e_stab, delta_gap, dq_probe, dq_site, y átomo-resueltos como f_plus@site o dual@N. Con
+--x all se escanean todos los disponibles y se ordenan por |r|. --abs-x correlaciona |x|
+(p. ej. |ΔN|); --log-x/--log-y aplican logaritmo. --plot escribe la dispersión con la
+recta (matplotlib; si falta, se emite el CSV de puntos). El identificador de sistema se
+toma del nombre de archivo (quitando sufijos .cdft/.analysis) o de un campo 'system'.
+
+
+====================================================================
+11. PROPIEDADES ELECTRÓNICAS: DOS/PDOS Y MAPAS (ELECTRONIC / DENSITY)
+====================================================================
+
+Subcomandos de electronic: dos, pdos, ir, cube, vmd, mep. Ayuda bilingüe:
+cadmia electronic SUB --ayuda. La generación de cubos de densidad y mapas de Fukui/dual/Δρ
+es el comando `cadmia density` (sección 11.5).
+
+11.1 DOS total
+..............
+
+    cadmia electronic dos N.out                          # resumen en terminal
+    cadmia electronic dos N.out -o dos.dat               # curva (Energía, DOS)
+    cadmia electronic dos N.out --format html -o dos.html
+
+Ensanchamiento gaussiano de los eigenvalores (--sigma, def. 0.1 eV;
+--points, def. 2000). En capa abierta separa canales alfa/beta.
+
+11.2 PDOS por elemento
+......................
+
+Requiere que la salida ORCA tenga el bloque de poblaciones por MO:
+
+    %output Print[P_OrbPopMO_L] 1 end
+
+Uso:
+
+    cadmia electronic pdos N.out -o pdos.dat             # columnas por elemento
+    cadmia electronic pdos N.out --format html -o pdos.html
+
+La gráfica HTML es AUTOCONTENIDA e interactiva (plotly.js desde CDN, datos
+embebidos): líneas verticales HOMO/LUMO, anotación del gap, una curva por
+elemento (Ti/Al/O con colores fijos) y el total. No requiere instalar
+plotly ni matplotlib.
+
+Formato de salida .dat/.csv: Energy_eV, PDOS_<elem>..., DOS_total.
+
+11.3 Interpretación química (ejemplo)
+.....................................
+
+En un óxido metálico se espera un HOMO dominado por el oxígeno (carácter O 2p)
+y una banda virtual baja con carácter d del metal. La suma de proyecciones debe
+reproducir el DOS total dentro de unos pocos % (el umbral de impresión de ORCA
+es 0.1%).
+
+11.4 Antes y después: cúmulo y aducto
+.....................................
+
+Para ver cómo cambia la estructura electrónica al adsorber, corre DOS/PDOS en
+las DOS especies (cúmulo aislado y aducto) y compáralas:
+
+    cadmia electronic dos N.out          -o dos_cumulo.dat
+    cadmia electronic dos aducto.out     -o dos_aducto.dat
+    cadmia electronic pdos N.out         -o pdos_cumulo.dat
+    cadmia electronic pdos aducto.out    -o pdos_aducto.dat
+
+El desplazamiento de HOMO/LUMO y del gap, y el peso por elemento cerca del nivel
+de Fermi, dicen si el sitio se oxidó/redujo al enlazar la sonda. (La comparación
+numérica HOMO/LUMO/gap/μ/η/ω cúmulo→aducto ya la resume `cadmia analyze`/
+`report`, secciones 8.2 y 10; DOS/PDOS aportan la versión por bandas.)
+
+11.5 Densidades y mapas: cadmia density (cubos)
+...............................................
+
+Genera los campos volumétricos (.cube) para visualizar densidades y reactividad,
+desde la función de onda de ORCA (.gbw). La generación usa orca_plot (viene con
+ORCA, correr donde está ORCA); los mapas de diferencia son aritmética de rejilla.
+
+  - Cubos por especie (densidad / HOMO / LUMO / MEP):
+
+        cadmia density --gbw N.gbw --kind all --homo-index 41 -o ./cubes/
+
+  - Mapas de Fukui y descriptor dual (desde las densidades de N, N+1 y N-1):
+
+        cadmia density --gbw N.gbw --np1 anion.gbw --nm1 cation.gbw -o ./cubes/
+        # escribe fplus.cube, fminus.cube, f0.cube, dual.cube
+
+  - Densidad de deformación Δρ del aducto (cúmulo y sonda a la geometría del
+    aducto, en la misma rejilla):
+
+        cadmia density --adduct ad.gbw --cluster cl.gbw \
+                       --probe co2.gbw -o ./cubes/        # deformation.cube
+
+El modo (especie / Fukui / Δρ) se deduce de las banderas: --adduct/--cluster/
+--probe activan Δρ; no hace falta una bandera de modo. La rejilla se dimensiona
+por eje para un --step (paso, bohr) uniforme, así los lóbulos salen suaves.
+
+Definiciones (sobre rejilla): f+ = ρ(N+1) − ρ(N), f- = ρ(N) − ρ(N-1),
+f0 = (f+ + f-)/2, dual Δf = f+ − f-, Δρ = ρ(aducto) − ρ(cúmulo) − ρ(sonda).
+Para que las restas sean válidas los cubos deben estar alineados voxel a voxel:
+N/N±1 comparten geometría, así que un mismo --step basta; para Δρ, el cúmulo y
+la sonda deben calcularse a la geometría del aducto. Los .cube resultantes se
+pueden visualizar con `cadmia electronic cube` (HTML) o `cadmia electronic vmd`.
+
+  - Extremos del MEP sobre la isosuperficie (Vs,max / Vs,min):
+
+        cadmia electronic mep mep.cube --density density.cube --isovalue 0.001
+
+    Evalúa el MEP sobre la isosuperficie de densidad ρ = 0.001 a.u.: los puntos
+    son los cruces de las aristas de la rejilla con la isosuperficie, con ρ y V
+    interpolados sobre la arista, y cada punto pesa el área de superficie que
+    representa. Reporta Vs,min (región más nucleófila, rica en electrones) y
+    Vs,max (región más electrófila), con su posición y el átomo más cercano, y
+    los estadísticos de Politzer-Murray ponderados por área (área total,
+    positiva y negativa, σ²+, σ²−, σ²_tot, balance ν, Π, MPI). En los cúmulos
+    de óxido probados, todos coinciden con la función 12 de Multiwfn a menos de
+    0.52 % con cubos de paso 0.20 bohr. Sin --density solo da min/max globales.
+    Si el isovalor no corta la rejilla, o los ejes no son x, y, z, es un error.
+    Genera antes los cubos MEP y de densidad con `cadmia density` (11.5).
+
+11.6 Espectro IR
+................
+
+Construye un espectro infrarrojo a partir de las intensidades IR de los modos
+normales de una salida de frecuencias (! Freq) de ORCA:
+
+    cadmia electronic ir freq.out                        # resumen en terminal
+    cadmia electronic ir freq.out -o ir.dat              # curva (numero de onda, intensidad)
+    cadmia electronic ir freq.out --format html -o ir.html
+
+Cada modo se ensancha con un perfil lorentziano (--lineshape gaussian para
+gaussiano) de anchura a media altura --fwhm (def. 16 cm⁻¹) sobre --points
+puntos (def. 4000). El factor empírico --scale (def. 1.0; p. ej. 0.96 para DFT
+híbrido) reescala los números de onda para compensar la sobreestimación
+armónica. La gráfica HTML es autocontenida e interactiva, igual que en DOS/PDOS.
+
+
+====================================================================
+12. ANÁLISIS ESTRUCTURAL (CADMIA STRUCTURE)
+====================================================================
+
+Subcomandos: report, compare, plot, render. Ayuda bilingüe:
+cadmia structure SUB --ayuda.
+
+12.1 Reporte estructural
+........................
+
+    cadmia structure report cluster.xyz -o reporte.txt
+    cadmia structure report clusters/*.xyz -o lote.csv --format csv
+    cadmia structure report salidas/*.out -o etapas.txt   # también lee .out
+
+Calcula enlaces por cortes de par, números de coordinación CN, ECN de Hoppe
+[1, 2] autoconsistente, distancias promedio d_av, estadísticos por par y
+poliedros de coordinación. El reporte declara la versión de CADMIA, el corte de
+enlace de cada par presente y los parámetros del ECN ("Analysis Parameters").
+
+ECN SIN CORTE DE DISTANCIA. El ECN y su d_av se calculan sobre TODOS
+los pares de átomos, como en Da Silva [6, 7]: el peso de Hoppe ya apaga a los
+lejanos, y un radio de corte solo añade un parámetro del que depende el
+resultado. El ECN de Hoppe depende solo de los cocientes d/d_av, así que no tiene
+escala absoluta. Entre catión y anión (M-O) es una coordinación efectiva robusta.
+Entre metales (M-M) describe la capa más cercana de ese elemento, esté donde
+esté: un Ti sin ningún otro Ti a distancia de puente sigue teniendo un ECN Ti-Ti
+distinto de cero. Por eso el ECN M-M se lee junto con su d_av, como separación
+efectiva entre cationes, y la coordinación M-M se toma de la sección siguiente.
+
+VECINDAD CATIÓNICA ("Cation Neighborhood (via shared ligand)"). Dos metales son
+vecinos si un mismo ligando está enlazado a ambos, según los cortes M-L. Para
+cada par se da el promedio de vecinos sobre TODOS los centros del elemento (un
+centro aislado cuenta cero), cuántos están aislados y la distancia M-M más
+corta. Después vienen los valores por centro y la lista de puentes, con el μ de
+cada ligando compartido (número de metales enlazados a él). Un O μ6 que reparte
+su valencia entre seis metales y un O μ2 cuentan los dos como puente; el μ
+permite distinguirlos. En CSV van las filas cation_neighbors,
+cation_neighbor_center y cation_bridge; en JSON, el bloque "cation_neighbors". La sección "Coordination Polyhedra (angles and
+distortion)" lista, por centro metálico con CN≥3: tipo (triángulo/tetraedro/
+octaedro…), distancia media, ÁNGULO medio de enlace, distorsión angular
+(desviación estándar de los ángulos ligando-centro-ligando), volumen del
+poliedro (Å³, casco convexo de los ligandos), elongación cuadrática ⟨λ⟩ de
+Robinson [4] (1.0 en el poliedro ideal; se normaliza por el ideal de IGUAL
+VOLUMEN, así que complementa la distorsión de longitudes de Baur, que normaliza
+por la media observada) y el descentrado relativo del metal (disp_r =
+descentrado respecto al centroide de ligandos ÷ longitud de enlace media). El
+volumen y ⟨λ⟩ son NaN en poliedros planos, y ⟨λ⟩ también en tipos sin contraparte
+regular (seesaw): nunca 0 ni 1, que afirmarían el valor ideal. En JSON va bajo la
+clave "polyhedra"; en CSV como filas record_type=polyhedron.
+En TXT se reporta el ECN crudo y la columna de presentación ECN_1d (un
+decimal, Decimal ROUND_HALF_UP: 2.985 → 3.0). Los valores ausentes en tablas
+ECN se mantienen como NaN, nunca como cero.
+
+ATENCIÓN a dos columnas que parecen la misma y no lo son. CN cuenta TODOS los
+vecinos, metales incluidos. CN_L, en la tabla de poliedros, cuenta sólo los
+ligandos: un poliedro de coordinación es metal-ligando por definición, así que un
+Ti unido a 4 O y 2 Al tiene CN = 6 y CN_L = 4.
+
+MEDIDA DE FORMA CONTINUA (columnas "shape" y "CShM"). Los índices anteriores
+comparan cada centro contra el ideal de su propio tipo, y para eso necesitan un
+ángulo de referencia tabulado por tipo. Un cúmulo pequeño rara vez está cerca de
+un ideal, de modo que la mayoría de los centros cae en tipos sin entrada y el
+índice sale NaN. La medida de forma continua [5] pregunta otra cosa: cuánto se
+aparta el centro de CADA forma candidata, minimizando sobre rotación, escala y
+asignación de ligandos a vértices. 0 es coincidencia exacta y más grande es peor.
+Se reporta la forma más próxima y su valor. Nunca es NaN mientras el número de
+coordinación tenga formas de referencia definidas.
+
+El átomo central entra en el conjunto de puntos: sin él, una pirámide trigonal y
+un triángulo plano tienen los mismos ligandos y ninguna medida podría
+distinguirlos. Las formas "vacantes" se definen como subconjuntos literales de
+vértices de su poliedro padre (vOC-5 es un octaedro menos un vértice), y por eso
+no llevan los nombres SPY-5 ni PPY-6, que en la literatura son las pirámides
+esféricas, con el ángulo de ápice ajustado.
+
+CONECTIVIDAD ENTRE POLIEDROS. Cuenta los ligandos que comparten dos poliedros:
+1 = vértice, 2 = arista, 3 o más = cara, con la distancia metal-metal de cada
+unión. Es la descripción estructural de un óxido: la misma estequiometría
+construida compartiendo vértices o aristas es otro material. Compartir arista es
+una unión rígida; compartir vértice deja una bisagra M-O-M que puede girar. Sólo
+entran los centros con 3 o más ligandos, así que un átomo de borde dicoordinado
+no aparece ni siquiera como aislado.
+
+ÁNGULOS DE ENLACE. Todo átomo con dos o más vecinos enlazados aporta un ángulo,
+agrupado por triplete de elementos con el vértice en medio y los brazos
+ordenados: Al-O-Ti y Ti-O-Al son la misma entrada. Las columnas de media y
+dispersión describen sólo los ángulos CIS; los trans (por encima de 150°) se
+cuentan aparte, porque mezclarlos hace que un centro sin distorsión parezca
+distorsionado (un octaedro perfecto tiene doce ángulos a 90° y tres a 180°:
+juntos dan media 108 y desviación 36). Los ángulos M-O-M se listan aparte: el
+ángulo en el ligando puente es la bisagra que permite a dos poliedros
+reorientarse sin romper ningún enlace.
+
+ANILLOS. Se reportan los ciclos relevantes de Vismara [8], es decir, todo ciclo
+que no es suma GF(2) de ciclos estrictamente más cortos, con candidatos de
+Horton [9]. Se buscan sobre el subgrafo METAL-LIGANDO. La restricción no es un
+capricho: sobre el grafo completo un contacto metal-metal cortocircuita el anillo
+metal-oxígeno que cruza, y todos los anillos salen de tamaño 3. El reporte
+imprime el número ciclomático μ = E − V + C (la dimensión del espacio de
+ciclos), el rango de los anillos encontrados y si la búsqueda es completa
+(rango = μ). Como el subgrafo es bipartito, cada anillo tiene tamaño/2 metales,
+y también se da el conteo en nomenclatura n-MR (2-MR = M2O2). Una búsqueda "por
+enlace" pierde los anillos grandes de un cúmulo denso.
+
+FORMA GLOBAL. Tensor de giro de la nube atómica, sin pesar por masa: radio de
+giro, momentos principales, asfericidad, acilindricidad y anisotropía relativa
+entre 0 (esférico) y 1 (colineal), más diámetro máximo y volumen del casco
+convexo. El área de superficie y el volumen absolutos son estimaciones de rejilla.
+
+COORDINACIÓN RELATIVA. ECN de cada átomo frente a la media de su propio elemento
+EN ESA ESTRUCTURA. Un ECN absoluto no puede decir si un átomo está
+subcoordinado, porque la respuesta depende del elemento y del cúmulo. Ojo con la
+lectura: la media es la de esa estructura, así que desviación cero significa
+"normal aquí", no "normal en general". La columna z sólo se rellena a partir de
+cuatro átomos del elemento; por debajo es aritmética, no estadística (con dos
+átomos vale siempre ±0.707).
+
+12.2 Comparar estructuras
+.........................
+
+    cadmia structure compare referencia.xyz candidatas/*.xyz
+    cadmia structure compare referencia.xyz cand.xyz --json
+
+Responde dos preguntas que un RMSD por sí solo no distingue.
+
+El ESQUELETO dice si la conectividad es la misma, es decir si se ha hecho o roto
+algún enlace. Es una firma de la topología, invariante a rotación, traslación y
+al orden en que estén escritos los átomos.
+
+La DESVIACIÓN dice cuánto se han movido los átomos, tras superponer óptimamente.
+Se dan la máxima y la RMSD, ambas del mismo emparejamiento, que es POR ELEMENTO
+y no por posición en el fichero.
+
+Una estructura que sólo se ha doblado tiene el mismo esqueleto y una desviación
+grande; una que se ha reorganizado tiene otro esqueleto. La distancia sola no las
+separa, porque una deformación mueve los átomos tanto como una reorganización.
+
+Las estructuras de composición distinta se declaran no comparables en vez de
+recibir un número sin sentido, y se avisa cuando algún contacto queda tan cerca
+del corte de enlace que el veredicto del esqueleto no es seguro.
+
+Cualquier sistema: la detección de enlaces usa radios covalentes/metálicos con
+respaldo de tabla periódica completa (radios covalentes de Cordero et al. [3]),
+así que funciona para cúmulos arbitrarios (bi/tri-metálicos, óxidos, mixtos). Si un elemento no
+tuviera radio, se avisa y no se detectan sus enlaces (añádelo a
+atomic_data.yaml). Las gráficas ECN trend/heatmap descubren los pares
+presentes dinámicamente; el orden Ti-O, Al-O, Ti-Ti, Al-Al, Ti-Al es solo el
+PREFERENTE cuando esos pares existen, y los demás pares se anexan después.
+
+Sesgo de óxido editable: atomic_data.yaml trae excluded_bonds: [O-O], que
+omite los pares O-O de los reportes (razonable en óxidos). Si tu sistema lo
+necesita (peróxidos, sondas O2), quítalo o edítalo en tu atomic_data.yaml.
+
+12.3 Gráficas interactivas (requiere extra [full])
+..................................................
+
+    cadmia structure plot cluster.xyz                       # molécula 3D
+    cadmia structure plot cluster.xyz --kind ecn            # coloreada por ECN
+    cadmia structure plot cluster.xyz --kind bonds          # histograma de distancias
+    cadmia structure plot reporte_estructural.txt --kind ecn-trend
+    cadmia structure plot reporte_estructural.txt --kind ecn-heatmap
+
+Tipos: molecule, ecn, bonds, distances, ecn-trend, ecn-heatmap. Etiquetas
+ECN: --ecn-label both (def., "2.985 (3.0)"), rounded, raw.
+
+12.4 Render POV-Ray
+...................
+
+    cadmia structure render cluster.xyz -o escena --align-inertia
+    cadmia structure render cluster.xyz --render --resolution publication -o escena
+    cadmia structure render cluster.xyz --cube homo.cube --iso-preset homo_lumo -o orbital
+
+POV-Ray se instala aparte (sudo apt install povray). Presets de resolución:
+preview, screen, publication (2560²), ultra.
+
+REFERENCIAS (12)
+[1] R. Hoppe. "Effective coordination numbers (ECoN) and mean fictive ionic
+    radii (MEFIR)." Z. Kristallogr. 1979, 150, 23–52.
+[2] R. Hoppe, S. Voigt, H. Glaum, J. Kissel, H. P. Müller, K. Bernet. "A new
+    route to charge distributions in ionic solids." J. Less-Common Met. 1989,
+    156, 105–122.
+[3] B. Cordero, V. Gómez, A. E. Platero-Prats, et al. "Covalent radii revisited."
+    Dalton Trans. 2008, 2832–2838. (Los radios de la tabla de datos atómicos de
+    CADMIA son covalentes, usados como respaldo para los cortes de enlace.)
+[4] K. Robinson, G. V. Gibbs, P. H. Ribbe. "Quadratic Elongation: A Quantitative
+    Measure of Distortion in Coordination Polyhedra." Science 1971, 172, 567–570.
+[5] M. Pinsky, D. Avnir. Inorg. Chem. 1998, 37, 5575; D. Casanova et al.
+    Chem. Eur. J. 2003, 9, 1281 (programa SHAPE).
+[6] J. L. F. Da Silva. "Effective coordination concept applied for phase change
+    (GeTe)m(Sb2Te3)n compounds." J. Appl. Phys. 2011, 109, 023502.
+[7] H. M. Cezar, G. G. Rondina, J. L. F. Da Silva. "Thermodynamic properties of
+    55-atom Pt-based nanoalloys: Phase changes and structural effects on the
+    electronic properties." J. Chem. Phys. 2019, 151, 204301.
+[8] P. Vismara. "Union of all the minimum cycle bases of a graph." Electron. J.
+    Combin. 1997, 4, R9.
+[9] J. D. Horton. "A polynomial-time algorithm to find the shortest cycle basis
+    of a graph." SIAM J. Comput. 1987, 16, 358–366.
+
+
+====================================================================
+13. BENCHMARK ENTRE MOTORES: CADMIA BENCHMARK
+====================================================================
+
+    # Generar inputs idénticos para ambos motores:
+    cadmia benchmark generate --xyz cluster.xyz --task opt+freq -o ./bench/
+
+    # Comparar salidas terminadas:
+    cadmia benchmark compare --gaussian g.log --orca o.out \
+                             --markdown bench.md --db
+
+Compara de forma sistemática Gaussian 16 [2] y ORCA [3] para el mismo sistema.
+Mide ΔE (umbral 0.1 kcal/mol), RMSD geométrico (alineación de Kabsch [1], umbral
+0.01 Å), frecuencias y tiempos. OJO con la dispersión: Gaussian GD3 y ORCA D3BJ
+NO son la misma corrección; un ΔE de varios kcal/mol entre motores con
+dispersiones distintas es esperable y el agente lo marca.
+
+REFERENCIAS (13)
+[1] W. Kabsch. "A solution for the best rotation to relate two sets of vectors."
+    Acta Crystallogr. A 1976, 32, 922–923.
+[2] M. J. Frisch, et al. "Gaussian 16, Revision C.01." Gaussian, Inc.,
+    Wallingford CT, 2016.
+[3] F. Neese. "Software update: the ORCA program system, version 5.0." WIREs
+    Comput. Mol. Sci. 2022, 12, e1606.
+
+
+====================================================================
+14. BASE DE DATOS Y TRAZABILIDAD: CADMIA DB
+====================================================================
+
+SQLite en ~/.cadmia/cadmia.db (o --db-path en cada comando).
+
+    cadmia db init        # crear/migrar el esquema
+    cadmia db status      # conteo de filas por tabla
+
+Ingesta de salidas ya calculadas (Import Agent, detalle en el Apéndice A.1):
+
+    cadmia import salidas/*.out                          # tabla en terminal
+    cadmia import salidas/*.out --functional PBE0 --basis def2-TZVP --dispersion d4
+
+Por cada .out/.log de Gaussian u ORCA detecta el motor, parsea geometría y
+energía SCF, y registra estructura + cálculo + procedencia sin reimplementar
+ningún parser. El nivel de teoría no se infiere del archivo: pásalo con
+--functional/--basis/--dispersion para que quede anotado en cada cálculo.
+
+Esquema v2 (trazabilidad): structures (geometría canónica embebida, id =
+SHA256 del XYZ), calculations, descriptors, adsorption_configs (geometría
+de partida: sitio, orientación, ángulos) + adsorption_results (E_ads, BSSE,
+E_def, E_int, activación), stability, hpc_jobs, workflow_runs (cada
+invocación CLI con --db: comando exacto + ids producidos), files y
+provenance (archivo fuente, hash, parser, comando, versión, fecha).
+
+Con esto siempre puede responderse: ¿de qué archivo, comando y versión
+salió este número?
+
+Consulta en lenguaje natural (opcional, requiere LLM — sección 15):
+
+    cadmia db ask "¿cuál es la estabilidad relativa de cada óxido mixto?"
+    cadmia db ask "lista los cálculos ORCA con su energía" --limit 10
+    cadmia db ask "..." --sql-only      # ver el SQL sin ejecutarlo
+
+El modelo solo escribe la consulta SELECT; se valida que sea de solo
+lectura (una sentencia, sin palabras de mutación) y se ejecuta en una
+conexión de solo lectura. Los números siempre salen de SQLite.
+
+
+====================================================================
+15. CAPA LLM OPCIONAL
+====================================================================
+
+Experimental: esta capa aún no está validada y puede cambiar.
+
+El LLM solo produce TEXTO (borradores, sugerencias, SQL); ningún número
+científico depende del modelo. Sin API key todo lo demás funciona igual.
+
+Configuración en ~/.cadmia/llm.yaml:
+
+    provider: anthropic          # anthropic | openai | gemini
+    model: claude-sonnet-4-6     # opcional; hay default por proveedor
+    # max_tokens: 1024
+
+La API key va SOLO en variable de entorno (nunca en archivos ni en la DB):
+
+    export ANTHROPIC_API_KEY=...     # o OPENAI_API_KEY / GEMINI_API_KEY
+
+Modelos locales sin key (Ollama, llama.cpp, vLLM), vía proveedor openai:
+
+    provider: openai
+    model: llama3
+    base_url: http://localhost:11434/v1
+
+Casos de uso:
+  1. cadmia report ... --narrate --language es   → borrador de discusión.
+  2. cadmia diagnose archivo.out                 → sugerencias de convergencia.
+  3. cadmia db ask "pregunta"                    → consulta SQL de solo lectura.
+
+
+====================================================================
+16. EL PIPELINE COMPLETO, DE PRINCIPIO A FIN
+====================================================================
+
+16.0 La forma recomendada: cadmia pipeline (Orchestrator)
+.........................................................
+
+Un solo comando encadena todo en orden de dependencia y es REANUDABLE:
+
+    validate → cdft → geometry → run → analyze → stability → report
+
+El avance se guarda en pipeline.json tras CADA etapa. La etapa de cálculo
+necesita un motor; si no lo hay, queda 'blocked' y el flujo se detiene LIMPIO,
+de modo que el tramo sin motor (validate/cdft/geometry) corre en cualquier
+máquina y el resto se reanuda en la máquina con ORCA. La geometría del cúmulo se
+extrae del propio output N (orden atómico correcto, sin cluster.xyz a mano).
+
+    # Tramo sin motor (cualquier máquina); se detiene en la etapa run:
+    cadmia pipeline --n N.out --np1 N+1.out --nm1 N-1.out \
+                    --cluster Al2TiO5 --probe NH3 \
+                    --ref TiO2.out --ref Al2O3.out -o ./corrida/ --db
+
+    # En la máquina con ORCA, reanudar el resto (probe-free puede darse aquí):
+    cadmia pipeline --resume -o ./corrida/ --engine-path /opt/orca6 \
+                    --probe-free NH3.out --nprocs 12 --mem-o 3000 --db
+
+    # Ver el plan sin ejecutar, o cortar en una etapa:
+    cadmia pipeline --resume -o ./corrida/ --dry-run
+    cadmia pipeline --n N.out --np1 N+1.out --nm1 N-1.out --until geometry -o ./c/
+
+Etapas y estados en el manifiesto: done | skipped | blocked | failed | pending.
+analyze se omite (skipped) sin --probe-free; stability se omite sin --ref.
+Un 'blocked'/'failed' detiene el flujo; al reanudar se retoma desde ahí.
+
+La etapa run corre al NIVEL DE PRODUCCIÓN por defecto (--preset accurate y
+--task opt+freq): el aducto se optimiza con el mismo bloque de exactitud
+(RIJCOSX, def2/J, TightSCF, DefGrid3) que el cúmulo y la sonda, de modo
+que E_ads no mezcla niveles, y con frecuencias para la termoquímica ΔG/ΔH.
+TightOpt NO es el valor por defecto: una sonda débilmente ligada tiene modos de
+rotación casi libres cuyo paso nunca alcanza la tolerancia de desplazamiento, y
+la optimización se agota sin converger. Para
+una corrida más rápida y suelta, --task opt --preset analysis. El nivel de teoría
+es --functional/--basis/--dispersion (por defecto PBE0/def2-TZVP/D4). Nota: el
+Orchestrator NO incluye el embudo de cribado (prescreen/rank) ni engancha
+electrónica/estructura; para eso, la versión por pasos (16.1).
+
+16.1 Versión por pasos (control fino o motor remoto)
+....................................................
+
+Todos los pasos son no interactivos: la cadena completa puede correr sola
+desde un script de shell (o un cron) en la máquina local. Esqueleto:
+
+    #!/bin/bash
+    set -e                       # aborta si un paso falla
+    ORCA=/opt/orca6              # ajustar a la instalación real
+
+    # 0. Entorno y control de calidad de los tres estados base
+    cadmia doctor
+    cadmia validate N.out N+1.out N-1.out --db
+
+    # 1. Reactividad CDFT
+    cadmia cdft --n N.out --np1 N+1.out --nm1 N-1.out \
+                -o cdft.json --db
+
+    # 2. Geometría del cúmulo desde el propio output (mismo orden atómico)
+    cadmia xyz N.out -o cluster.xyz
+
+    # 3. Configuraciones de adsorción
+    cadmia geometry --cdft cdft.json --xyz cluster.xyz \
+                    --probe NH3 -o ./configs/ --db
+
+    # 4. Cola local: optimizar las configuraciones (12 núcleos, 3 GB/núcleo)
+    cadmia run --jobs ./configs/ --task opt --nprocs 12 --mem-o 3000 \
+               --engine-path $ORCA -o ./ads_nh3/ --db
+
+    # 4b. La sonda libre, si no la tienes ya:
+    #     cadmia run --jobs NH3.xyz --task opt --nprocs 12 --engine-path $ORCA
+
+    # 5. Energética de cada configuración terminada
+    for out in ./ads_nh3/*.out; do
+      cadmia analyze --adduct "$out" --cluster N.out --probe-free NH3.out \
+                     --cdft cdft.json -o "${out%.out}_analysis.json" --db
+    done
+
+    # 6. Estabilidad relativa (referencias al mismo nivel)
+    cadmia stability --mixed N.out --ref TiO2.out --ref Al2O3.out \
+                     -o stability.json --db
+
+    # 7. Reporte final con correlaciones
+    cadmia report --cdft cdft.json \
+                  $(for j in ./ads_nh3/*_analysis.json; do echo --analysis $j; done) \
+                  --stability stability.json \
+                  -o reporte.md --latex
+
+    # 8. Electrónica y estructura
+    cadmia electronic dos  N.out --format html -o dos.html
+    cadmia electronic pdos N.out --format html -o pdos.html
+    cadmia structure report cluster.xyz -o estructura.txt
+
+Notas de robustez:
+  - cadmia run guarda cadmia_jobs.json tras cada trabajo: si se interrumpe,
+    los terminados no se pierden (revisa el JSON antes de relanzar).
+  - cadmia run devuelve código 1 si algún trabajo falló; con set -e el
+    script se detiene ahí para que revises (cadmia diagnose ayuda).
+  - Cada --db deja la fila de procedencia y el workflow_run con el comando
+    exacto: la corrida completa queda auditada en la base.
+
+
+====================================================================
+17. SOLUCIÓN DE PROBLEMAS FRECUENTES
+====================================================================
+
+"orca: command not found" o corre el lector de pantalla
+    Usa --engine-path /ruta/a/orca6 en cadmia run. cadmia doctor te dice
+    qué binario está encontrando.
+
+ORCA corre en serie aunque pedí %pal
+    ORCA paralelo exige invocarse con ruta ABSOLUTA. cadmia run ya lo hace
+    cuando le das --engine-path.
+
+El catión/anión no converge
+    cadmia diagnose te da los síntomas. Receta habitual:
+    MOREAD desde el .gbw del neutro + SlowConv (escalar a VerySlowConv y
+    TRAH si resiste).
+
+cadmia geometry avisa que el símbolo del sitio no coincide
+    El cluster.xyz no tiene el mismo orden atómico que las salidas SCF.
+    Extrae la geometría del propio .out (sección 6). No ignores el aviso.
+
+electronic pdos dice que falta el bloque por MO
+    La salida ORCA no se corrió con %output Print[P_OrbPopMO_L] 1 end.
+    Hay que re-correr el single point con esa opción.
+
+NPA ausente ("NBOEXE not set")
+    ORCA necesita la variable NBOEXE apuntando a gennbo/nbo7:
+    export NBOEXE=/ruta/a/gennbo  y re-correr el single point.
+
+ΔE grande entre Gaussian y ORCA en benchmark
+    Verifica que ambas usen la MISMA corrección de dispersión (GD3 ≠ D3BJ)
+    y la misma malla/base. El flag del benchmark es correcto: no promedies
+    motores con niveles distintos.
+
+La DB no tiene las tablas nuevas
+    cadmia db init aplica las migraciones (aditivas e idempotentes) a una
+    base existente sin tocar los datos.
+
+--narrate / db ask / sugerencias LLM no funcionan
+    Falta la API key en el entorno o el ~/.cadmia/llm.yaml. cadmia doctor
+    muestra el proveedor configurado y qué variable de entorno espera.
+    Todo lo demás funciona sin LLM.
+
+
+====================================================================
+APÉNDICE A. MÉTODOS POR AGENTE: ALGORITMO, JUSTIFICACIÓN Y BIBLIOGRAFÍA
+====================================================================
+
+Este apéndice documenta, agente por agente, QUÉ hace cada uno, CÓMO lo hace
+(el algoritmo, paso a paso y fiel al código) y POR QUÉ las decisiones de
+método están justificadas, con la bibliografía que las respalda. Las secciones
+siguen el orden de secuencia de uso del flujo de trabajo (igual que el cuerpo de
+la guía); cada una incluye sus propias referencias al final.
+
+
+A.1  IMPORT AGENT — INGESTIÓN DE SALIDAS AL NÚCLEO DE DATOS
+--------------------------------------------------------------------
+(módulo: cadmia/agents/import_agent.py; CLI: cadmia import; sección 14)
+
+QUÉ HACE
+Convierte una colección de salidas ya calculadas (.out/.log de Gaussian u ORCA)
+en filas trazables de la base de datos: por cada archivo detecta el motor, parsea
+la geometría y la energía SCF, y registra estructura + cálculo + procedencia. No
+reimplementa ningún parser: reutiliza los de cadmia/io.
+
+ALGORITMO, PASO A PASO
+1. Detección de motor por archivo (Gaussian/ORCA), o forzado con engine.
+2. Parseo con los lectores existentes: geometría y estado electrónico (energía).
+3. Estado de terminación: "done" si aparece el marcador de terminación normal del
+   motor ("Normal termination" / "ORCA TERMINATED NORMALLY"); si no, "incomplete".
+4. Procedencia: se construye un registro con hash SHA256 del archivo, la línea de
+   comando y la versión de CADMIA, y se persiste de forma IDEMPOTENTE sobre el
+   hash de la geometría (reimportar el mismo archivo no duplica filas).
+5. Órdenes de enlace de Mayer (si la salida ORCA trae Print[P_Mayer] 1) se
+   guardan asociadas al cálculo.
+6. Robustez de lote: un archivo que falla se reporta por ítem y NO aborta el lote.
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Trazabilidad y reproducibilidad. Registrar procedencia (fuente, hash, comando,
+  versión) materializa los principios FAIR de datos científicos [1]; el hash
+  SHA256 [2] da una huella estable del archivo de origen para la idempotencia.
+- Órdenes de enlace de Mayer. Cuando están disponibles, se usan los índices de
+  enlace de Mayer [3] como descriptor de orden de enlace.
+
+LIMITACIONES (QUÉ NO HACE)
+- No corre cálculos ni valida calidad (eso es validate/diagnose); solo ingesta.
+- Depende de que los parsers reconozcan el formato de la versión del motor.
+
+REFERENCIAS (A.1)
+[1] M. D. Wilkinson, et al. "The FAIR Guiding Principles for scientific data
+    management and stewardship." Sci. Data 2016, 3, 160018.
+[2] National Institute of Standards and Technology. "Secure Hash Standard
+    (SHS)." FIPS PUB 180-4, 2015.
+[3] I. Mayer. "Charge, Bond Order and Valence in the AB Initio SCF Theory."
+    Chem. Phys. Lett. 1983, 97, 270–274.
+
+
+A.2  VALIDATION AGENT — CONTROL DE CALIDAD DE SALIDAS DFT
+--------------------------------------------------------------------
+(módulo: cadmia/agents/validation_agent.py; CLI: cadmia validate; sección 4)
+
+QUÉ HACE
+Aplica un control de calidad científico a una salida DFT antes de confiar en sus
+números: comprueba terminación, convergencia SCF, contaminación de espín,
+frecuencias imaginarias, distancias interatómicas anómalas y, opcionalmente, la
+corrección BSSE (solo en cálculos de adsorción). Devuelve un veredicto por
+chequeo (pass/fail/warning/skip) y uno global.
+
+ALGORITMO, PASO A PASO (CADA CHEQUEO)
+1. Terminación. Busca el marcador de terminación normal o de error del motor.
+2. Convergencia SCF. Detecta "SCF converged"/"convergence criterion not met"
+   (Gaussian) o "SCF CONVERGED"/"SCF NOT CONVERGED" (ORCA); como respaldo, la
+   presencia de la energía final cuenta como convergido.
+3. Contaminación de espín. Lee ⟨S²⟩ y lo compara con el valor exacto S(S+1)
+   correspondiente a la multiplicidad. Singlete: cualquier ⟨S²⟩ > 0.02 → aviso.
+   Capa abierta: desviación relativa > 10 % → aviso, > 25 % → fallo.
+4. Frecuencias. Si hay análisis vibracional, cualquier frecuencia imaginaria
+   (negativa) marca fallo: la geometría no es un mínimo verdadero.
+5. Sanidad geométrica. Recorre todos los pares de átomos; si una distancia cae
+   por debajo del mínimo físico (fracción de la suma de radios covalentes), marca
+   choque estérico.
+6. BSSE (opcional, solo adsorción). Verifica que exista corrección counterpoise;
+   su ausencia es fallo en cálculos de adsorción.
+7. Veredicto global: fail si algún chequeo falla; warning si hay avisos; si no,
+   pass.
+
+UMBRALES
+   espín singlete:        ⟨S²⟩ > 0.02            → aviso
+   espín capa abierta:    desv. rel. > 10 %      → aviso; > 25 % → fallo
+   frecuencia imaginaria: cualquiera < 0 cm⁻¹    → fallo
+   distancia anómala:     d < fracción·(r_i+r_j) → fallo
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Contaminación de espín. En métodos no restringidos (UHF/UDFT) el valor propio
+  ⟨S²⟩ debe acercarse a S(S+1); una desviación señala mezcla de estados de espín
+  superiores [1].
+- Frecuencias imaginarias. El análisis vibracional sobre el Hessiano distingue
+  mínimos (todas reales) de estados de transición o puntos silla (frecuencias
+  imaginarias) [2].
+- Sanidad geométrica. El criterio de distancia mínima usa radios covalentes [3].
+- BSSE. La verificación de counterpoise se fundamenta en el método de Boys y
+  Bernardi para corregir el error de superposición de base [4].
+
+LIMITACIONES (QUÉ NO HACE)
+- No corrige los problemas: los detecta. El diagnóstico de causas y las recetas
+  de arreglo los da el Diagnosis Agent (A.9).
+- Depende de marcadores textuales; un formato de versión no contemplado puede
+  caer en "warning/skip" en lugar de pass.
+
+REFERENCIAS (A.2)
+[1] A. Szabo, N. S. Ostlund. "Modern Quantum Chemistry: Introduction to Advanced
+    Electronic Structure Theory." Dover, Nueva York, 1996.
+[2] F. Jensen. "Introduction to Computational Chemistry." 3.ª ed., Wiley,
+    Chichester, 2017.
+[3] B. Cordero, V. Gómez, A. E. Platero-Prats, et al. "Covalent radii revisited."
+    Dalton Trans. 2008, 2832–2838.
+[4] S. F. Boys, F. Bernardi. "The calculation of small molecular interactions by
+    the differences of separate total energies. Some procedures with reduced
+    errors." Mol. Phys. 1970, 19, 553–566.
+
+
+A.3  CDFT AGENT — DESCRIPTORES CONCEPTUALES Y RANKING DE SITIOS
+--------------------------------------------------------------------
+(módulo: cadmia/agents/cdft_agent.py + cadmia/cdft/; CLI: cadmia cdft; sección 5)
+
+QUÉ HACE
+A partir de tres salidas SCF a la MISMA geometría — el sistema neutro (N), su
+anión (N+1) y su catión (N-1) — el CDFT Agent calcula los descriptores globales
+de la teoría conceptual del funcional de la densidad (potencial químico,
+electronegatividad, dureza, blandura, electrofilia, índice de nucleofilia) y las
+funciones de Fukui condensadas por átomo, clasifica cada átomo como sitio
+electrófilo, nucleófilo o anfífilo, y entrega un ranking de sitios reactivos con
+trazabilidad completa (JSON + procedencia).
+
+POR QUÉ TRES CÁLCULOS A LA MISMA GEOMETRÍA
+Los descriptores se obtienen por DIFERENCIAS FINITAS VERTICALES: las energías y
+poblaciones de N+1 y N-1 se evalúan en la geometría optimizada del neutro, sin
+relajar. Así se aproximan las derivadas de la energía respecto al número de
+electrones (∂E/∂N) a número de electrones fijo, que es la definición operativa de
+los descriptores conceptuales [1, 2].
+
+ALGORITMO, PASO A PASO
+1. Detección de motor. Se identifica Gaussian u ORCA por marcadores estables del
+   archivo (p. ej. "FINAL SINGLE POINT ENERGY"/"ORBITAL ENERGIES" para ORCA;
+   "Entering Gaussian System" para Gaussian). Se puede forzar con engine.
+
+2. Lectura de los tres estados. De cada salida se extraen energía SCF, cargas
+   atómicas (esquema de población; se registra cuál) y, cuando están, HOMO/LUMO.
+   En capa abierta HOMO = max(HOMO_alfa, HOMO_beta) y LUMO = min(LUMO_alfa,
+   LUMO_beta).
+
+3. Descriptores globales (diferencias finitas):
+       IP = E(N-1) - E(N)            potencial de ionización
+       EA = E(N)   - E(N+1)          afinidad electrónica
+       η  = IP - EA                  dureza (= gap fundamental, criterio Multiwfn)
+       μ  = -(IP + EA)/2             potencial químico electrónico
+       χ  = -μ                       electronegatividad
+       S  = 1/η                      blandura global
+       ω  = μ² / (2η)                índice de electrofilia
+       ω- = (3·IP + EA)² / (16η)     poder electrodonador (Gázquez-Cedillo-Vela)
+       ω+ = (IP + 3·EA)² / (16η)     poder electroaceptor (Gázquez-Cedillo-Vela)
+       N  = HOMO(N) - HOMO(TCE)      índice de nucleofilia empírico
+   El cero de nucleofilia es HOMO del tetracianoetileno (TCE) = -9.1212 eV
+   (B3LYP/6-31G*, valor interno de Multiwfn). Se exige η > 0 (IP > EA).
+   ω- y ω+ separan la propensión a donar y a aceptar carga; cumplen la identidad
+   exacta ω+ - ω- = μ. Se calculan tanto por la ruta SCF como por la de Koopmans.
+
+4. Funciones de Fukui condensadas (desde cargas atómicas q):
+       f+(i) = q_N(i) - q_{N+1}(i)   ataque nucleófilo / adición de electrón
+       f-(i) = q_{N-1}(i) - q_N(i)   ataque electrófilo / extracción de electrón
+       f0(i) = (f+ + f-)/2           ataque radicalario
+       Δf(i) = f+ - f-               descriptor dual (CDD)
+   Descriptores locales derivados cuando hay datos globales: blanduras locales
+   s± = S·f±, electrofilia local ω·f+, nucleofilia local N·f-, dureza local η·f0,
+   donicidad IP·f-, capacidad aceptora EA·f+, y las relativas s+/s- y s-/s+.
+
+5. Clasificación y ranking. Δf > +0.02 → electrófilo (favorece ataque
+   nucleófilo); Δf < -0.02 → nucleófilo; |Δf| < 0.02 → anfífilo. Los sitios se
+   ordenan por |Δf| descendente; ese ranking es el que consume el Geometry Agent.
+
+6. Procedencia y validación. Se calcula un hash SHA256 de los tres archivos
+   fuente (calculation_id) y se guardan sus rutas. Opcionalmente se contrasta
+   contra valores de referencia internos por número de átomos (gap y sitios top).
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Marco conceptual. Las funciones de Fukui y los descriptores de respuesta
+  global/local provienen de la teoría conceptual del funcional de la densidad
+  [1, 2]; las funciones de Fukui condensadas por átomo siguen la formulación de
+  Yang y Mortier [6].
+- Potencial químico y electronegatividad. μ y χ como derivadas de la energía
+  respecto a N [3].
+- Dureza y blandura. η y S según Parr y Pearson [4]. Nota de convenio: la
+  definición original de Parr-Pearson lleva un factor 1/2 (η = (IP-EA)/2); CADMIA
+  usa el GAP COMPLETO η = IP - EA, igual que Multiwfn [10], y de forma coherente
+  S = 1/η. Por eso μ aparece dividido entre 2 pero η no: son convenios distintos
+  pero internamente consistentes (el ω de abajo usa esta misma η).
+- Electrofilia. ω = μ²/(2η) según Parr, Szentpály y Liu [5], que en su definición
+  original también emplean η = IP - EA (gap completo), consistente con lo anterior.
+- Descriptor dual. Δf = f+ - f- como índice de reactividad dual [7].
+- Índice de nucleofilia. N = HOMO(Nu) - HOMO(TCE), con TCE como referencia [8].
+- Concordancia con Multiwfn. Los descriptores globales SCF se contrastan con
+  Multiwfn [10]; las cargas para Fukui se reportan con su esquema de población
+  (p. ej. Hirshfeld [11], menos dependiente de la base).
+
+LIMITACIONES (QUÉ NO HACE)
+- No corre los SCF: consume salidas ya calculadas (las prepara cadmia
+  prepare cdft y las ejecuta run/submit).
+- Diferencias finitas verticales: no relaja anión ni catión (es lo correcto para
+  estos descriptores, pero no da energías adiabáticas).
+- La calidad de las funciones de Fukui depende del esquema de cargas; se
+  recomienda un esquema poco dependiente de la base.
+- El índice de nucleofilia usa una referencia fija (TCE a B3LYP/6-31G*);
+  comparar solo entre sistemas calculados de forma consistente.
+
+REFERENCIAS (A.3)
+[1]  R. G. Parr, W. Yang. "Density Functional Approach to the Frontier-Electron
+     Theory of Chemical Reactivity." J. Am. Chem. Soc. 1984, 106, 4049–4050.
+[2]  P. Geerlings, F. De Proft, W. Langenaeker. "Conceptual Density Functional
+     Theory." Chem. Rev. 2003, 103, 1793–1873.
+[3]  R. G. Parr, R. A. Donnelly, M. Levy, W. E. Palke. "Electronegativity: The
+     density functional viewpoint." J. Chem. Phys. 1978, 68, 3801–3807.
+[4]  R. G. Parr, R. G. Pearson. "Absolute Hardness: Companion Parameter to
+     Absolute Electronegativity." J. Am. Chem. Soc. 1983, 105, 7512–7516.
+[5]  R. G. Parr, L. von Szentpály, S. Liu. "Electrophilicity Index."
+     J. Am. Chem. Soc. 1999, 121, 1922–1924.
+[6]  W. Yang, W. J. Mortier. "The Use of Global and Local Molecular Parameters
+     for the Analysis of the Gas-Phase Basicity of Amines." J. Am. Chem. Soc.
+     1986, 108, 5708–5711.
+[7]  C. Morell, A. Grand, A. Toro-Labbé. "New Dual Descriptor for Chemical
+     Reactivity." J. Phys. Chem. A 2005, 109, 205–212.
+[8]  L. R. Domingo, E. Chamorro, P. Pérez. "Understanding the Reactivity of
+     Captodatively Ethylenes in Polar Cycloaddition Reactions. A Theoretical
+     Study." J. Org. Chem. 2008, 73, 4615–4624.
+[9]  R. G. Pearson. "Hard and Soft Acids and Bases." J. Am. Chem. Soc. 1963,
+     85, 3533–3539.
+[10] T. Lu, F. Chen. "Multiwfn: A Multifunctional Wavefunction Analyzer."
+     J. Comput. Chem. 2012, 33, 580–592.
+[11] F. L. Hirshfeld. "Bonded-Atom Fragments for Describing Molecular Charge
+     Densities." Theor. Chim. Acta 1977, 44, 129–138.
+
+
+A.4  GEOMETRY AGENT — CONFIGURACIONES DE PARTIDA DE ADSORCIÓN
+--------------------------------------------------------------------
+(módulo: cadmia/agents/geometry_agent.py; CLI: cadmia geometry; sección 6)
+
+QUÉ HACE
+El Geometry Agent toma el ranking de sitios reactivos del análisis CDFT y, para
+cada sitio mejor clasificado, coloca una molécula sonda (H2, CO2, NH3, CO, N2,
+O2, H2O o una definida a medida) en varias orientaciones, generando los
+archivos .xyz del aducto (cúmulo + sonda) que servirán de GEOMETRÍA DE PARTIDA
+para una optimización DFT posterior. No optimiza ni usa aprendizaje automático:
+es una colocación rígida, determinista y reproducible.
+
+NATURALEZA DE LAS GEOMETRÍAS GENERADAS
+Las estructuras que produce el agente son geometrías de partida ("starting
+guesses"), no mínimos de energía. Se construyen con criterios físicos explícitos
+— sitio elegido por reactividad CDFT, distancia inicial por radios covalentes y
+geometría interna de la sonda tomada de datos experimentales — y el mínimo real
+lo encuentra la optimización DFT que se corre después (cadmia run / submit). El
+agente aporta puntos de partida reproducibles, no sesgados y trazables, que
+cubren distintos modos de enlace para que la optimización no quede confinada a
+una sola orientación arbitraria.
+
+ALGORITMO, PASO A PASO
+1. Selección de sitios. Se leen los sitios del JSON de CDFT y se toman los
+   n_sites mejores, en el orden del ranking (por defecto 0, que significa todos). El índice atómico
+   es 1-based, tal como lo emite el CDFT Agent.
+
+2. Verificación del orden atómico. Para cada sitio se comprueba que el símbolo
+   del átomo en cluster.xyz coincida con el símbolo que reporta el CDFT. Si no
+   coincide, el agente emite una advertencia átomo por átomo (el orden del .xyz
+   debe ser el mismo que el de la salida SCF). Si el índice cae fuera de rango,
+   el sitio se omite con advertencia.
+
+3. Distancia inicial sitio–sonda (M–X). Se calcula como
+       d = r_cov(sitio) + r_cov(átomo de anclaje) + 0.5 Å
+   donde r_cov son radios covalentes y el átomo de anclaje es el que enlaza en
+   cada modo de la sonda (p. ej. C en CO2, N en NH3, O en H2O). El sumando de
+   0.5 Å es un margen conservador para evitar choques estéricos en la geometría
+   de partida; deja a la optimización DFT acercar la sonda hasta el mínimo real.
+   Si falta el radio covalente de algún elemento, se usa una distancia de
+   respaldo de 2.5 Å y se avisa.
+
+4. Geometría interna de la sonda. Cada sonda se define con el átomo de anclaje
+   en el origen y la molécula orientada a lo largo de +z, usando longitudes y
+   ángulos de enlace de la molécula libre tomados de datos experimentales
+   (ver tabla abajo). Para H2, CO, N2 y O2 hay modos terminal (η¹) y lateral
+   (η²); CO ofrece anclaje por C o por O; NH3 y H2O se orientan con el par libre
+   hacia la superficie.
+
+5. Muestreo de orientaciones. Por cada sitio y cada modo de la sonda se barre:
+     - un conjunto de ángulos POLARES de aproximación (por defecto 0°, 20°, 40°,
+       60° medidos desde +z), y
+     - n_configs ángulos AZIMUTALES equiespaciados alrededor de z
+       (por defecto 6, es decir cada 60°).
+   En el polo (polar = 0°) los azimutales solo son equivalentes para una sonda
+   axial, que se escribe una vez; las demás conservan su giro propio.
+
+6. Colocación rígida. Para cada (polar, azimutal) se construye el vector de
+   aproximación, se sitúa el átomo de anclaje a la distancia d sobre el sitio y
+   se rota el cuerpo rígido de la sonda para alinear su eje +z con ese vector
+   mediante la fórmula de rotación de Rodrigues. El cúmulo queda congelado y la
+   sonda se añade como los ÚLTIMOS átomos del archivo (convención que usan los
+   agentes posteriores, p. ej. analyze).
+
+7. Control de solapamiento. La distancia d del paso 3 se mide solo al átomo de
+   anclaje, así que el resto de la sonda puede quedar más cerca del cúmulo que
+   él — es lo que ocurre en los modos doblado y lateral del CO2, donde un
+   oxígeno acaba más próximo al sitio que el carbono por el que enlaza. Después
+   de colocar, se mide el contacto sonda–cúmulo más corto en unidades de la
+   suma de radios covalentes; si cae por debajo de 0.80, la sonda entera se
+   aleja a lo largo de su propia dirección de aproximación en pasos de 0.05 Å
+   hasta despejarlo. Alejar conserva la dirección de muestreo, que es
+   información; descartar la perdería por un artefacto de colocación. Si tras
+   2.0 Å sigue solapada, entonces sí se descarta: ese sitio no tiene sitio para
+   esa orientación. Ambos casos se cuentan y se avisan, y el desplazamiento
+   aplicado queda registrado por configuración.
+
+8. Salida. Se escribe un .xyz por configuración, con un comentario que registra
+   cúmulo, sonda, sitio, orientación, ángulos, distancia y el desplazamiento
+   aplicado si lo hubo, y se devuelve un GeometryResult con todas las
+   configuraciones y advertencias (volcable a JSON y a la base de datos).
+
+PARÁMETROS Y VALORES POR DEFECTO
+   n_sites = 0            sitios del ranking CDFT (0 = todos)
+   n_configs = 6          azimutales por (sitio × modo × polar)
+   polar_angles = 0,20,40,60 ° desde la normal local del sitio
+   d = r_cov+r_cov+0.5 Å  (respaldo 2.5 Å si falta un radio)
+   suelo de solapamiento = 0.80 × (r_cov + r_cov); empuje máximo 2.0 Å
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Elección del sitio por CDFT. Las funciones de Fukui y los descriptores de la
+  teoría conceptual del funcional de la densidad identifican los sitios de mayor
+  reactividad local; usarlos para decidir dónde adsorber está bien establecido
+  [1, 2].
+- Distancia inicial por radios covalentes. La suma de radios covalentes es la
+  estimación estándar de una longitud de enlace de partida; se emplean los
+  radios revisados de Cordero et al. [3] (complementados, cuando aplica, por los
+  de Pyykkö y Atsumi [4]). El margen de +0.5 Å es una holgura para evitar
+  solapamientos en la conjetura inicial, no un valor de enlace.
+- Geometría interna de las sondas. Las longitudes y ángulos de enlace de las
+  moléculas libres provienen de datos experimentales tabulados [5, 6]:
+     H2  d(H–H) = 0.741 Å            [5]
+     CO  d(C≡O) = 1.128 Å            [5]
+     N2  d(N≡N) = 1.098 Å            [5]
+     O2  d(O=O) = 1.208 Å (triplete) [5]
+     CO2 d(C=O) = 1.160 Å            [6]
+     NH3 d(N–H) = 1.012 Å, ∠HNH = 106.7°   [6]
+     H2O d(O–H) = 0.9572 Å, ∠HOH = 104.5°  [6]
+- Muestreo de orientaciones (polar × azimutal). Barrer varias direcciones de
+  aproximación evita sesgar la búsqueda hacia una sola orientación y permite que
+  la optimización posterior explore distintos modos de enlace (terminal η¹,
+  lateral η², monodentado, por C o por O, etc.).
+- Rotación de cuerpo rígido. La alineación del eje de la sonda con la dirección
+  de aproximación usa la fórmula de rotación de Rodrigues, una identidad estándar
+  del álgebra de rotaciones [7].
+
+LIMITACIONES (QUÉ NO HACE)
+- No optimiza la geometría: entrega puntos de partida, no mínimos.
+- No predice energías de adsorción (eso es cadmia analyze, sobre las geometrías
+  ya optimizadas).
+- La sonda se trata como cuerpo rígido en la colocación; su estructura interna
+  se relaja luego en la optimización DFT.
+- Depende de que cluster.xyz tenga el mismo orden atómico que la salida SCF; el
+  agente avisa si detecta discrepancias.
+
+REFERENCIAS (A.4)
+[1] R. G. Parr, W. Yang. "Density Functional Approach to the Frontier-Electron
+    Theory of Chemical Reactivity." J. Am. Chem. Soc. 1984, 106, 4049–4050.
+[2] P. Geerlings, F. De Proft, W. Langenaeker. "Conceptual Density Functional
+    Theory." Chem. Rev. 2003, 103, 1793–1873.
+[3] B. Cordero, V. Gómez, A. E. Platero-Prats, et al. "Covalent radii
+    revisited." Dalton Trans. 2008, 2832–2838.
+[4] P. Pyykkö, M. Atsumi. "Molecular Single-Bond Covalent Radii for Elements
+    1–118." Chem. Eur. J. 2009, 15, 186–197.
+[5] K. P. Huber, G. Herzberg. "Molecular Spectra and Molecular Structure IV:
+    Constants of Diatomic Molecules." Van Nostrand Reinhold, Nueva York, 1979.
+[6] NIST Computational Chemistry Comparison and Benchmark Database (CCCBDB),
+    NIST Standard Reference Database 101. https://cccbdb.nist.gov/
+[7] O. Rodrigues. "Des lois géométriques qui régissent les déplacements d'un
+    système solide dans l'espace." J. Math. Pures Appl. 1840, 5, 380–440.
+
+
+A.5  CALCULATION AGENT — PREPARACIÓN Y EJECUCIÓN DE CÁLCULOS
+--------------------------------------------------------------------
+(módulo: cadmia/agents/calculation_agent.py; CLI: cadmia prepare / prepare cdft /
+ run / submit / monitor; sección 7)
+
+QUÉ HACE
+Es el puente entre las geometrías (.xyz) y los cálculos cuánticos. Tres funciones:
+(1) PREPARAR inputs DFT (.inp, para ORCA o Gaussian) a partir de .xyz, sin
+ejecutarlos; (2) un caso especial prepare cdft que genera los TRES estados del
+flujo CDFT; (3) EJECUTAR esos inputs, ya sea en cola local secuencial
+localmente (run) o enviándolos a un planificador SLURM (local o por SSH).
+
+ALGORITMO, PASO A PASO
+1. Resolución de trabajos. Dada una fuente (archivos, directorio o glob), se
+   resuelven los trabajos; en un directorio se prefieren .inp/.gjf sobre .xyz y se
+   avisa de la elección.
+2. Generación de inputs (prepare). Para cada .xyz se escribe el input del motor
+   con los parámetros de cálculo (funcional, base, dispersión, carga,
+   multiplicidad, nprocs, memoria); los inputs ya existentes se pasan tal cual.
+   Un objetivo existente no se sobrescribe salvo overwrite.
+3. Tres estados CDFT (prepare cdft). Desde una sola geometría se fuerza
+   tarea = single point y se escriben tres inputs a la MISMA geometría:
+       <stem>_N        neutro    (carga q,   multiplicidad auto/par)
+       <stem>_anion    N+1       (carga q-1, multiplicidad auto/impar)
+       <stem>_cation   N-1       (carga q+1, multiplicidad auto/impar)
+   en el orden [N, anión, catión] que consume el CDFT Agent. La multiplicidad
+   por defecto es 'auto': se deduce de la paridad de electrones (Σ Z − carga),
+   par → singlete, impar → doblete; pásala a mano (--mult/--mult-anion/
+   --mult-cation con un entero) para estados de alto espín. Con --preset el
+   input ya pide las salidas que el análisis lee después (cargas Hirshfeld/
+   CHELPG, órdenes de Mayer, poblaciones por MO para PDOS).
+4. Ejecución local (run). Cola secuencial en la máquina local: corre cada input con
+   el motor y recoge su salida; la ruta absoluta del motor (--engine-path) es la
+   que ORCA paralelo exige.
+5. Envío a SLURM (submit/monitor). Según el perfil se elige el ejecutor: local
+   (subprocess: sbatch/squeue/sacct) o remoto (SSH). monitor sigue los trabajos
+   hasta completarse; ante un SLURM sin contabilidad (sin sacct) cae al marcador
+   CADMIA_DONE:<código> que el propio script deja en la salida.
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Tres single points a geometría fija. Es el requisito de las diferencias finitas
+  verticales de la CDFT (ver A.3) [1, 2]: anión y catión se evalúan en la
+  geometría del neutro, sin relajar.
+- Nivel de teoría. Funcional y base se registran explícitamente; la corrección de
+  dispersión sigue el esquema D3 de Grimme [3], con amortiguamiento de
+  Becke-Johnson D3(BJ) cuando se solicita [4].
+- Motores. Se generan inputs para Gaussian 16 [5] y ORCA [6], los dos motores de
+  estructura electrónica soportados.
+
+LIMITACIONES (QUÉ NO HACE)
+- No elige el nivel de teoría por ti: lo prepara con los parámetros dados.
+- prepare cdft asume multiplicidades por defecto (1/2/2); revisa el estado de
+  espín real del sistema antes de correr.
+- La cola local es secuencial (una sola máquina), no un planificador.
+
+REFERENCIAS (A.5)
+[1] R. G. Parr, W. Yang. "Density Functional Approach to the Frontier-Electron
+    Theory of Chemical Reactivity." J. Am. Chem. Soc. 1984, 106, 4049–4050.
+[2] P. Geerlings, F. De Proft, W. Langenaeker. "Conceptual Density Functional
+    Theory." Chem. Rev. 2003, 103, 1793–1873.
+[3] S. Grimme, J. Antony, S. Ehrlich, H. Krieg. "A consistent and accurate ab
+    initio parametrization of density functional dispersion correction (DFT-D)
+    for the 94 elements H-Pu." J. Chem. Phys. 2010, 132, 154104.
+[4] S. Grimme, S. Ehrlich, L. Goerigk. "Effect of the damping function in
+    dispersion corrected density functional theory." J. Comput. Chem. 2011, 32,
+    1456–1465.
+[5] M. J. Frisch, et al. "Gaussian 16, Revision C.01." Gaussian, Inc.,
+    Wallingford CT, 2016.
+[6] F. Neese. "Software update: the ORCA program system, version 5.0." WIREs
+    Comput. Mol. Sci. 2022, 12, e1606.
+
+
+A.6  ANALYSIS AGENT — ENERGÉTICA DE ADSORCIÓN Y ACTIVACIÓN
+--------------------------------------------------------------------
+(módulo: cadmia/agents/analysis_agent.py; CLI: cadmia analyze; sección 8)
+
+QUÉ HACE
+A partir de tres salidas validadas — el aducto (cúmulo + sonda), el cúmulo
+aislado y la sonda libre — calcula la energía de adsorción, su corrección BSSE
+opcional, la descomposición en energías de deformación e interacción, la
+elongación del enlace de la sonda con su bandera de activación, e identifica el
+sitio de enlace cruzándolo con el ranking CDFT.
+
+ALGORITMO, PASO A PASO
+1. Energía de adsorción:
+       E_ads = E(aducto) − E(cúmulo) − E(sonda)
+   convertida a kcal/mol. Un valor negativo indica adsorción favorable.
+2. Bloque de la sonda y sitio de enlace. Por la convención "cúmulo primero, sonda
+   al final", los últimos n átomos del aducto son la sonda; el sitio de enlace es
+   el átomo del cúmulo más cercano a cualquier átomo de la sonda.
+3. Elongación y activación. Para cada enlace intramolecular de la sonda libre se
+   mide su longitud en el aducto; la elongación porcentual mayor define la
+   activación: ≥ 5 % marca la sonda como activada.
+4. BSSE (opcional). Si se pide y la salida trae counterpoise:
+       E_ads(BSSE) = E_ads + E_BSSE.
+5. Deformación e interacción (opcional, con geometrías deformadas):
+       E_def = E(fragmento a geometría del aducto) − E(fragmento relajado)
+       E_int = E_ads − E_def(cúmulo) − E_def(sonda)
+6. Contraste con CDFT. Se busca el sitio de enlace en el ranking CDFT y se anota
+   su rango y carácter; si el sitio no es el de rango 1, se avisa.
+
+UMBRALES Y CONSTANTES
+   activación:           elongación ≥ 5 %
+   corte de enlace:      d ≤ 1.3 × (r_i + r_j)   (radios covalentes)
+   conversión:           1 Hartree = 627.509 kcal/mol
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Energía de adsorción supermolecular. E_ads como diferencia aducto menos
+  fragmentos es el esquema estándar; su error de superposición de base se corrige
+  por counterpoise [1].
+- Deformación/interacción. La partición en energía de deformación (preparación) e
+  interacción corresponde al modelo de tensión-activación (distortion/interaction)
+  [2].
+- Activación por elongación. El alargamiento de los enlaces del adsorbato respecto
+  a la molécula libre es un indicador geométrico de su activación sobre el sitio;
+  un caso clásico bien documentado es la activación del CO2, que al adsorberse y
+  recibir carga se flexiona y elonga sus enlaces C=O [3]. El umbral del 5 % es una
+  convención de CADMIA, no un valor tomado de la referencia.
+
+LIMITACIONES (QUÉ NO HACE)
+- Asume el orden atómico de la convención (cúmulo + sonda); si no se cumple,
+  avisa y omite el análisis de sitio/enlace.
+- BSSE y deformación requieren que esos cálculos se hayan corrido aparte.
+- La activación al 5 % es un umbral geométrico, no una barrera energética.
+
+REFERENCIAS (A.6)
+[1] S. F. Boys, F. Bernardi. "The calculation of small molecular interactions by
+    the differences of separate total energies." Mol. Phys. 1970, 19, 553–566.
+[2] F. M. Bickelhaupt, K. N. Houk. "Analyzing Reaction Rates with the
+    Distortion/Interaction-Activation Strain Model." Angew. Chem. Int. Ed. 2017,
+    56, 10070–10086.
+[3] H.-J. Freund, M. W. Roberts. "Surface chemistry of carbon dioxide." Surf.
+    Sci. Rep. 1996, 25, 225–273.
+
+
+A.7  STABILITY AGENT — ESTABILIDAD RELATIVA DEL ÓXIDO MIXTO
+--------------------------------------------------------------------
+(módulo: cadmia/agents/stability_agent.py; CLI: cadmia stability; sección 9)
+
+QUÉ HACE
+Mide la estabilidad (de formación) de un óxido mixto frente a sus óxidos puros,
+un descriptor termodinámico intrínseco del cúmulo, independiente de la adsorción:
+       E_rel = E(mixto) − Σ_i c_i · E(puro_i)
+Un E_rel negativo significa que el óxido mixto es más estable que la suma de sus
+constituyentes puros.
+
+ALGORITMO, PASO A PASO
+1. Conteo de fórmula del mixto y de cada referencia (de sus geometrías parseadas).
+2. Estequiometría. Si no se dan coeficientes, se resuelven los c_i que balancean
+   la fórmula del mixto contra las referencias por mínimos cuadrados, como
+   fracciones pequeñas (denominador ≤ 1000), y se verifica el balance exacto por
+   elemento. Se pueden forzar con --coeff.
+3. Energía relativa. Con las energías totales del mixto y las referencias:
+       E_rel = E(mixto) − Σ c_i · E(puro_i)
+   reportada en Hartree, kcal/mol, eV y eV/átomo.
+4. Aviso de balance. Si la estequiometría no cierra, se avisa y se pide --coeff.
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Energía relativa como energía de reacción. E_rel es la energía de la reacción de
+  formación del óxido mixto a partir de los puros, calculada con energías totales
+  al mismo nivel de teoría [1]; es la misma convención de energía de formación
+  relativa a referencias que usan las bases de datos de materiales [2].
+- Consistencia. Las energías de referencia DEBEN provenir de cálculos del propio
+  usuario al MISMO nivel de teoría que el mixto (mismo funcional, base y
+  dispersión), para que la diferencia sea físicamente comparable.
+
+LIMITACIONES (QUÉ NO HACE)
+- Es una energía electrónica relativa: no incluye corrección de punto cero,
+  entropía ni temperatura (no es una energía libre).
+- Exige referencias coherentes; mezclar niveles de teoría invalida E_rel.
+
+REFERENCIAS (A.7)
+[1] F. Jensen. "Introduction to Computational Chemistry." 3.ª ed., Wiley,
+    Chichester, 2017.
+[2] A. Jain, S. P. Ong, G. Hautier, et al. "Commentary: The Materials Project: A
+    materials genome approach to accelerating materials innovation." APL Mater.
+    2013, 1, 011002.
+
+
+A.8  REPORT AGENT — REPORTE INTEGRADOR
+--------------------------------------------------------------------
+(módulo: cadmia/agents/report_agent.py; CLI: cadmia report; sección 10)
+
+QUÉ HACE
+Consolida los resultados de los agentes CDFT, Analysis, Stability y Benchmark en
+un único informe: tablas comparativas en Markdown y LaTeX, un resumen de energías
+de adsorción (con BSSE) y correlaciones entre descriptores, como Δf del sitio
+frente a E_ads. Las figuras se generan solo si matplotlib está instalado; si no,
+emite los datos (x, y) en CSV para graficar en otro lado.
+
+ALGORITMO, PASO A PASO
+1. Normalización de entradas. Cada resultado (objeto, dict o ruta JSON) se reduce
+   a un diccionario común.
+2. Tablas. Descriptores globales CDFT, ranking de sitios, resumen de adsorción y
+   benchmark, cada uno en Markdown y LaTeX.
+3. Correlación Δf vs E_ads. Empareja cada configuración analizada con el Δf de su
+   sitio y calcula el coeficiente de correlación de Pearson (si hay ≥ 2 puntos).
+4. Salida. Escribe el Markdown siempre; LaTeX y figuras (o CSV) bajo demanda. Con
+   full=True añade encabezado (programa, versión, autor, fecha), sección de
+   información de la corrida y pie de "terminación normal".
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Correlación descriptor–energía. El coeficiente de Pearson [1] cuantifica la
+  relación lineal entre el descriptor dual de reactividad Δf [2] y la energía de
+  adsorción, una validación habitual del poder predictivo de los descriptores
+  conceptuales [3].
+
+LIMITACIONES (QUÉ NO HACE)
+- No interpreta: tabula y correlaciona. La narración en prosa es opcional y la
+  aporta la capa LLM (solo texto, nunca números).
+- La correlación necesita ≥ 2 configuraciones con sitio CDFT emparejado.
+
+REFERENCIAS (A.8)
+[1] K. Pearson. "Note on Regression and Inheritance in the Case of Two Parents."
+    Proc. R. Soc. Lond. 1895, 58, 240–242.
+[2] C. Morell, A. Grand, A. Toro-Labbé. "New Dual Descriptor for Chemical
+    Reactivity." J. Phys. Chem. A 2005, 109, 205–212.
+[3] P. Geerlings, F. De Proft, W. Langenaeker. "Conceptual Density Functional
+    Theory." Chem. Rev. 2003, 103, 1793–1873.
+
+
+A.9  DIAGNOSIS AGENT — DIAGNÓSTICO DE FALLOS DE CONVERGENCIA
+--------------------------------------------------------------------
+(módulo: cadmia/agents/diagnosis_agent.py; CLI: cadmia diagnose; sección 4)
+
+QUÉ HACE
+Examina una salida problemática y extrae síntomas estructurados de patologías de
+convergencia: terminación con error, SCF no convergido, oscilación del SCF,
+colapso variacional de la energía, gap HOMO-LUMO negativo o casi nulo, y
+contaminación de espín. Es determinista (parseo + reglas, sin LLM); la capa LLM
+opcional convierte después los síntomas en sugerencias de arreglo.
+
+ALGORITMO, PASO A PASO
+1. Reutiliza los chequeos del Validation Agent (terminación, SCF, espín).
+2. Traza del SCF. Reconstruye la energía por iteración (Gaussian scf=verbose;
+   bloques DIIS/SOSCF de ORCA) y analiza la cola:
+   - oscilación: amplitud de las últimas energías > 1 Ha en un SCF no convergido;
+   - colapso variacional: caída > 10 Ha por debajo de la primera iteración sin
+     converger (estado no físico). El umbral solo se aplica a SCF no convergidos,
+     porque en una corrida sana la primera iteración está naturalmente muy por
+     encima de la convergida y esa caída escala con el tamaño del sistema.
+3. Orbitales frontera. HOMO/LUMO (capa abierta: HOMO = max(α, β)); gap < 0 →
+   crítico (ocupación errónea / colapso); 0 < gap < 0.5 eV → aviso (frontera casi
+   degenerada, SCF propenso a oscilar).
+4. Espín. Recupera ⟨S²⟩ del chequeo de validación y lo añade como síntoma.
+5. Devuelve un objeto Diagnosis con energía, frontera, traza y la lista de
+   síntomas con severidad y evidencia.
+
+UMBRALES
+   oscilación SCF:      amplitud cola > 1 Ha
+   colapso variacional: caída > 10 Ha bajo la 1.ª iteración (solo si no converge)
+   gap pequeño:         < 0.5 eV   →  aviso
+   gap negativo:        < 0 eV     →  crítico
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Colapso variacional. Por el principio variacional, una energía que cae muy por
+  debajo sin estabilizarse delata un estado no físico [1].
+- Oscilación del SCF. La iteración de campo autoconsistente puede oscilar; los
+  aceleradores tipo DIIS [2] son la respuesta estándar (de ahí las recetas
+  SlowConv/TRAH que sugiere la capa LLM).
+- Frontera casi degenerada. Un gap HOMO-LUMO muy pequeño o negativo apunta a
+  inestabilidad de la solución SCF; el análisis de estabilidad de la función de
+  onda diagnostica este caso [3].
+- Contaminación de espín. Mismo fundamento que en A.2 [1].
+
+LIMITACIONES (QUÉ NO HACE)
+- No arregla ni re-lanza: describe síntomas. Las sugerencias accionables son
+  opcionales y vienen de la capa LLM.
+- La traza del SCF requiere salida con iteraciones (scf=verbose en Gaussian).
+
+REFERENCIAS (A.9)
+[1] A. Szabo, N. S. Ostlund. "Modern Quantum Chemistry." Dover, Nueva York, 1996.
+[2] P. Pulay. "Convergence acceleration of iterative sequences. The case of SCF
+    iteration." Chem. Phys. Lett. 1980, 73, 393–398.
+[3] R. Seeger, J. A. Pople. "Self-consistent molecular orbital methods. XVIII.
+    Constraints and stability in Hartree-Fock theory." J. Chem. Phys. 1977, 66,
+    3045–3050.
+
+
+A.10  BENCHMARK AGENT — COMPARACIÓN ENTRE MOTORES
+--------------------------------------------------------------------
+(módulo: cadmia/agents/benchmark_agent.py; CLI: cadmia benchmark; sección 13)
+
+QUÉ HACE
+Compara de forma sistemática Gaussian 16 y ORCA para el MISMO sistema y nivel de
+teoría, contrastando energía, geometría optimizada, frecuencias y tiempo de
+cálculo, y emite una recomendación.
+
+ALGORITMO, PASO A PASO
+1. Energía. ΔE = |E(Gaussian) − E(ORCA)| × 627.509 kcal/mol; se marca si
+   |ΔE| > 0.1 kcal/mol.
+2. Geometría. RMSD entre las geometrías optimizadas tras alineación óptima por el
+   algoritmo de Kabsch; se marca si RMSD > 0.01 Å.
+3. Frecuencias. RMSD de los primeros 6 modos no triviales (se excluyen los modos
+   |freq| ≤ 10 cm⁻¹, traslación/rotación).
+4. Tiempo. Cociente de tiempos de pared ORCA/Gaussian.
+5. Recomendación a partir de las banderas anteriores.
+
+UMBRALES
+   |ΔE|:           > 0.1 kcal/mol   → bandera
+   RMSD geometría: > 0.01 Å         → bandera
+   modo trivial:   |freq| ≤ 10 cm⁻¹ → excluido
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Alineación de geometrías. El RMSD se calcula tras la superposición óptima por el
+  algoritmo de Kabsch [1], que da la rotación que minimiza el RMSD entre dos
+  conjuntos de puntos.
+- Comparabilidad. Solo tiene sentido comparar Gaussian 16 [2] y ORCA [3] al MISMO
+  nivel (mismo funcional, base, dispersión y malla); el agente no promedia
+  motores en niveles distintos.
+
+LIMITACIONES (QUÉ NO HACE)
+- No decide el nivel de teoría: compara dos cálculos ya hechos.
+- La comparación de frecuencias se limita a los primeros modos no triviales.
+
+REFERENCIAS (A.10)
+[1] W. Kabsch. "A solution for the best rotation to relate two sets of vectors."
+    Acta Crystallogr. A 1976, 32, 922–923.
+[2] M. J. Frisch, et al. "Gaussian 16, Revision C.01." Gaussian, Inc.,
+    Wallingford CT, 2016.
+[3] F. Neese. "Software update: the ORCA program system, version 5.0." WIREs
+    Comput. Mol. Sci. 2022, 12, e1606.
+
+
+A.11  ORCHESTRATOR — ENCADENAMIENTO DEL PIPELINE
+--------------------------------------------------------------------
+(módulo: cadmia/agents/orchestrator.py; CLI: cadmia pipeline; sección 16)
+
+QUÉ HACE
+Encadena los agentes especializados en un único flujo reanudable, en orden de
+dependencia: validate → cdft → geometry → run → analyze → stability → report.
+Persiste un manifiesto (pipeline.json) con el estado de cada etapa para poder
+detener y reanudar la corrida. Es determinista: ninguna decisión depende de un
+LLM, y cada decisión de etapa queda registrada.
+
+ALGORITMO, PASO A PASO
+1. Plan. Crea (o carga) el manifiesto con las etapas en orden de dependencia y su
+   estado (pending/done/skipped/blocked/failed).
+2. Ejecución por etapa. Corre cada etapa en orden, pasando las salidas de una como
+   entrada de la siguiente; tras cada etapa actualiza y guarda el manifiesto.
+3. Corte limpio sin motor. La etapa run necesita un motor cuántico; si no hay
+   ninguno alcanzable, se marca blocked y el pipeline se detiene de forma limpia,
+   de modo que las etapas sin motor (validate → cdft → geometry) corren en
+   cualquier máquina y el resto se reanuda luego en la máquina con motor (ORCA).
+4. Reanudación. --resume retoma desde la primera etapa no terminada; --until corta
+   en una etapa; --dry-run planifica sin ejecutar.
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Flujo reanudable y trazable. El manifiesto persistente y el registro de cada
+  decisión de etapa hacen el proceso reproducible y auditable, en línea con los
+  principios FAIR de datos científicos [1] y con la gestión de flujos de trabajo
+  científicos [2].
+- Determinismo. No hay parseo de lenguaje natural ni LLM en la orquestación: dadas
+  las mismas entradas, el pipeline toma las mismas decisiones.
+
+LIMITACIONES (QUÉ NO HACE)
+- No optimiza geometrías de partida ni elige parámetros: encadena agentes.
+- Parte de las salidas SCF/entradas dadas; no arranca de una sola geometría con
+  un preset (mejora futura).
+
+REFERENCIAS (A.11)
+[1] M. D. Wilkinson, et al. "The FAIR Guiding Principles for scientific data
+    management and stewardship." Sci. Data 2016, 3, 160018.
+[2] E. Deelman, D. Gannon, M. Shields, I. Taylor. "Workflows and e-Science: An
+    overview of workflow system features and capabilities." Future Gener. Comput.
+    Syst. 2009, 25, 528–540.
+
+
+A.12  LITERATURE AGENT — APOYO BIBLIOGRÁFICO
+--------------------------------------------------------------------
+(módulo: cadmia/agents/literature_agent.py; CLI: cadmia literature)
+
+QUÉ HACE
+Descubre referencias bibliográficas para un tema o por DOI consultando APIs
+abiertas (Crossref, OpenAlex y Semantic Scholar) por HTTP, normaliza los
+resultados a un registro común, elimina duplicados por DOI, los ordena y los
+presenta en Markdown, BibTeX o JSON. Los identificadores y números (DOI, año,
+número de citas) provienen SIEMPRE de la API, nunca de un modelo de lenguaje;
+una pasada LLM opcional añade solo una nota de relevancia en
+prosa. Requiere acceso a internet, pero no API key ni recursos de cálculo (CPU local o HPC). Sus
+referencias pueden integrarse en el reporte (cadmia report --literature).
+
+ALGORITMO, PASO A PASO
+1. Consulta. Por tema (texto libre) y/o DOIs explícitos, a Crossref, OpenAlex
+   y/o Semantic Scholar; sobre-consulta para que el deduplicado deje suficientes
+   resultados.
+2. Normalización. Cada resultado se mapea a un registro Reference común (título,
+   autores, año, revista, DOI, URL, citas, tipo, fuente, abstract). El abstract
+   se reconstruye del índice invertido de OpenAlex y se limpia del JATS de
+   Crossref cuando están disponibles.
+3. Deduplicado. Fusiona por DOI (o por título normalizado), conservando el
+   registro más rico (más citas / más autores) y preservando el abstract.
+4. Orden. Por relevancia (orden de la API), por número de citas o por año.
+5. Presentación. Markdown (con abstract recortado), BibTeX o JSON; nota de
+   relevancia LLM opcional.
+
+JUSTIFICACIÓN Y BIBLIOGRAFÍA
+- Fuentes de metadatos. Crossref [1], OpenAlex [2] y Semantic Scholar [3] son
+  índices abiertos de literatura académica; el DOI [4] es el identificador
+  persistente usado para deduplicar.
+- Separación de números y texto: los datos
+  bibliográficos vienen de la API; el LLM, si se usa, solo redacta prosa.
+
+LIMITACIONES (QUÉ NO HACE)
+- Requiere internet; la cobertura y el orden dependen de las APIs externas.
+- No juzga la calidad científica de las referencias; ordena por metadatos.
+- El abstract solo aparece cuando la API lo expone.
+
+REFERENCIAS (A.12)
+[1] G. Hendricks, D. Tkaczyk, J. Lin, P. Feeney. "Crossref: The sustainable
+    source of community-owned scholarly metadata." Quant. Sci. Stud. 2020, 1,
+    414–427.
+[2] J. Priem, H. Piwowar, R. Orr. "OpenAlex: A fully-open index of scholarly
+    works, authors, venues, institutions, and concepts." arXiv:2205.01833, 2022.
+[3] W. Ammar, et al. "Construction of the Literature Graph in Semantic Scholar."
+    Proc. NAACL-HLT 2018, 84–91.
+[4] International Organization for Standardization. "Information and documentation
+    — Digital object identifier system." ISO 26324:2012.

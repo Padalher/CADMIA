@@ -1,0 +1,85 @@
+# CADMIA — Continuous Integration.
+# Linux is the target platform. The engines (ORCA/Gaussian/xtb) are NOT installed here:
+# the tests that need one skip themselves, which is the point — the engine-free path must stay
+# green on any machine.
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Core install (`pip install cadmia`) across supported interpreters. This is also the test of
+  # The core must be enough for parsing, CDFT, DB and reports, with the optional extras
+  # skipping cleanly rather than failing.
+  test:
+    name: Python ${{ matrix.python }} · core
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install (core + dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Test
+        run: pytest tests/ -q
+
+  # Optional extras (`pip install "cadmia[full]"`): figures, interactive plots and volumetric
+  # isosurfaces. Without them ~16 tests skip; this job is what actually exercises them.
+  test-full:
+    name: Python 3.12 · full extras
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (full + dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[full,dev]"
+
+      - name: Test
+        run: pytest tests/ -q -rs
+
+  # The CDFT descriptors are validated against Multiwfn; these are the tests the project
+  # cannot afford to break, so they get their own visible job.
+  cdft-validation:
+    name: Scientific validation · CDFT vs Multiwfn
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (core + dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: CDFT reference tests
+        run: pytest tests/unit/test_cdft.py -q

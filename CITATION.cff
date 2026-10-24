@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use CADMIA in your research, please cite it as below."
+title: "CADMIA — Computational Agent-Driven Molecular Intelligence Architecture"
+abstract: >-
+  A modular command-line suite for studying nanocluster reactivity and
+  adsorption from quantum-chemistry outputs (ORCA and Gaussian), built around a common data core
+  with full scientific traceability: native conceptual-DFT descriptors,
+  CDFT-guided adsorption geometries, energetics and thermochemistry,
+  electron-density / Fukui / dual-descriptor / MEP maps, and an integrated
+  report.
+type: software
+authors:
+  - family-names: "Álvarez Hernández"
+    given-names: "Pablo Daniel"
+    affiliation: "Universidad Juárez Autónoma de Tabasco (UJAT) / CICTAT"
+    email: pablo.alvarez@padalher.com
+    website: "https://padalher.com"
+version: "0.3.0"
+date-released: 2026-10-23
+license: GPL-3.0-or-later
+repository-code: "https://github.com/Padalher/CADMIA"
+url: "https://github.com/Padalher/CADMIA"
+keywords:
+  - conceptual DFT
+  - Fukui functions
+  - adsorption
+  - heterogeneous catalysis
+  - nanoclusters
+  - ORCA
+  - computational chemistry
