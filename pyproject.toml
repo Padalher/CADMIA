@@ -45,7 +45,7 @@ Changelog = "https://github.com/Padalher/CADMIA/blob/main/CHANGELOG.md"
 # Only dependencies actually imported by the codebase are listed.
 full = [
     "matplotlib>=3.5",     # report correlation figures (report_agent)
-    "plotly>=5.0",         # interactive structural plots (structure visualization)
+    "plotly>=5.0",         # interactive structural plots (HTML)
     "scipy>=1.7",          # convex hull of the cluster (structure morphology)
 ]
 # Developer tooling (not a user install option).

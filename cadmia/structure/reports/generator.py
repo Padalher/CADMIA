@@ -38,8 +38,8 @@ def _program_header_lines() -> list[str]:
         "# Pablo Daniel Alvarez Hernandez",
         "#",
         "# Institution:",
+        "# Division Academica de Ciencias Basicas (DACB)",
         "# Universidad Juarez Autonoma de Tabasco (UJAT)",
-        "# Centro de Investigacion de Ciencia y Tecnologia Aplicada de Tabasco (CICTAT)",
         "# ======================================================",
     ]
 

@@ -4,6 +4,17 @@ All notable changes to CADMIA are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html): while the version is 0.x, a minor version may change commands and output formats.
 
+## [Unreleased]
+
+### Changed
+- **Author affiliation:** División Académica de Ciencias Básicas, UJAT (DACB-UJAT) in the citation,
+  the guides and the headers of the outputs.
+
+### Fixed
+- The help of `structure plot`, `structure` and `doctor` no longer mentions removed features
+  (3D plot kinds, POV-Ray rendering, scikit-image); the guides call the parts of `cadmia.out`
+  modules and list every main command.
+
 ## [0.3.1] — 2026-10-27
 
 ### Added

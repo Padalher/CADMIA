@@ -117,7 +117,7 @@ def test_electronic_passthrough_forwards_to_program(runner):
 def test_structure_passthrough_forwards_to_program(runner):
     result = runner.invoke(main, ["structure", "--help"])
     assert result.exit_code == 0
-    assert "plot" in result.output and "render" in result.output
+    assert "plot" in result.output and "report" in result.output and "render" not in result.output
 
 
 def test_banner_theme_follows_the_calendar():

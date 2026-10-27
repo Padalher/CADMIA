@@ -68,8 +68,8 @@ jobs:
       - name: Test
         run: pytest tests/ -q
 
-  # Optional extras (`pip install "cadmia[full]"`): figures, interactive plots and volumetric
-  # isosurfaces. Without them ~16 tests skip; this job is what actually exercises them.
+  # Optional extras (`pip install "cadmia[full]"`): static figures and interactive
+  # plots. Without them ~20 tests skip; this job is what actually exercises them.
   test-full:
     name: Python 3.12 · full extras
     runs-on: ubuntu-latest

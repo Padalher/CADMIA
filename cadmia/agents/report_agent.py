@@ -273,7 +273,7 @@ def _header_block(title: str, meta: dict) -> List[str]:
         "```", _BANNER, "", cite_block(), "```", "",
         f"# {title}", "",
         "**CADMIA** — Computational Agent-Driven Molecular Intelligence Architecture  ",
-        f"Version {__version__} · Pablo Daniel Álvarez Hernández (UJAT/CICTAT) · pablo.alvarez@padalher.com  ",
+        f"Version {__version__} · Pablo Daniel Álvarez Hernández (DACB-UJAT) · pablo.alvarez@padalher.com  ",
         f"Report generated: {meta.get('generated') or _now_iso()}",
         "",
     ]
@@ -845,7 +845,7 @@ def build_output(
     out = [_BANNER, "", cite_block(), "",
            f" CADMIA output — {meta.get('title') or 'CADMIA report'}",
            " Computational Agent-Driven Molecular Intelligence Architecture",
-           f" Version {__version__} · Pablo Daniel Álvarez Hernández (UJAT/CICTAT)",
+           f" Version {__version__} · Pablo Daniel Álvarez Hernández (DACB-UJAT)",
            f" Generated: {meta.get('generated') or _now_iso()}", ""]
 
     out += [" Run information", " " + "=" * (_BOX_WIDTH - 1)]

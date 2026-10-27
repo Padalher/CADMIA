@@ -47,17 +47,17 @@ Funciones principales:
 - Procedencia: resultados guardados en una base de datos SQLite local con el hash del archivo, el
   comando exacto y la versión del programa.
 - Ayuda bilingüe (`--help` en inglés, `--ayuda` en español) y un reporte de texto de columnas fijas
-  con todas las etapas (`reports/cadmia.out`), con resumen Markdown y tablas LaTeX bajo pedido.
+  con todos los módulos (`reports/cadmia.out`), con resumen Markdown y tablas LaTeX bajo pedido.
 
 ## Novedades de 0.3.1
 
 Solo lo principal; el detalle completo está en
 [CHANGELOG.md](https://github.com/Padalher/CADMIA/blob/main/CHANGELOG.md) (en inglés).
 
-- **Un solo origen por etapa:** dentro de un proyecto de `cadmia init`, `structure report`, `cdft`,
+- **Un solo origen por módulo:** dentro de un proyecto de `cadmia init`, `structure report`, `cdft`,
   `analyze` y `stability` guardan sus datos y su reporte completo en `results/`; `cadmia report`
-  los reúne en `reports/cadmia.out`, y `--report/-r ARCHIVO` solo reescribe el reporte de una
-  etapa sin recalcular.
+  los reúne en `reports/cadmia.out`, y `--report/-r ARCHIVO` solo reescribe el reporte de un
+  módulo sin recalcular.
 - **BSSE por counterpoise en ORCA:** `prepare bsse` escribe los cuatro puntos sencillos de
   Boys–Bernardi y `analyze --bsse` los lee; contrastado con `Counterpoise=2` de Gaussian en
   Al₂TiO₅ + CO₂ (1.49 frente a 1.52 kcal/mol).

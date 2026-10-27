@@ -649,7 +649,7 @@ cadmia doctor — Diagnóstico del entorno CADMIA.
 
 Verifica Python, dependencias requeridas (numpy, click, pyyaml), los
 subpaquetes de CADMIA, la configuración (atomic_data.yaml), las dependencias
-opcionales (rich, matplotlib, plotly, scipy, skimage), las herramientas
+opcionales (rich, matplotlib, plotly, scipy), las herramientas
 externas en el PATH (orca, g16, xtb, ssh) y el estado/esquema de la base
 de datos.
 

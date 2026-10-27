@@ -145,7 +145,7 @@ def test_cli_plot_help_lists_kinds(capsys):
     assert exc.value.code == 0
     text = capsys.readouterr().out
     assert "Plot kinds:" in text
-    assert "molecule" in text
+    assert "bonds" in text and "molecule" not in text
     assert "distances" in text
     assert "ecn-trend" in text
     assert "ecn-heatmap" in text

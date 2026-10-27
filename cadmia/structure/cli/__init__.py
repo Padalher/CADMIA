@@ -131,8 +131,7 @@ mode -o is a directory, so pick the file type with --format.
 
 Examples:
   cadmia structure plot cluster.xyz
-  cadmia structure plot cluster.xyz -o molecule.html
-  cadmia structure plot cluster.xyz --kind ecn
+  cadmia structure plot cluster.xyz -o bonds.png
   cadmia structure plot cluster.xyz --kind distances
   cadmia structure plot clusters/*.xyz --kind bonds -o plots
   cadmia structure plot structural_report.txt --kind ecn-trend
@@ -345,7 +344,7 @@ def _build_parser() -> argparse.ArgumentParser:
     plot.add_argument(
         "--title",
         metavar="TEXT",
-        help="Optional figure title for molecule and ECN plots.",
+        help="Optional title for the interactive (HTML) plots.",
     )
     plot.add_argument(
         "--config",
@@ -637,7 +636,6 @@ def main(argv=None):
     known = {
         "structure",
         "plot",
-        "render",
         "-h",
         "--help",
         "--version",

@@ -46,16 +46,16 @@ Main features:
 - Provenance: results stored in a local SQLite database with file hash, exact command and
   program version.
 - Bilingual help (`--help` in English, `--ayuda` in Spanish) and a fixed-width text report of all
-  the stages (`reports/cadmia.out`), with a Markdown summary and LaTeX tables on request.
+  the modules (`reports/cadmia.out`), with a Markdown summary and LaTeX tables on request.
 
 ## What's new in 0.3.1
 
 Highlights only; the full detail is in
 [CHANGELOG.md](https://github.com/Padalher/CADMIA/blob/main/CHANGELOG.md).
 
-- **One source per stage:** inside a `cadmia init` project, `structure report`, `cdft`, `analyze`
+- **One source per module:** inside a `cadmia init` project, `structure report`, `cdft`, `analyze`
   and `stability` save their data and full text report to `results/`; `cadmia report` assembles
-  them into `reports/cadmia.out`, and `--report/-r FILE` alone rewrites a stage's report without
+  them into `reports/cadmia.out`, and `--report/-r FILE` alone rewrites a module's report without
   recomputing.
 - **Counterpoise BSSE for ORCA:** `prepare bsse` writes the four Boys–Bernardi single points and
   `analyze --bsse` reads them; checked against Gaussian `Counterpoise=2` on Al₂TiO₅ + CO₂

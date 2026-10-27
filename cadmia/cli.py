@@ -90,7 +90,7 @@ def _print_banner(today=None) -> None:
     console.print(" Computational Agent-Driven Molecular Intelligence Architecture", style="bold")
     console.print(f" Version {__version__} · GPL-3.0-or-later" + (f"  {glyph}" if coloured else ""),
                   style="dim")
-    console.print(" Pablo Daniel Álvarez Hernández — UJAT / CICTAT", style="dim")
+    console.print(" Pablo Daniel Álvarez Hernández — DACB-UJAT", style="dim")
     console.print(" pablo.alvarez@padalher.com · padalher.com", style="dim")
     console.print()
 
@@ -3140,7 +3140,7 @@ def electronic_mep(input_file, density, isovalue, output) -> None:
                    "to results/structure/, without recomputing.")
 @click.pass_context
 def structure_group(ctx, report_path) -> None:
-    """Structural analysis: ECN/coordination, interactive plots, POV-Ray rendering."""
+    """Structural analysis: ECN/coordination, reports, interactive and static plots."""
     if ctx.invoked_subcommand is not None:
         if report_path:
             raise click.UsageError("structure --report reads results/structure/ on its own; "

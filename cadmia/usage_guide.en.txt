@@ -17,9 +17,8 @@ Program version: CADMIA 0.3.1
 Edition year:    2026
 
 Author:       Pablo Daniel Álvarez Hernández
-Institution:  Universidad Juárez Autónoma de Tabasco (UJAT) /
-              Centro de Investigación de Ciencia y Tecnología
-              Aplicada de Tabasco (CICTAT)
+Institution:  División Académica de Ciencias Básicas (DACB),
+              Universidad Juárez Autónoma de Tabasco (UJAT)
 Email:        pablo.alvarez@padalher.com
 
 --------------------------------------------------------------------
@@ -53,7 +52,7 @@ TABLE OF CONTENTS
  9. Relative stability: cadmia stability
 10. Integrating report: cadmia report
 11. Electronic properties: DOS/PDOS and maps (cadmia electronic / density)
-12. Structural analysis: cadmia structure (ECN, plots, viewer)
+12. Structural analysis: cadmia structure (ECN and plots)
 13. Engine benchmark: cadmia benchmark
 14. Database and traceability: cadmia db
 15. Optional LLM layer (narration, diagnosis, queries)
@@ -93,15 +92,21 @@ CADMIA is a SINGLE `cadmia` program with subcommands. The main ones:
                        (screen-opt|screen-freq|opt|freq|opt+freq|char|cdft|bsse).
     cadmia validate    Quality control of DFT outputs.
     cadmia geometry    CDFT-guided adsorption geometries.
+    cadmia prescreen   GFN2-xTB pre-screen (--freeze: rigid cluster).
+    cadmia rank        Orders DFT outputs by energy, isomers apart.
     cadmia run/submit  Local execution / HPC (SLURM).
     cadmia analyze     Adsorption energetics and activation.
     cadmia stability   Relative stability of the mixed oxide.
+    cadmia stability-series  E_b, ΔE_mix, E_f (fragmentation), Δ²E and isomers along the series.
+    cadmia bde         Bond dissociation energy from fragments.
     cadmia report      Integrating report: reports/cadmia.out (text); -o NAME.md
                        for the Markdown summary, --latex for LaTeX tables.
     cadmia electronic  Electronic properties: dos | pdos | ir | mep.
     cadmia structure   Structural analysis: report | compare | plot.
+    cadmia density     Density, Fukui, dual and MEP cubes from .gbw (ORCA).
     cadmia pipeline    Complete resumable flow (Orchestrator).
-    cadmia db / doctor / diagnose / benchmark / literature / guide / init / import.
+    cadmia db / doctor / diagnose / benchmark / correlate / literature / guide / init /
+    import / paths / xyz / molden.
 
 CADMIA is a single program: everything is invoked as `cadmia <subcommand>`. The former
 standalone CDFT, electronic-properties and structural-analysis programs no longer
@@ -1113,10 +1118,10 @@ molecule). Output in kcal/mol and eV.
 10. INTEGRATING REPORT: CADMIA REPORT
 ====================================================================
 
-Inside a project (cadmia init), every stage saves its result to results/ by
+Inside a project (cadmia init), every module saves its result to results/ by
 itself: structure report → results/structure/<id>.json, cdft →
 results/cdft.json, analyze → results/analysis/<adduct>.json and stability →
-results/stability.json. Each file holds the data and the stage's full report;
+results/stability.json. Each file holds the data and the module's full report;
 without -o no other file is written. Then
 
     cadmia report
@@ -1165,10 +1170,10 @@ Each module keeps its text when it runs: the change applies to modules run after
 
 If results/ mixes different clusters (the cluster formula is compared across the
 modules), cadmia report stops and names the file that does not match; move or delete
-the results of the other study, or give the stage files explicitly. A structure
+the results of the other study, or give each module's files explicitly. A structure
 report of another formula (a size series, the pure oxides) is only mentioned.
 
-Outside a project, or to pick the JSON files by hand, give them with the stage
+Outside a project, or to pick the JSON files by hand, give them with the module
 options; -o NAME.md writes the Markdown summary instead, and --latex adds the LaTeX
 tables:
 

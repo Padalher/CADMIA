@@ -12,7 +12,7 @@ type: software
 authors:
   - family-names: "Álvarez Hernández"
     given-names: "Pablo Daniel"
-    affiliation: "Universidad Juárez Autónoma de Tabasco (UJAT) / CICTAT"
+    affiliation: "División Académica de Ciencias Básicas (DACB), Universidad Juárez Autónoma de Tabasco (UJAT)"
     email: pablo.alvarez@padalher.com
     website: "https://padalher.com"
 version: "0.3.1"

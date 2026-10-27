@@ -17,9 +17,8 @@ Versión del programa: CADMIA 0.3.1
 Año de edición:       2026
 
 Autor:        Pablo Daniel Álvarez Hernández
-Institución:  Universidad Juárez Autónoma de Tabasco (UJAT) /
-              Centro de Investigación de Ciencia y Tecnología
-              Aplicada de Tabasco (CICTAT)
+Institución:  División Académica de Ciencias Básicas (DACB),
+              Universidad Juárez Autónoma de Tabasco (UJAT)
 Correo:       pablo.alvarez@padalher.com
 
 --------------------------------------------------------------------
@@ -53,7 +52,7 @@ resume su uso como `cadmia structure`.
  9. Estabilidad relativa: cadmia stability
 10. Reporte integrador: cadmia report
 11. Propiedades electrónicas: DOS/PDOS y mapas (cadmia electronic / density)
-12. Análisis estructural: cadmia structure (ECN, gráficas, visor)
+12. Análisis estructural: cadmia structure (ECN y gráficas)
 13. Benchmark entre motores: cadmia benchmark
 14. Base de datos y trazabilidad: cadmia db
 15. Capa LLM opcional (narración, diagnóstico, consultas)
@@ -92,6 +91,8 @@ CADMIA es un PROGRAMA ÚNICO `cadmia` con subcomandos. Los principales:
                        (screen-opt|screen-freq|opt|freq|opt+freq|char|cdft|bsse).
     cadmia validate    Control de calidad de salidas DFT.
     cadmia geometry    Geometrías de adsorción guiadas por CDFT.
+    cadmia prescreen   Cribado previo con GFN2-xTB (--freeze: cúmulo rígido).
+    cadmia rank        Ordena salidas DFT por energía, separando isómeros.
     cadmia run/submit  Ejecución local / HPC (SLURM).
     cadmia analyze     Energética de adsorción y activación.
     cadmia stability   Estabilidad relativa del óxido mixto.
@@ -101,8 +102,10 @@ CADMIA es un PROGRAMA ÚNICO `cadmia` con subcomandos. Los principales:
                        para el resumen Markdown, --latex para las tablas LaTeX.
     cadmia electronic  Propiedades electrónicas: dos | pdos | ir | mep.
     cadmia structure   Análisis estructural: report | compare | plot.
+    cadmia density     Cubos de densidad, Fukui, dual y MEP desde .gbw (ORCA).
     cadmia pipeline    Flujo completo reanudable (Orchestrator).
-    cadmia db / doctor / diagnose / benchmark / literature / guide / init / import.
+    cadmia db / doctor / diagnose / benchmark / correlate / literature / guide / init /
+    import / paths / xyz / molden.
 
 CADMIA es un programa único: todo se invoca como `cadmia <subcomando>`. Los antiguos
 programas sueltos de CDFT, propiedades electrónicas y análisis estructural ya no
@@ -1152,11 +1155,11 @@ molécula). Salida en kcal/mol y eV.
 10. REPORTE INTEGRADOR: CADMIA REPORT
 ====================================================================
 
-Dentro de un proyecto (cadmia init), cada etapa guarda sola su resultado en
+Dentro de un proyecto (cadmia init), cada módulo guarda solo su resultado en
 results/: structure report → results/structure/<id>.json, cdft →
 results/cdft.json, analyze → results/analysis/<aducto>.json y stability →
-results/stability.json. Cada archivo lleva los datos y el reporte completo de
-la etapa; sin -o no se escribe ningún otro archivo. Entonces basta con
+results/stability.json. Cada archivo lleva los datos y el reporte completo del
+módulo; sin -o no se escribe ningún otro archivo. Entonces basta con
 
     cadmia report
 
@@ -1205,12 +1208,12 @@ después (la cabecera del .out lo toma siempre).
 
 Si results/ mezcla cúmulos distintos (se compara la fórmula del cúmulo entre
 módulos), cadmia report se detiene y nombra el archivo que no coincide; mueve o borra
-los resultados del otro estudio, o da los archivos de etapa explícitamente. Un
+los resultados del otro estudio, o da los archivos de cada módulo explícitamente. Un
 reporte estructural de otra fórmula (una serie de tamaños, los óxidos puros) solo se
 menciona.
 
 Fuera de un proyecto, o para elegir los JSON a mano, se dan con las opciones de
-etapa; con -o NOMBRE.md se obtiene en cambio el resumen Markdown, y --latex añade
+cada módulo; con -o NOMBRE.md se obtiene en cambio el resumen Markdown, y --latex añade
 las tablas LaTeX:
 
     cadmia report --cdft cdft.json --analysis-dir ./analysis/ \
