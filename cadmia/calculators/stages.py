@@ -32,6 +32,8 @@ class WorkflowStage:
     preset       : output preset name (``none``/``analysis``/``cdft``).
     basis        : basis-set override for the phase (None keeps the caller's default).
     cdft_triplet : True for the CDFT stage, which expands to N/N+1/N-1 single points.
+    counterpoise : True for the BSSE stage, which expands each adduct to the four ghost-atom
+                   single points of the Boys–Bernardi counterpoise correction (ORCA).
     description  : one-line human description.
     """
     name:          str
@@ -40,6 +42,7 @@ class WorkflowStage:
     preset:        str
     basis:         "str | None" = None
     cdft_triplet:  bool = False
+    counterpoise:  bool = False
     description:   str = ""
 
 
@@ -81,6 +84,11 @@ STAGES: Dict[str, WorkflowStage] = {
     "cdft": WorkflowStage(
         name="cdft", task="sp", orca_accuracy=(), preset="cdft", cdft_triplet=True,
         description="CDFT triplet: N/N+1/N-1 single points for finite-difference descriptors.",
+    ),
+    "bsse": WorkflowStage(
+        name="bsse", task="sp", orca_accuracy=_TIGHT, preset="none", counterpoise=True,
+        description="Counterpoise BSSE: each fragment of the adduct in its own and in the "
+                    "full basis, at the adduct geometry (ORCA ghost atoms).",
     ),
 }
 

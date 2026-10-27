@@ -1,11 +1,28 @@
-"""argparse handlers behind `cadmia electronic` (DOS, PDOS, IR, MEP, cubes, VMD)."""
+"""argparse handlers behind `cadmia electronic` (DOS, PDOS, IR, MEP)."""
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
 
+import numpy as np
+
 from cadmia.electronic.dos import dos_from_output, pdos_from_output, write_dos, write_pdos
+from cadmia.io.figures import FIGURE_FORMATS, FIGURE_WIDTHS_IN, resolve_format
+
+_FORMATS = ("dat", "csv", "json", "html", *FIGURE_FORMATS)
+
+
+def _format(args) -> str:
+    return resolve_format(getattr(args, "format", None), args.output, _FORMATS, "dat")
+
+
+def _figure_width(args) -> str:
+    return getattr(args, "width", None) or "single"
+
+
+def _rounded(array) -> list:
+    return np.round(array, 6).tolist()
 
 
 def _cmd_ir(args) -> int:
@@ -28,13 +45,25 @@ def _cmd_ir(args) -> int:
         print(f"WARNING: {spectrum.n_imaginary} imaginary mode(s) — this geometry is not a "
               "minimum, and they contribute nothing to the curve below.")
 
-    if args.format == "html":
+    fmt = _format(args)
+    if fmt in FIGURE_FORMATS:
+        from cadmia.electronic.figures import write_ir_figure
+        out = args.output or (Path(args.input_file).stem + f"_ir.{fmt}")
+        try:
+            write_ir_figure(spectrum, out, title=f"IR spectrum — {Path(args.input_file).name}",
+                            width=_figure_width(args))
+        except RuntimeError as exc:
+            print(f"Error: {exc}")
+            return 1
+        print(f"IR spectrum figure written to: {out}")
+        return 0
+    if fmt == "html":
         from cadmia.electronic.plot import write_ir_html
         out = args.output or (Path(args.input_file).stem + "_ir.html")
         write_ir_html(spectrum, out, title=f"IR spectrum — {Path(args.input_file).name}")
         print(f"IR plot written to: {out}")
     elif args.output:
-        write_ir_spectrum(spectrum, args.output, fmt=args.format)
+        write_ir_spectrum(spectrum, args.output, fmt=fmt)
         print(f"IR spectrum written to: {args.output}")
     else:
         peaks = _peak_table(spectrum)
@@ -46,38 +75,50 @@ def _cmd_ir(args) -> int:
             print(f"  {p['wavenumber_cm1']:8.1f}  {p['ir_intensity_km_mol']:8.2f}")
         if len(peaks) > 12:
             print(f"  … {len(peaks) - 12} more")
-        print("(use --output to write the full curve as .dat/.csv/.json/.html)")
+        print("(use --output to write the full curve: .dat/.csv/.json/.html or a .png/.svg/.pdf figure)")
     return 0
 
 
 def _cmd_dos(args) -> int:
     dos = dos_from_output(args.input_file, sigma=args.sigma, n_points=args.points)
 
-    if args.format == "html":
+    fmt = _format(args)
+    if fmt in FIGURE_FORMATS:
+        from cadmia.electronic.figures import write_dos_figure
+        out = args.output or (Path(args.input_file).stem + f"_dos.{fmt}")
+        try:
+            write_dos_figure(dos, out, title=f"DOS — {Path(args.input_file).name}",
+                             width=_figure_width(args))
+        except RuntimeError as exc:
+            print(f"Error: {exc}")
+            return 1
+        print(f"DOS figure written to: {out}")
+        return 0
+    if fmt == "html":
         from cadmia.electronic.plot import write_dos_html
         out = args.output or (Path(args.input_file).stem + "_dos.html")
         write_dos_html(dos, out, title=f"DOS — {Path(args.input_file).name}")
         print(f"Interactive DOS plot written to: {out}")
         return 0
-    if args.format == "json":
+    if fmt == "json":
         payload = {
-            "energy_ev": dos.energy_ev.tolist(),
-            "dos_total": dos.dos_total.tolist(),
-            "dos_alpha": dos.dos_alpha.tolist(),
-            "dos_beta": dos.dos_beta.tolist() if dos.dos_beta is not None else None,
+            "energy_ev": np.round(dos.energy_ev, 4).tolist(),
+            "dos_total": _rounded(dos.dos_total),
+            "dos_alpha": _rounded(dos.dos_alpha),
+            "dos_beta": _rounded(dos.dos_beta) if dos.dos_beta is not None else None,
             "spin_polarized": dos.is_spin_polarized,
             "homo_ev": dos.homo_ev,
             "lumo_ev": dos.lumo_ev,
             "gap_ev": dos.gap_ev,
         }
-        text = json.dumps(payload, indent=2)
+        text = json.dumps(payload)
         if args.output:
             Path(args.output).write_text(text, encoding="utf-8")
             print(f"JSON written to: {args.output}")
         else:
             print(text)
     elif args.output:
-        write_dos(dos, args.output, fmt=args.format)
+        write_dos(dos, args.output, fmt=fmt)
         print(f"DOS written to: {args.output}")
     else:
         gap = f"{dos.gap_ev:.4f}" if dos.gap_ev is not None else "—"
@@ -85,7 +126,7 @@ def _cmd_dos(args) -> int:
               f"[{dos.energy_ev[0]:.2f}, {dos.energy_ev[-1]:.2f}] eV  |  "
               f"HOMO={dos.homo_ev:.4f}  LUMO={dos.lumo_ev:.4f}  gap={gap} eV  |  "
               f"{'spin-polarized' if dos.is_spin_polarized else 'closed-shell'}")
-        print("(use --output to write the full curve as .dat/.csv/.json)")
+        print("(use --output to write the full curve: .dat/.csv/.json/.html or a .png/.svg/.pdf figure)")
     return 0
 
 
@@ -103,65 +144,45 @@ def _cmd_mep(args) -> int:
     return 0
 
 
-def _cmd_cube(args) -> int:
-    from cadmia.electronic.cube_plot import write_cube_html
-    out = args.output or (Path(args.input_file).stem + "_view.html")
-    warnings = write_cube_html(
-        args.input_file, out, isovalue=args.isovalue,
-        max_points=args.max_points, field_type=args.field_type,
-    )
-    print(f"Interactive cube viewer written to: {out}")
-    for w in warnings:
-        print(f"  ! {w}")
-    return 0
-
-
-def _cmd_vmd(args) -> int:
-    from cadmia.electronic.vmd_export import write_vmd_script
-    try:
-        w, h = (int(x) for x in args.resolution.lower().split("x"))
-    except ValueError:
-        print(f"Invalid --resolution '{args.resolution}'; expected WxH (e.g. 1920x1440).")
-        return 1
-    out = args.output or (Path(args.input_file).stem + "_vmd.tcl")
-    warnings = write_vmd_script(
-        args.input_file, out, isovalue=args.isovalue, resolution=(w, h),
-        material=args.material, render_output=args.render_output, tachyon=args.tachyon,
-    )
-    print(f"VMD/Tachyon script written to: {out}")
-    print(f"  Run it with:  vmd -e {out}    then in the VMD console:  render_hires")
-    for warn in warnings:
-        print(f"  ! {warn}")
-    return 0
-
-
 def _cmd_pdos(args) -> int:
     pdos = pdos_from_output(args.input_file, sigma=args.sigma, n_points=args.points)
 
-    if args.format == "html":
+    fmt = _format(args)
+    if fmt in FIGURE_FORMATS:
+        from cadmia.electronic.figures import write_pdos_figure
+        out = args.output or (Path(args.input_file).stem + f"_pdos.{fmt}")
+        try:
+            write_pdos_figure(pdos, out, title=f"PDOS — {Path(args.input_file).name}",
+                              width=_figure_width(args))
+        except RuntimeError as exc:
+            print(f"Error: {exc}")
+            return 1
+        print(f"PDOS figure written to: {out}")
+        return 0
+    if fmt == "html":
         from cadmia.electronic.plot import write_pdos_html
         out = args.output or (Path(args.input_file).stem + "_pdos.html")
         write_pdos_html(pdos, out, title=f"PDOS — {Path(args.input_file).name}")
         print(f"Interactive PDOS plot written to: {out}")
         return 0
-    if args.format == "json":
+    if fmt == "json":
         payload = {
-            "energy_ev": pdos.energy_ev.tolist(),
-            "series": {e: s.tolist() for e, s in pdos.series.items()},
-            "dos_total": pdos.total.tolist(),
+            "energy_ev": np.round(pdos.energy_ev, 4).tolist(),
+            "series": {e: _rounded(s) for e, s in pdos.series.items()},
+            "dos_total": _rounded(pdos.total),
             "spin_polarized": pdos.spin_polarized,
             "homo_ev": pdos.homo_ev,
             "lumo_ev": pdos.lumo_ev,
             "gap_ev": pdos.gap_ev,
         }
-        text = json.dumps(payload, indent=2)
+        text = json.dumps(payload)
         if args.output:
             Path(args.output).write_text(text, encoding="utf-8")
             print(f"JSON written to: {args.output}")
         else:
             print(text)
     elif args.output:
-        write_pdos(pdos, args.output, fmt=args.format)
+        write_pdos(pdos, args.output, fmt=fmt)
         print(f"PDOS written to: {args.output}")
     else:
         gap = f"{pdos.gap_ev:.4f}" if pdos.gap_ev is not None else "—"
@@ -170,7 +191,7 @@ def _cmd_pdos(args) -> int:
               f"[{pdos.energy_ev[0]:.2f}, {pdos.energy_ev[-1]:.2f}] eV  |  "
               f"gap={gap} eV  |  "
               f"{'spin-polarized' if pdos.spin_polarized else 'closed-shell'}")
-        print("(use --output to write the full curves as .dat/.csv/.json)")
+        print("(use --output to write the full curves: .dat/.csv/.json/.html or a .png/.svg/.pdf figure)")
     return 0
 
 
@@ -186,9 +207,12 @@ def _build_parser() -> argparse.ArgumentParser:
     dos.add_argument("--sigma", type=float, default=0.1, help="Gaussian broadening width in eV (default: 0.1).")
     dos.add_argument("--points", type=int, default=2000, help="Minimum number of energy-grid points; more are used for a step of sigma/4 (default: 2000).")
     dos.add_argument("-o", "--output", default=None,
-                     help="Write the DOS curve to this file (.dat/.csv/.json/.html).")
-    dos.add_argument("--format", choices=["dat", "csv", "json", "html"], default="dat",
-                     help="Output format; html writes an interactive plot.")
+                     help="Write the DOS curve to this file (.dat/.csv/.json/.html/.png/.svg/.pdf).")
+    dos.add_argument("--format", choices=_FORMATS, default=None,
+                     help="Output format; html writes an interactive plot, png/svg/pdf a static "
+                          "figure (matplotlib). Default: the -o suffix, else dat.")
+    dos.add_argument("--width", choices=list(FIGURE_WIDTHS_IN), default="single",
+                     help="Static figure width: single = 3.4 in, double = 6.5 in (default: single).")
     dos.set_defaults(func=_cmd_dos)
 
     pdos = sub.add_parser(
@@ -199,9 +223,12 @@ def _build_parser() -> argparse.ArgumentParser:
     pdos.add_argument("--sigma", type=float, default=0.1, help="Gaussian broadening width in eV (default: 0.1).")
     pdos.add_argument("--points", type=int, default=2000, help="Minimum number of energy-grid points; more are used for a step of sigma/4 (default: 2000).")
     pdos.add_argument("-o", "--output", default=None,
-                      help="Write the PDOS curves to this file (.dat/.csv/.json/.html).")
-    pdos.add_argument("--format", choices=["dat", "csv", "json", "html"], default="dat",
-                      help="Output format; html writes an interactive plot.")
+                      help="Write the PDOS curves to this file (.dat/.csv/.json/.html/.png/.svg/.pdf).")
+    pdos.add_argument("--format", choices=_FORMATS, default=None,
+                      help="Output format; html writes an interactive plot, png/svg/pdf a static "
+                           "figure (matplotlib). Default: the -o suffix, else dat.")
+    pdos.add_argument("--width", choices=list(FIGURE_WIDTHS_IN), default="single",
+                      help="Static figure width: single = 3.4 in, double = 6.5 in (default: single).")
     pdos.set_defaults(func=_cmd_pdos)
 
     ir = sub.add_parser(
@@ -217,45 +244,13 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="Broadening profile (default: lorentzian).")
     ir.add_argument("--points", type=int, default=4000, help="Number of grid points (default: 4000).")
     ir.add_argument("-o", "--output", default=None,
-                    help="Write the spectrum to this file (.dat/.csv/.json/.html).")
-    ir.add_argument("--format", choices=["dat", "csv", "json", "html"], default="dat",
-                    help="Output format; html writes an interactive plot.")
+                    help="Write the spectrum to this file (.dat/.csv/.json/.html/.png/.svg/.pdf).")
+    ir.add_argument("--format", choices=_FORMATS, default=None,
+                    help="Output format; html writes an interactive plot, png/svg/pdf a static "
+                         "figure (matplotlib). Default: the -o suffix, else dat.")
+    ir.add_argument("--width", choices=list(FIGURE_WIDTHS_IN), default="single",
+                    help="Static figure width: single = 3.4 in, double = 6.5 in (default: single).")
     ir.set_defaults(func=_cmd_ir)
-
-    cube = sub.add_parser(
-        "cube",
-        help="Interactive HTML viewer for a .cube field (orbital/density/MEP isosurfaces).",
-    )
-    cube.add_argument("input_file", metavar="CUBE", help="Gaussian/ORCA .cube file.")
-    cube.add_argument("-o", "--output", default=None,
-                      help="Output HTML file (default: <cube>_view.html).")
-    cube.add_argument("--isovalue", type=float, default=None,
-                      help="Isosurface value (default: 15%% of the field's max |value|).")
-    cube.add_argument("--max-points", type=int, default=60000,
-                      help="Max grid points after downsampling (default: 60000).")
-    cube.add_argument("--field-type", default="other",
-                      choices=["other", "density", "orbital", "mep"],
-                      help="Field label used in the title/metadata.")
-    cube.set_defaults(func=_cmd_cube)
-
-    vmd = sub.add_parser(
-        "vmd",
-        help="Write a VMD/Tachyon .tcl script to render a .cube (publication-quality figures).",
-    )
-    vmd.add_argument("input_file", metavar="CUBE", help="Gaussian/ORCA .cube file.")
-    vmd.add_argument("-o", "--output", default=None,
-                     help="Output .tcl script (default: <cube>_vmd.tcl).")
-    vmd.add_argument("--isovalue", type=float, default=None,
-                     help="Isosurface value (default: 15%% of the field's max |value|).")
-    vmd.add_argument("--resolution", default="1920x1440",
-                     help="Render resolution WxH (default: 1920x1440).")
-    vmd.add_argument("--material", default="Transparent",
-                     help="VMD material for the isosurfaces (default: Transparent).")
-    vmd.add_argument("--render-output", default="render.tga",
-                     help="Image file the render_hires proc writes (default: render.tga).")
-    vmd.add_argument("--tachyon", default=None,
-                     help="External Tachyon executable; omit to use VMD's built-in renderer.")
-    vmd.set_defaults(func=_cmd_vmd)
     return parser
 
 
@@ -265,7 +260,11 @@ def main(argv=None):
     if not getattr(args, "func", None):
         parser.print_help()
         return 1
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        print(f"Error: {exc}")
+        return 1
 
 
 if __name__ == "__main__":

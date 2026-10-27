@@ -86,6 +86,7 @@ def run_xtb_opt(
     xtb_path: str = "xtb",
     timeout_s: int = 1800,
     threads: int = 1,
+    fix_atoms: int = 0,
 ) -> XTBResult:
     """Optimize a geometry with GFN-xTB and return (energy, optimized .xyz).
 
@@ -101,6 +102,7 @@ def run_xtb_opt(
                    to control that (the prescreen agent does, and cleans it per config).
     xtb_path     : xtb executable name/path.
     threads      : OpenMP threads for xtb (default 1; some builds SIGSEGV with >1).
+    fix_atoms    : hold atoms 1..fix_atoms rigid (xtb ``$constrain``); 0 relaxes everything.
     """
     src = Path(xyz_path).resolve()
     if not src.exists():
@@ -116,6 +118,12 @@ def run_xtb_opt(
 
     cmd = [xtb_path, str(src), "--opt", "--gfn", str(gfn),
            "--chrg", str(charge), "--uhf", str(max(0, multiplicity - 1))]
+    if fix_atoms > 0:
+        # $constrain holds every distance among those atoms (measured: 0.013 A at most on Al2TiO5
+        # + CO2). $fix does not: with the default ANC optimizer it let the cluster move 1.6 A.
+        (tmp / "xcontrol").write_text(
+            f"$constrain\n force constant=5.0\n atoms: 1-{fix_atoms}\n$end\n", encoding="utf-8")
+        cmd += ["--input", "xcontrol"]
     # Thread control: several xtb builds (e.g. the Ubuntu apt 6.6.1) SIGSEGV with
     # >1 OpenMP thread, so default to single-threaded and override any inherited
     # OMP_NUM_THREADS. A small thread stack is the other usual SIGSEGV cause.

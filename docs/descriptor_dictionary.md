@@ -3,7 +3,7 @@
 > A concise encyclopedia of the terms that appear in CADMIA and in its reports.
 > Written for readers new to quantum chemistry and computational catalysis: each entry answers **what it is**, **what it is for**, **how it is computed** (equations where they help) and **where to read more** (real, accessible sources).
 >
-> Inspired by the style of the Multiwfn manual: explain the term, give the equation and link it to an example from the program itself. The full consolidation (worked examples with real CADMIA data) will be made when the project leaves the alpha phase.
+> Each entry explains the term, gives the equation and links it to an example from the program itself.
 >
 > Notation: `ρ` electron density, `E` energy, `N` number of electrons, `r` position.
 > Units: 1 hartree (Eh) = 27.2114 eV = 627.5095 kcal/mol.
@@ -370,6 +370,8 @@ It appears in the site table of `cadmia cdft` (column `acid/base`), in the "Lewi
 - `ΔG_ads = G(adduct) − G(cluster) − G(probe)`.
 - `−TΔS = ΔG_ads − ΔH_ads` (entropic penalty of fixing the probe).
 
+Each `G` is corrected to the rotational symmetry number σ of the geometry itself when the engine used another one: `G ← G + RT·ln(σ_geometry/σ_engine)`. `ΔG_ads(quasi-RRHO)` repeats the difference with Grimme's quasi-RRHO entropy (see below). None of them is computed from a geometry that did not converge.
+
 **What it is for.** Knowing whether adsorption is favorable (`ΔG < 0`) and by how much.
 **Validated in CADMIA** (Al₂TiO₅ + CO₂): the four terms are computed with these same formulas.
 
@@ -410,15 +412,25 @@ It appears in the site table of `cadmia cdft` (column `acid/base`), in the "Lewi
 **In CADMIA.** Fields `q_transfer_to_probe` and `delta_q_site` (requires the same charge scheme).
 
 ### Charge transfer (predicted, Parr–Pearson ΔN)
-**What it is.** *Different from the previous one*: it is not measured from the adduct but **predicted** from the global descriptors of the two isolated species, with the two-parabola model. The number of electrons flowing from A to B and the associated stabilization are `ΔN = (μ_A − μ_B) / (η_A + η_B)` (ΔN > 0 ⇒ A donates) and `ΔE = −(μ_A − μ_B)² / [2(η_A + η_B)]`.
+**What it is.** *Different from the previous one*: it is not measured from the adduct but **predicted** from the global descriptors of the two isolated species, with the two-parabola model. The number of electrons flowing from A to B and the associated stabilization are `ΔN = (μ_A − μ_B) / (η_A + η_B)` (ΔN > 0 ⇒ A donates) and `ΔE = −(μ_A − μ_B)² / [2(η_A + η_B)]`. **Convention.** Here η is CADMIA's `η = I − A`, with no ½, so it is twice the hardness of Parr and Pearson, `η = (I − A)/2 = ½ ∂²E/∂N²`. The original formulas, written with the half hardness, carry an extra 2 in the denominators, `ΔN = (μ_A − μ_B) / [2(η_A + η_B)]` and `ΔE = −(μ_A − μ_B)² / [4(η_A + η_B)]`; the two forms give the same ΔN and ΔE, but do not mix η from one convention with the formula of the other.
 **What it is for.** Anticipating the direction and magnitude of cluster↔probe transfer *before* optimizing the adduct, using only μ and η of each fragment. Comparing it with the transfer observed from populations closes the diagnosis.
 **In CADMIA.** `compute_charge_transfer` (`core/charge_transfer.py`); fields `delta_n`/`e_stab`.
 **Sources.** Parr & Pearson, *J. Am. Chem. Soc.* **105**, 7512 (1983).
 
 ### BSSE — Basis set superposition error
-**What it is.** An artificial bias that overestimates the interaction energy because each fragment "borrows" basis functions from the other. It is corrected with the *counterpoise* method.
-**What it is for.** More reliable adsorption energies, especially with small basis sets.
-**In CADMIA.** E_ads is reported with and without BSSE correction when available.
+**What it is.** An artificial stabilization of the adduct. A finite basis set describes each fragment imperfectly; in the adduct, the cluster can also use the basis functions centred on the probe's atoms (and the probe those of the cluster), so each fragment is described *better* in the adduct than alone. That improvement is not binding, but it lowers `E(adduct)` and makes `E_ads` too negative. It shrinks as the basis grows and vanishes in the complete-basis limit.
+
+**Counterpoise correction (Boys–Bernardi).** Each fragment is recomputed at its geometry **in the adduct**, once in its own basis and once in the full basis of the adduct, with the partner's atoms present only as *ghost atoms* (basis functions without nuclei or electrons):
+
+- `BSSE = [E_cl(own basis) − E_cl(full basis)] + [E_pr(own basis) − E_pr(full basis)]`, all at the adduct geometry. Each bracket is ≥ 0: the extra functions can only lower a variational energy.
+- `E_ads(BSSE) = E_ads + BSSE`, so the corrected adsorption energy is less negative.
+
+The correction takes four extra single points per adduct (two per fragment). It does not touch `E_def` or the thermal terms: they are computed for each species in its own basis already.
+
+**What it is for / rule.** It is larger for small basis sets (double-ζ, e.g. def2-SVP) than for large ones (triple-ζ, e.g. def2-TZVP), and it matters most for weak binding, where it can be a large fraction of `E_ads` and even change the ranking of configurations. Its size depends on the system and the basis: compute it, do not assume it. Report the basis and whether `E_ads` is corrected; compare corrected with corrected.
+
+**In CADMIA.** Gaussian: an adduct computed with `Counterpoise=2` is recognized by itself, and its energy is already the corrected one. ORCA has no one-job counterpoise: `cadmia prepare bsse ADDUCT.out --cluster C.out --probe-free P.out` writes the four single points (`<adduct>_cp_{cluster,probe}_{own,full}`, ghost atoms written as `O:`), and `cadmia analyze --bsse` reads their outputs and reports `E_ads(BSSE)`.
+**Sources.** Boys & Bernardi, *Mol. Phys.* **19**, 553 (1970); van Duijneveldt, van Duijneveldt-van de Rijdt & van Lenthe, *Chem. Rev.* **94**, 1873 (1994).
 
 ---
 
@@ -574,4 +586,4 @@ It appears in the site table of `cadmia cdft` (column `acid/base`), in the "Lewi
 
 ---
 
-*Living document. When adding a new term, follow the pattern: what it is · what it is for · equation (if applicable) · in CADMIA · real source. Scientific figures always come from the calculation, never from a language model. The final consolidation (with worked examples and CADMIA figures, in the style of the Multiwfn manual) will be made when the project leaves the alpha phase.*
+*Living document. When adding a new term, follow the pattern: what it is · what it is for · equation (if applicable) · in CADMIA · real source. Scientific figures always come from the calculation, never from a language model.*

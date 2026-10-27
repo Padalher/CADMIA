@@ -15,11 +15,12 @@ authors:
     affiliation: "Universidad Juárez Autónoma de Tabasco (UJAT) / CICTAT"
     email: pablo.alvarez@padalher.com
     website: "https://padalher.com"
-version: "0.3.0"
-date-released: 2026-10-23
+version: "0.3.1"
+date-released: 2026-10-27
 license: GPL-3.0-or-later
 repository-code: "https://github.com/Padalher/CADMIA"
 url: "https://github.com/Padalher/CADMIA"
+doi: 10.5281/zenodo.23608477
 keywords:
   - conceptual DFT
   - Fukui functions

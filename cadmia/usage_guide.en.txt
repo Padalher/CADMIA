@@ -13,7 +13,7 @@
 USER GUIDE
 ====================================================================
 
-Program version: CADMIA 0.3.0 (alpha)
+Program version: CADMIA 0.3.1
 Edition year:    2026
 
 Author:       Pablo Daniel Álvarez Hernández
@@ -32,8 +32,7 @@ through the `cadmia` command with subcommands.
 Compatible with: Gaussian 16 and ORCA 6 outputs, Python 3.11+
 (tested on 3.14).
 
-Guide organization: following the style of reference manuals such as
-Multiwfn's, each section documents one type of analysis with its command, its
+Guide organization: each section documents one type of analysis with its command, its
 main options and, where applicable, its Python API, accompanied by reproducible
 examples. Structural analysis is an integrated part of CADMIA; section 12
 summarizes its use as `cadmia structure`.
@@ -54,7 +53,7 @@ TABLE OF CONTENTS
  9. Relative stability: cadmia stability
 10. Integrating report: cadmia report
 11. Electronic properties: DOS/PDOS and maps (cadmia electronic / density)
-12. Structural analysis: cadmia structure (ECN, plots, render)
+12. Structural analysis: cadmia structure (ECN, plots, viewer)
 13. Engine benchmark: cadmia benchmark
 14. Database and traceability: cadmia db
 15. Optional LLM layer (narration, diagnosis, queries)
@@ -91,15 +90,16 @@ CADMIA is a SINGLE `cadmia` program with subcommands. The main ones:
     cadmia cdft        CDFT descriptors and site ranking (+ full --report).
     cadmia prepare     Generates DFT inputs per STAGE from .xyz or .out without
                        running them
-                       (screen-opt|screen-freq|opt|freq|opt+freq|char|cdft).
+                       (screen-opt|screen-freq|opt|freq|opt+freq|char|cdft|bsse).
     cadmia validate    Quality control of DFT outputs.
     cadmia geometry    CDFT-guided adsorption geometries.
     cadmia run/submit  Local execution / HPC (SLURM).
     cadmia analyze     Adsorption energetics and activation.
     cadmia stability   Relative stability of the mixed oxide.
-    cadmia report      Integrating report (Markdown/LaTeX).
-    cadmia electronic  Electronic properties: dos | pdos | ir | mep | cube | vmd.
-    cadmia structure   Structural analysis: report | plot | render.
+    cadmia report      Integrating report: reports/cadmia.out (text); -o NAME.md
+                       for the Markdown summary, --latex for LaTeX tables.
+    cadmia electronic  Electronic properties: dos | pdos | ir | mep.
+    cadmia structure   Structural analysis: report | compare | plot.
     cadmia pipeline    Complete resumable flow (Orchestrator).
     cadmia db / doctor / diagnose / benchmark / literature / guide / init / import.
 
@@ -177,26 +177,26 @@ Two installation options, depending on what you need:
   - Recommended (core): everything needed to work — Gaussian/ORCA parsing,
     CDFT, geometries, database and reports.
   - Complete ([full]): adds the optional dependencies for figures (matplotlib),
-    interactive plots (plotly) and volumetric isosurfaces (scipy, scikit-image).
+    interactive plots (plotly) and convex-hull shape descriptors (scipy).
 
 Requirement: Python >= 3.11. A virtual environment is ALWAYS recommended (on many
 modern Linux systems, pip even refuses the global install with
 "externally-managed-environment").
 
-2.1 Install from the package (.tar.gz) — for normal use
-.......................................................
+2.1 Install from PyPI — for normal use
+......................................
 
-This is the usual way to install CADMIA on your machine from the
-`cadmia-0.3.0.tar.gz` package, in a dedicated environment (like any other
-program under ~/.programs):
+This is the usual way to install CADMIA on your machine: from PyPI, in a
+dedicated environment (like any other program in its own folder). A downloaded
+cadmia-X.Y.Z.tar.gz installs the same way, with its path in place of `cadmia`:
 
     # 1. Create the dedicated environment
-    python3 -m venv ~/.programs/cadmia/.venv
+    python3 -m venv ~/cadmia-env
 
     # 2. Install inside the environment (core)
-    ~/.programs/cadmia/.venv/bin/pip install /path/to/cadmia-0.3.0.tar.gz
+    ~/cadmia-env/bin/pip install cadmia
     #    …or the complete version:
-    ~/.programs/cadmia/.venv/bin/pip install "/path/to/cadmia-0.3.0.tar.gz[full]"
+    ~/cadmia-env/bin/pip install "cadmia[full]"
 
 pip resolves the dependencies on its own. The install creates ONE executable
 inside the environment: `cadmia` (the single program; everything is invoked as
@@ -205,17 +205,17 @@ inside the environment: `cadmia` (the single program; everything is invoked as
 To use it without activating the environment, define the alias in ~/.bashrc
 (adjust the path to your user):
 
-    alias cadmia='/home/USER/.programs/cadmia/.venv/bin/cadmia'
+    alias cadmia='/home/USER/cadmia-env/bin/cadmia'
 
 Then `source ~/.bashrc` and you have `cadmia` from any folder.
 
 Alternatively, activating the environment makes `cadmia` available without an alias:
 
-    source ~/.programs/cadmia/.venv/bin/activate
+    source ~/cadmia-env/bin/activate
     # ... use cadmia ...
     deactivate
 
-Alternative with pipx (if you have it): `pipx install /path/to/cadmia-0.3.0.tar.gz`
+Alternative with pipx (if you have it): `pipx install cadmia`
 creates the isolated environment and puts the executables on the PATH without aliases.
 
 About the `cadmia` executable (entry-point): after `pip install`, pip creates the
@@ -245,7 +245,7 @@ Always, after installing (on your PC, workstation or HPC node):
 
 It checks: Python version, required and optional dependencies, the seven
 cadmia subpackages, the atomic-data YAML, the LLM configuration, the external
-binaries (orca, g16, ssh, povray) and the database schema status. It exits with
+binaries (orca, g16, xtb, ssh) and the database schema status. It exits with
 code 1 only if something required fails.
 
 IMPORTANT on desktop Linux: /usr/bin/orca is usually the GNOME SCREEN READER,
@@ -422,12 +422,16 @@ It persists molecule + calculation + descriptors + provenance to the database
 (on by default; --no-db skips it).
 
 Full report under cadmia: with --report it also writes the extensive
-Multiwfn-style report (global + condensed per atom f+/f-/f0/CDD, local
+report (global + condensed per atom f+/f-/f0/CDD, local
 electro/nucleophilicity, softnesses):
 
     cadmia cdft --n N.out --np1 N+1.out --nm1 N-1.out \
                 --report cdft_full.txt --report-format txt --no-table
     # --tce-homo EV sets the HOMO(TCE) reference to your level of theory.
+
+Inside a project (cadmia init) the result is also saved to results/cdft.json, and
+--n/--np1/--nm1 are optional when you only want the report: `cadmia cdft -r
+cdft_full.txt` writes it from that file without recomputing anything.
 
 Validation: the global SCF descriptors must match Multiwfn EXACTLY.
 
@@ -494,6 +498,9 @@ REFERENCES (5)
 6. ADSORPTION GEOMETRIES: CADMIA GEOMETRY
 ====================================================================
 
+The procedure is described as the systematic adduct generation algorithm
+(provisional name) in Appendix A.4.
+
 Generates probe starting configurations on the top sites of the CDFT ranking:
 
     cadmia geometry --cdft cdft.json --xyz cluster.xyz \
@@ -506,6 +513,23 @@ r_cov(site) + r_cov(anchor atom) + 0.5 A (covalent radii of Cordero et al. [1]).
 For each site several
 orientations are generated (polar × azimuthal angle); they come out as .xyz files
 (cluster + probe) ready for cadmia run/prepare.
+
+Sampling width (per probe): --n-sites (number of CDFT-ranked sites; default 0,
+meaning ALL), --n-configs (azimuthal orientations per site, mode and polar angle;
+default 6) and --polar (approach angles in degrees; default 0 20 40 60).
+
+How many configurations come out. For each site and each probe mode, n_configs
+orientations are written at every polar angle other than 0°, and at 0° a single
+one if the probe is axial (H2 η¹, CO2 o_down, CO) or n_configs if it is not:
+
+    total = sites × Σ_modes [ (1 or n_configs) + (n_polar − 1) × n_configs ]
+
+With the defaults, Al2TiO5 (8 atoms) + CO2 gives 8 × (3 × 24 + 19) = 728
+configurations; on the same cluster H2 and O2 give 344, NH3 and H2O 384 and CO
+304. The total grows with the number of atoms of the cluster, and the xTB
+pre-screen (6.1) is what brings it down to a few tens of DFT candidates. For a
+quick test, reduce the sampling as the example notebook does:
+--n-sites 2 --n-configs 2 --polar 0 --polar 40 gives 30 configurations.
 
 VERY IMPORTANT — the atom order: the cluster.xyz file MUST have the same atom
 order as the SCF outputs the CDFT came from. The safe way is to extract it from
@@ -530,8 +554,12 @@ BEFORE the expensive DFT. cadmia prescreen optimizes each .xyz with GFN2-xTB [2]
 (cheap), discards those that relax to the SAME minimum and keeps the survivors
 within an energy window:
 
-    cadmia prescreen ./configs/ --charge 0 --mult 1 \
+    cadmia prescreen ./configs/ --charge 0 \
                      --window 20 --threads 8 -o ./prescreened/
+
+--mult is auto by default: it takes the mult= that geometry writes in the comment
+of each .xyz and, if there is none, the lowest multiplicity allowed by the electron
+parity. Pass --mult N to force one for the whole batch.
 
 There is NO cap by default: ALL configurations inside the window are kept (if 10 of
 100 fall within --window, those 10 survive). --top N is optional and only limits the
@@ -566,6 +594,15 @@ Survival criterion, step by step:
         xTB does NOT have to run again.
     (Pool files live under pool/ on purpose, so the *.xyz glob of prepare/run in the
     root never ingests them by mistake.)
+
+Free or frozen cluster (--freeze). By default xTB relaxes everything, probe and
+cluster. With --freeze the cluster is held rigid (an xTB $constrain on its atoms,
+given by --cluster) and only the probe relaxes; DFT is never constrained. It is an
+option and not the default because, measured on the Al2TiO5 + CO2 example with 60
+configurations, the frozen screen ranks almost alike (Spearman 0.83) but sends no
+Al site to DFT: those adducts form only when the cluster adjusts, and frozen they
+sit 5–36 kcal/mol higher. With --freeze, --cluster is the same cluster the
+configurations were built on (its atoms open every .xyz).
 
 The xTB energies ONLY serve to order and deduplicate; the survivors are
 re-optimized in DFT. It requires the `xtb` binary on PATH (--xtb-path for another
@@ -680,6 +717,9 @@ glob).
     opt+freq     Opt Freq       geometry and frequencies in a single job.
     char         SP            SP + Hirshfeld/CHELPG/Mayer/PDOS (characterization).
     cdft         SP x3         N/N+1/N-1 triplet at fixed geometry (section 3.1).
+    bsse         SP x4         counterpoise (ORCA): each fragment of the adduct in its
+                               own basis and in the full basis (ghost atoms), at the
+                               adduct geometry. Needs --cluster and --probe-free.
 
 What it accepts as a geometry:
 
@@ -866,19 +906,33 @@ With the optimized adduct, the isolated cluster and the free probe:
 
 It computes:
   - E_ads = E(adduct) − E(cluster) − E(probe), in kcal/mol.
-  - BSSE-corrected E_ads (reads the counterpoise block of the adduct [1]).
+  - BSSE-corrected E_ads [1]: BSSE = [E_cl(own basis) − E_cl(full basis)]
+    + [E_probe(own) − E_probe(full)], all at the adduct geometry, and
+    E_ads(BSSE) = E_ads + BSSE. In Gaussian (Counterpoise=2) it is read from the
+    adduct itself, even without --bsse. In ORCA,
+        cadmia prepare bsse adduct.out --cluster cluster.out --probe-free probe.out
+    first writes the four ghost-atom single points; once they have run, --bsse
+    reads the <adduct>_cp_*.out next to the adduct or in the working folder.
   - E_def(cluster), E_def(probe) and E_int if the single points at the adduct
     geometry are given (--cluster-deformed / --probe-deformed); it is the
     distortion/interaction (activation strain) partition [2].
-  - Elongation of the probe bonds with an ACTIVATION flag (≥ 5%).
+  - Elongation of the probe bonds and bending of its angles, with an ACTIVATION
+    flag (a bond stretched ≥ 5%, or a linear angle bent ≥ 10°).
   - Cross-check with the CDFT ranking: is the bound site the rank 1 one?
 
-Scope of the activation flag: the current detection marks activation by
-ELONGATION of a probe bond ≥ 5% relative to the free molecule (a classic
-geometric indicator, e.g. in CO2 activation [3]). It holds for any probe with
-intramolecular bonds (H2, NH3, CO2, etc.). It does NOT yet detect ANGULAR modes
-(e.g. the umbrella opening of NH3) nor the DISSOCIATION of the probe; the 5%
-threshold is a CADMIA convention, not an energy barrier.
+Scope of the activation flag: a probe counts as activated if ANY of its bonds
+is ELONGATED ≥ 5% relative to the free molecule, or if an angle that was linear
+in the free molecule (≥ 175°, as in CO2) is BENT by ≥ 10° in the adduct. Both
+are classic geometric indicators of CO2 activation [3], and the bending matters
+because CO2 can activate as a bent, negatively charged species while its C–O
+bonds barely stretch. The bending threshold is set with --bend-threshold DEG
+(default 10). The JSON adds probe_angles (label, free, adduct and Δ in degrees,
+for every angle of the probe) and max_bend_deg (the largest bend of a linear
+angle); the report prints them next to the bond elongations. The detection
+holds for any probe with intramolecular bonds (H2, NH3, CO2, etc.). It does NOT
+detect the umbrella opening of NH3 (that angle is not linear in the free
+molecule) nor the DISSOCIATION of the probe; the 5% and 10° thresholds are
+CADMIA conventions, not energy barriers.
 
 8.1 Adsorption thermochemistry (ΔG/ΔH)
 ......................................
@@ -1059,7 +1113,64 @@ molecule). Output in kcal/mol and eV.
 10. INTEGRATING REPORT: CADMIA REPORT
 ====================================================================
 
-Consolidates the agents' JSON into a Markdown report (+ LaTeX):
+Inside a project (cadmia init), every stage saves its result to results/ by
+itself: structure report → results/structure/<id>.json, cdft →
+results/cdft.json, analyze → results/analysis/<adduct>.json and stability →
+results/stability.json. Each file holds the data and the stage's full report;
+without -o no other file is written. Then
+
+    cadmia report
+
+writes reports/cadmia.out, the CADMIA output: fixed-width text with the header
+(version, citation, level of theory read from the outputs), every module's FULL
+report in its own frame (MODULE 1 · STRUCTURE, MODULE 2 · CDFT, …), the
+correlations across modules and the normal-termination footer.
+`cadmia cdft --report file.txt`, without --n/--np1/--nm1, writes the CDFT report
+from results/cdft.json without recomputing.
+
+-o NAME.out gives the output another name. A result in results/ is never
+overwritten by one computed from other files: running the same inputs again updates
+its file, and other inputs go to the next free copy (cdft-2.json, cdft-3.json…;
+site5-2.json for a second site5 adduct from another folder). That name is the
+persistent identifier of the result (config_id of an adsorption configuration) in
+the database and the report, where every copy appears under its own heading.
+Inside a project -o is not needed: the module saves itself to results/.
+
+With no options, cadmia report takes only the original results and lists the
+copies it left out. To choose, each module option takes one or more files in a
+row, or all for every result of that module (copies included), and then only the
+modules given are reported:
+
+    cadmia report --cdft results/cdft.json results/cdft-2.json
+    cadmia report --structure all -o structures.out
+
+Modules carry fixed numbers in the output: 1 Structure, 2 CDFT, 3 Adsorption,
+4 Stability.
+
+Paths in the text reports. The .txt and the .out show paths relative to the
+project (or only the file name when it lies outside), so that a shared report
+does not carry the user name or the machine's folders; the .out says so in its
+header ("Paths"). Absolute paths are not lost: the JSON files in results/ and the
+database always keep them, with each file's hash. Whoever wants them in the text
+too asks for it once:
+
+    cadmia paths absolute      # full paths, with a warning
+    cadmia paths relative      # back to the default
+    cadmia paths               # shows the current mode
+
+The mode is kept in ~/.cadmia/config.yaml (report_paths) and, while it is absolute,
+cadmia report warns that the output shows full paths.
+Each module keeps its text when it runs: the change applies to modules run afterwards
+(the header of the .out always follows it).
+
+If results/ mixes different clusters (the cluster formula is compared across the
+modules), cadmia report stops and names the file that does not match; move or delete
+the results of the other study, or give the stage files explicitly. A structure
+report of another formula (a size series, the pure oxides) is only mentioned.
+
+Outside a project, or to pick the JSON files by hand, give them with the stage
+options; -o NAME.md writes the Markdown summary instead, and --latex adds the LaTeX
+tables:
 
     cadmia report --cdft cdft.json --analysis-dir ./analysis/ \
                   --stability stability.json \
@@ -1072,7 +1183,9 @@ Consolidates the agents' JSON into a Markdown report (+ LaTeX):
 
 Contents: global descriptors, site ranking, adsorption summary (with BSSE and
 ΔH_ads/ΔG_ads when there are frequencies), cluster→adduct electronic properties
-(HOMO/LUMO/gap/μ/η/ω + Δgap), binding-site coordination cluster→adduct (CN/ECN +
+(HOMO/LUMO/gap/μ/η/ω/ω-/ω+ + Δgap), CDFT charge transfer cluster↔probe
+(Parr–Pearson: ΔN, stabilization ΔE and donor→acceptor direction, to be compared with
+the observed Δq of the populations), binding-site coordination cluster→adduct (CN/ECN +
 ΔCN/ΔECN), stability, bibliography (--literature), and CORRELATIONS (site Δf vs
 E_ads, Pearson r). Configurations that relaxed to the SAME DFT minimum are
 deduplicated before the summary and the correlation. --figures uses matplotlib if
@@ -1108,7 +1221,7 @@ from a 'system' field.
 11. ELECTRONIC PROPERTIES: DOS/PDOS AND MAPS (ELECTRONIC / DENSITY)
 ====================================================================
 
-electronic subcommands: dos, pdos, ir, cube, vmd, mep. Bilingual help:
+electronic subcommands: dos, pdos, ir, mep. Bilingual help:
 cadmia electronic SUB --ayuda. The generation of density cubes and Fukui/dual/Δρ maps
 is the `cadmia density` command (section 11.5).
 
@@ -1119,8 +1232,26 @@ is the `cadmia density` command (section 11.5).
     cadmia electronic dos N.out -o dos.dat               # curve (Energy, DOS)
     cadmia electronic dos N.out --format html -o dos.html
 
-Gaussian broadening of the eigenvalues (--sigma, def. 0.1 eV; --points, def. 2000).
-In open shell it separates the alpha/beta channels.
+Gaussian broadening of the eigenvalues (--sigma, def. 0.1 eV, must be positive;
+--points, def. 2000, a minimum: the grid keeps a step of sigma/4). The DOS is in
+states/eV and adds BOTH spins: in a closed shell each spatial orbital counts 2, so
+the integral of the curve is the number of orbitals times 2 (in an open shell the
+alpha and beta channels, each with 1 state per orbital, are added). The DOS of a
+closed shell is therefore twice what a one-state-per-orbital convention gives, such
+as Multiwfn's (function 10), which weighs each spatial orbital 1 in a closed shell
+too. Compared with Multiwfn, the level positions and the shape of the curve agree;
+closed-shell amplitudes differ by a factor of 2. In open shell the output keeps the alpha and beta channels apart as well.
+
+Output format: --format if given; otherwise the suffix of -o (.dat, .csv, .json,
+.html, .png, .svg, .pdf); otherwise dat. The PNG/SVG/PDF figures need the [full]
+extra (matplotlib); --width single|double sets their width (single = 3.4 in, one
+journal column, the default; double = 6.5 in), PNGs at 300 dpi, SVG/PDF as vectors:
+
+    cadmia electronic dos N.out -o dos.svg               # the suffix picks the format
+    cadmia electronic dos N.out --format pdf --width double -o dos.pdf
+
+The .dat/.csv curves keep the full sigma/4 grid; the HTML page drops the stretches
+where every curve is exactly zero (the gaps between core levels), so it stays small.
 
 11.2 PDOS per element
 .....................
@@ -1133,6 +1264,10 @@ Usage:
 
     cadmia electronic pdos N.out -o pdos.dat             # columns per element
     cadmia electronic pdos N.out --format html -o pdos.html
+    cadmia electronic pdos N.out -o pdos.png --width double
+
+The PDOS is also in states/eV with both spins (a closed-shell orbital counts 2),
+and takes the same --format / --width / --sigma rules as the DOS.
 
 The HTML plot is SELF-CONTAINED and interactive (plotly.js from CDN, embedded
 data): HOMO/LUMO vertical lines, gap annotation, one curve per element (Ti/Al/O
@@ -1197,7 +1332,8 @@ f0 = (f+ + f-)/2, dual Δf = f+ − f-, Δρ = ρ(adduct) − ρ(cluster) − ρ
 For the subtractions to be valid the cubes must be aligned voxel by voxel:
 N/N±1 share geometry, so a single --step is enough; for Δρ, the cluster and the
 probe must be computed at the adduct geometry. The resulting .cube files can be
-visualized with `cadmia electronic cube` (HTML) or `cadmia electronic vmd`.
+opened in any wavefunction or cube viewer (VMD, VESTA, Multiwfn…): CADMIA does
+not draw in 3D.
 
   - MEP extremes and statistics on the isosurface (Vs,max / Vs,min):
 
@@ -1224,19 +1360,23 @@ ORCA frequency (! Freq) output:
     cadmia electronic ir freq.out                        # terminal summary
     cadmia electronic ir freq.out -o ir.dat              # curve (wavenumber, intensity)
     cadmia electronic ir freq.out --format html -o ir.html
+    cadmia electronic ir freq.out -o ir.pdf              # static figure
 
 Each mode is broadened with a Lorentzian profile (--lineshape gaussian for a
 Gaussian one) of full width at half maximum --fwhm (def. 16 cm⁻¹) over --points
 points (def. 4000). The empirical --scale factor (def. 1.0; e.g. 0.96 for hybrid
 DFT) rescales the wavenumbers to offset the harmonic overestimation. The HTML
-plot is self-contained and interactive, as in DOS/PDOS.
+plot is self-contained and interactive, as in DOS/PDOS. The static figure (PNG, SVG
+or PDF; --width single|double) draws the broadened curve on the left axis, in
+arbitrary units, and the IR-active modes as sticks on their own right axis, in
+km/mol, so the two scales do not distort each other.
 
 
 ====================================================================
 12. STRUCTURAL ANALYSIS (CADMIA STRUCTURE)
 ====================================================================
 
-Subcommands: report, compare, plot, render.
+Subcommands: report, compare, plot.
 Bilingual help: cadmia structure SUB --ayuda.
 
 The report covers: bonds and per-pair statistics, CN and self-consistent Hoppe
@@ -1344,27 +1484,45 @@ Editable oxide bias: atomic_data.yaml ships excluded_bonds: [O-O], which omits t
 O-O pairs from the reports (reasonable in oxides). If your system needs it
 (peroxides, O2 probes), remove or edit it in your atomic_data.yaml.
 
-12.3 Interactive plots (requires the [full] extra)
+12.3 Interactive plots and static figures (requires the [full] extra)
 ..................................................
 
-    cadmia structure plot cluster.xyz                       # 3D molecule
-    cadmia structure plot cluster.xyz --kind ecn            # colored by ECN
-    cadmia structure plot cluster.xyz --kind bonds          # distance histogram
+    cadmia structure plot cluster.xyz                       # bond-length histogram
+    cadmia structure plot cluster.xyz --kind distances      # distance matrix
     cadmia structure plot structural_report.txt --kind ecn-trend
     cadmia structure plot structural_report.txt --kind ecn-heatmap
 
-Types: molecule, ecn, bonds, distances, ecn-trend, ecn-heatmap. ECN labels:
---ecn-label both (def., "2.985 (3.0)"), rounded, raw.
+Types (all 2D): bonds (default), distances, ecn-trend, ecn-heatmap. 3D views of a
+structure are left to a molecular viewer: open the .xyz there. ECN labels:
+--ecn-label both (def., "2.985 (3.0)"), rounded, raw (heatmap cells; hover text of
+the interactive trend).
 
-12.4 POV-Ray render
-...................
+Output format: --format html|png|svg|pdf if given; otherwise the suffix of -o;
+otherwise html. html is interactive (plotly); PNG (300 dpi), SVG and PDF are static,
+publication-ready figures (matplotlib) for bonds, distances, ecn-trend and
+ecn-heatmap. --width single|double sets their width (single =
+3.4 in, the default; double = 6.5 in):
 
-    cadmia structure render cluster.xyz -o scene --align-inertia
-    cadmia structure render cluster.xyz --render --resolution publication -o scene
-    cadmia structure render cluster.xyz --cube homo.cube --iso-preset homo_lumo -o orbital
+    cadmia structure plot structural_report.txt --kind ecn-trend -o ecn.pdf --width double
+    cadmia structure plot clusters/*.xyz --kind bonds --format png -o figs/
 
-POV-Ray is installed separately (sudo apt install povray). Resolution presets:
-preview, screen, publication (2560²), ultra.
+With several structures -o is a folder (one file per structure), so the file type
+is chosen with --format; an -o that looks like a file (-o figs.png) is an error.
+
+12.4 Quick look at structures: MOLE
+...................................
+
+CADMIA's plots are 2D. For a quick look at a set of structures (the
+configurations of geometry, the survivors of prescreen, the outputs that rank
+orders) MOLE is recommended: a separate lightweight viewer (MIT license) that
+shows the 3D structure next to the E vs n plot and also works over ssh -Y on a
+cluster. It is not part of CADMIA:
+
+    pip install mole-viewer
+    mole configs/CO2/prescreened/pool/candidates_by_energy.xyz
+
+MOLE plots the energy it finds in the comment line (E=…). Densities, orbitals
+and cubes go to a wavefunction viewer.
 
 REFERENCES (12)
 [1] R. Hoppe. "Effective coordination numbers (ECoN) and mean fictive ionic
@@ -1521,6 +1679,11 @@ itself (correct atom order, no cluster.xyz by hand).
 Stages and states in the manifest: done | skipped | blocked | failed | pending.
 analyze is skipped without --probe-free; stability is skipped without --ref. A
 'blocked'/'failed' stops the flow; on resume it picks up from there.
+
+--charge N sets the total charge of the cluster (default 0); the adducts add the
+probe's charge, which is 0 for every built-in probe. On --resume the level of
+theory of the first run stands (functional, basis, dispersion, task, preset and
+charge), unless you give one of those options again explicitly.
 
 The run stage runs at the PRODUCTION level by default (--preset accurate and
 --task opt+freq): the adduct is optimized with the same accuracy block
@@ -1928,6 +2091,11 @@ ALGORITHM, STEP BY STEP
      - n_configs equispaced AZIMUTHAL angles around z (default 6, i.e. every 60°).
    At the pole (polar = 0°) the azimuthals are equivalent only for an axial
    probe, which is written once; any other probe keeps its own rotation.
+   The directions are measured in a local frame of the site, not in the axes of
+   the file: the normal (polar 0°) points out of the cluster, away from the
+   site's bonded neighbours (metal–metal pairs do not tilt it), and azimuth 0°
+   points at the nearest neighbour. That is why the same configuration comes out
+   identical when the cluster .xyz is rotated or translated (checked to 10⁻⁸ Å).
 
 6. Rigid placement. For each (polar, azimuthal) the approach vector is built, the
    anchor atom is placed at distance d above the site and the rigid body of the
@@ -2094,7 +2262,8 @@ WHAT IT DOES
 From three validated outputs — the adduct (cluster + probe), the isolated cluster
 and the free probe — it computes the adsorption energy, its optional BSSE
 correction, the decomposition into deformation and interaction energies, the
-elongation of the probe bond with its activation flag, and identifies the binding
+elongation of the probe bonds and bending of its angles with an activation flag,
+and identifies the binding
 site by cross-checking it against the CDFT ranking.
 
 ALGORITHM, STEP BY STEP
@@ -2104,9 +2273,13 @@ ALGORITHM, STEP BY STEP
 2. Probe block and binding site. By the "cluster first, probe last" convention,
    the last n atoms of the adduct are the probe; the binding site is the cluster
    atom closest to any probe atom.
-3. Elongation and activation. For each intramolecular bond of the free probe its
-   length is measured in the adduct; the largest percentage elongation defines
-   the activation: ≥ 5 % marks the probe as activated.
+3. Elongation, bending and activation. For each intramolecular bond of the free
+   probe its length is measured in the adduct; the largest percentage elongation
+   gives max_elongation_pct, and ≥ 5 % marks the probe as activated. For each
+   angle of the probe (probe_angles: free, adduct and Δ in degrees) those that
+   were linear in the free molecule (≥ 175°) give the bend, free − adduct; the
+   largest is max_bend_deg, and ≥ 10° (--bend-threshold DEG) also marks the probe
+   as activated.
 4. BSSE (optional). If requested and the output carries counterpoise:
        E_ads(BSSE) = E_ads + E_BSSE.
 5. Deformation and interaction (optional, with deformed geometries):
@@ -2117,7 +2290,8 @@ ALGORITHM, STEP BY STEP
    issued.
 
 THRESHOLDS AND CONSTANTS
-   activation:           elongation ≥ 5 %
+   activation:           elongation ≥ 5 %  or  bend of a linear angle ≥ 10°
+   linear angle:         ≥ 175° in the free probe
    bond cutoff:          d ≤ 1.3 × (r_i + r_j)   (covalent radii)
    conversion:           1 Hartree = 627.509 kcal/mol
 
@@ -2128,17 +2302,19 @@ JUSTIFICATION AND BIBLIOGRAPHY
 - Deformation/interaction. The partition into deformation (preparation) and
   interaction energy corresponds to the distortion/interaction-activation strain
   model [2].
-- Activation by elongation. The lengthening of the adsorbate bonds relative to
-  the free molecule is a geometric indicator of its activation on the site; a
-  classic well-documented case is CO2 activation, which on adsorption and
-  receiving charge bends and elongates its C=O bonds [3]. The 5 % threshold is a
-  project convention, not a value taken from the reference.
+- Activation by elongation and bending. The lengthening of the adsorbate bonds and
+  the bending of a linear adsorbate relative to the free molecule are geometric
+  indicators of its activation on the site; a classic well-documented case is CO2
+  activation, which on adsorption and receiving charge bends and elongates its
+  C=O bonds [3]. The 5 % and 10° thresholds are project conventions, not values
+  taken from the reference.
 
 LIMITATIONS (WHAT IT DOES NOT DO)
 - It assumes the convention atom order (cluster + probe); if not met, it warns and
   skips the site/bond analysis.
 - BSSE and deformation require those calculations to have been run separately.
-- The 5 % activation is a geometric threshold, not an energy barrier.
+- The activation flag (5 % elongation, 10° bend) is a geometric threshold, not an
+  energy barrier.
 
 REFERENCES (A.6)
 [1] S. F. Boys, F. Bernardi. "The calculation of small molecular interactions by
@@ -2202,21 +2378,24 @@ A.8  REPORT AGENT — INTEGRATING REPORT
 
 WHAT IT DOES
 Consolidates the results of the CDFT, Analysis, Stability and Benchmark agents
-into a single report: comparative tables in Markdown and LaTeX, a summary of
-adsorption energies (with BSSE) and correlations between descriptors, such as
-site Δf versus E_ads. The figures are generated only if matplotlib is installed;
-otherwise it emits the (x, y) data in CSV to plot elsewhere.
+into a single report: the fixed-width text output (reports/cadmia.out), or comparative
+tables in Markdown (-o NAME.md) and LaTeX (--latex), a summary of adsorption
+energies (with BSSE) and correlations between descriptors, such as site Δf versus
+E_ads. The figures are generated only if matplotlib is installed; otherwise it
+emits the (x, y) data in CSV to plot elsewhere.
 
 ALGORITHM, STEP BY STEP
 1. Input normalization. Each result (object, dict or JSON path) is reduced to a
    common dictionary.
 2. Tables. CDFT global descriptors, site ranking, adsorption and benchmark
-   summary, each in Markdown and LaTeX.
+   summary, in Markdown and, with --latex, in LaTeX.
 3. Δf vs E_ads correlation. Pairs each analyzed configuration with the Δf of its
    site and computes the Pearson correlation coefficient (if there are ≥ 2 points).
-4. Output. Writes the Markdown always; LaTeX and figures (or CSV) on demand. With
-   full=True it adds a header (program, version, author, date), a run-information
-   section and a "normal termination" footer.
+4. Output. Inside a project it writes reports/cadmia.out (every stage's full report,
+   the correlations and a "normal termination" footer); with -o NAME.md, the
+   Markdown summary instead (--simple for the lean tables-only variant). LaTeX
+   (--latex) and figures (or CSV) on demand. When it reads results/ it checks that
+   the saved results are about the same cluster (by formula) and stops otherwise.
 
 JUSTIFICATION AND BIBLIOGRAPHY
 - Descriptor–energy correlation. The Pearson coefficient [1] quantifies the linear

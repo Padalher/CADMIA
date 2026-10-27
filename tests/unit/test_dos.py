@@ -269,8 +269,8 @@ def test_dos_html_spin_polarized(tmp_path):
                     homo_ev=-6.0, lumo_ev=-2.0)
     html = dos_html(dos)
     assert '"name": "alpha"' in html and '"name": "beta"' in html
-    assert "HOMO = -6.00 eV" in html
-    assert "gap = 4.00 eV" in html
+    assert "<b>HOMO</b><br>-6.00 eV" in html
+    assert "<b>gap</b> 4.00 eV" in html
 
 
 def test_cli_pdos_html(tmp_path, capsys):
@@ -303,11 +303,125 @@ def test_dos_grid_resolves_valence_peaks_despite_core_orbitals():
     step = dos.energy_ev[1] - dos.energy_ev[0]
     assert step <= 0.1 / 4
     peak = dos.dos_total[np.argmin(abs(dos.energy_ev + 8.0))]
-    assert abs(peak - 1 / (0.1 * np.sqrt(2 * np.pi))) < 0.05 * peak
-    assert abs(np.trapezoid(dos.dos_total, dos.energy_ev) - 3.0) < 1e-3
+    assert abs(peak - 2 / (0.1 * np.sqrt(2 * np.pi))) < 0.05 * peak
+    assert abs(np.trapezoid(dos.dos_total, dos.energy_ev) - 6.0) < 1e-3     # 3 orbitals × 2 spins
 
 
 def test_dos_html_opens_on_the_frontier_window():
     from cadmia.electronic.plot import dos_html
     dos = compute_dos([-4900.0, -8.0, -2.0], homo_ev=-8.0, lumo_ev=-2.0, sigma=0.1)
-    assert '"range": [-28.0, 8.0]' in dos_html(dos)
+    assert '"range": [-28.0, 0.0]' in dos_html(dos)     # LUMO + 10 eV, cut where the curve ends
+
+
+def test_closed_shell_dos_counts_both_spins():
+    closed = compute_dos([-9.0, -3.0], sigma=0.2)
+    assert np.allclose(closed.dos_total, 2 * closed.dos_alpha)
+    assert abs(np.trapezoid(closed.dos_total, closed.energy_ev) - 4.0) < 1e-3
+    opened = compute_dos([-9.0, -3.0], beta_eigenvalues_ev=[-9.0, -3.0], sigma=0.2)
+    assert np.allclose(opened.dos_total, closed.dos_total)
+
+
+def test_pdos_closed_shell_counts_both_spins(tmp_path):
+    from cadmia.electronic.dos import pdos_from_output
+    p = tmp_path / "x.out"
+    p.write_text(_PDOS_BLOCK)
+    pdos = pdos_from_output(p, sigma=0.2, n_points=500)
+    assert abs(np.trapezoid(pdos.total, pdos.energy_ev) - 6.0) < 1e-3                  # 3 orbitals × 2 spins
+
+
+@pytest.mark.parametrize("sigma", [0.0, -0.1])
+def test_nonpositive_sigma_is_rejected(tmp_path, sigma):
+    from cadmia.electronic.dos import pdos_from_output
+    p = tmp_path / "x.out"
+    p.write_text(_PDOS_BLOCK)
+    with pytest.raises(ValueError, match="sigma must be positive"):
+        compute_dos([-9.0, -3.0], sigma=sigma)
+    with pytest.raises(ValueError, match="sigma must be positive"):
+        pdos_from_output(p, sigma=sigma)
+
+
+def test_wide_broadening_is_not_cut_at_the_grid_edge():
+    dos = compute_dos([-9.0, -3.0], sigma=1.5)
+    assert abs(np.trapezoid(dos.dos_total, dos.energy_ev) - 4.0) < 1e-3
+
+
+def test_dos_html_drops_the_empty_stretches_between_core_levels():
+    import json
+    import re
+    from cadmia.electronic.plot import dos_html
+    dos = compute_dos([-4900.0, -8.0, -2.0], homo_ev=-8.0, lumo_ev=-2.0, sigma=0.1)
+    html = dos_html(dos)
+    x = json.loads(re.search(r'"x": (\[.*?\])', html).group(1))
+    assert len(x) < len(dos.energy_ev) / 20
+    assert min(x) <= -4900.0 and max(x) >= -2.0
+
+
+@_requires_orca
+def test_cli_dos_format_follows_the_output_suffix(tmp_path):
+    import json
+    from cadmia.electronic.cli import main
+    out = tmp_path / "dos.json"
+    assert main(["dos", str(_ORCA_N), "-o", str(out)]) == 0
+    assert "dos_total" in json.loads(out.read_text())
+    assert main(["dos", str(_ORCA_N), "-o", str(tmp_path / "d.csv")]) == 0
+    assert (tmp_path / "d.csv").read_text().splitlines()[-1].count(",") == 1
+
+
+def _png_width(path):
+    import struct
+    return struct.unpack(">I", path.read_bytes()[16:20])[0]
+
+
+@pytest.mark.parametrize("width,inches", [("single", 3.4), ("double", 6.5)])
+def test_static_dos_figure_width_in_pixels(tmp_path, width, inches):
+    pytest.importorskip("matplotlib")
+    from cadmia.electronic.figures import write_dos_figure
+    dos = compute_dos([-4900.0, -8.0, -7.5, -2.0], homo_ev=-7.5, lumo_ev=-2.0, sigma=0.1)
+    out = write_dos_figure(dos, tmp_path / "dos.png", width=width)
+    assert _png_width(out) == round(inches * 300)
+
+
+@pytest.mark.parametrize("fmt", ["svg", "pdf"])
+def test_static_vector_figures(tmp_path, fmt):
+    pytest.importorskip("matplotlib")
+    from cadmia.electronic.figures import write_dos_figure
+    dos = compute_dos([-8.0, -7.5, -2.0], homo_ev=-7.5, lumo_ev=-2.0, sigma=0.1)
+    out = write_dos_figure(dos, tmp_path / f"dos.{fmt}")
+    head = out.read_bytes()[:200]
+    assert (b"<?xml" in head) if fmt == "svg" else head.startswith(b"%PDF")
+    if fmt == "svg":
+        assert "DOS (states/eV)" in out.read_text()
+
+
+def test_static_ir_figure_has_sticks_on_their_own_km_mol_axis(tmp_path, monkeypatch):
+    pytest.importorskip("matplotlib")
+    from cadmia.electronic import figures
+    from cadmia.electronic.ir_spectrum import IRSpectrum
+    grid = np.linspace(500.0, 2500.0, 400)
+    spectrum = IRSpectrum(wavenumber_cm1=grid, intensity=np.exp(-((grid - 1500) / 20) ** 2) * 3e-3,
+                          peak_positions=np.array([1500.0]), peak_intensities=np.array([350.0]),
+                          scaling_factor=1.0, fwhm_cm1=16.0, lineshape="lorentzian")
+    built = []
+    monkeypatch.setattr(figures, "save_figure", lambda fig, path: built.append(fig))
+    figures.write_ir_figure(spectrum, tmp_path / "ir.png")
+    curve_axis, stick_axis = built[0].axes
+    assert stick_axis.get_ylabel() == "IR intensity (km/mol)"
+    assert curve_axis.get_ylabel() == "Intensity (arb. units)"
+    assert stick_axis.get_ylim()[1] >= 350.0 and curve_axis.get_ylim()[1] < 1.0
+    assert curve_axis.xaxis_inverted()
+
+
+def test_static_figures_leave_matplotlib_global_state_alone(tmp_path):
+    matplotlib = pytest.importorskip("matplotlib")
+    from cadmia.electronic.figures import write_dos_figure
+    before = (matplotlib.get_backend(), dict(matplotlib.rcParams))
+    dos = compute_dos([-8.0, -2.0], homo_ev=-8.0, lumo_ev=-2.0)
+    write_dos_figure(dos, tmp_path / "dos.png")
+    assert (matplotlib.get_backend(), dict(matplotlib.rcParams)) == before
+
+
+@_requires_orca
+def test_cli_dos_reports_a_bad_sigma_instead_of_a_traceback(capsys):
+    from cadmia.electronic.cli import main
+    assert main(["dos", str(_ORCA_N), "--sigma", "0"]) == 1
+    assert "sigma must be positive" in capsys.readouterr().out

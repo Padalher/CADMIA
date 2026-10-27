@@ -25,3 +25,10 @@ def test_auto_jobs_follows_the_affinity_mask_not_the_core_count(monkeypatch):
     monkeypatch.setattr("os.sched_getaffinity", lambda _pid: set(range(8)))
     monkeypatch.setattr("os.cpu_count", lambda: 128)
     assert _resolve_jobs(0, 100) == 8
+
+
+def test_configs_with_the_same_name_do_not_collide():
+    from pathlib import Path
+    from cadmia.agents.prescreen_agent import _unique_names
+    names = _unique_names([Path("a/cfg.xyz"), Path("b/cfg.xyz"), Path("b/other.xyz")])
+    assert names == {"a/cfg.xyz": "a_cfg", "b/cfg.xyz": "b_cfg", "b/other.xyz": "other"}

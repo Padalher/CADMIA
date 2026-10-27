@@ -5,7 +5,7 @@ from cadmia.citation import citation_notice
 def test_notice_names_the_version_and_the_repository():
     notice = citation_notice()
     assert f"CADMIA {__version__}" in notice
-    assert "https://github.com/Padalher/CADMIA" in notice
+    assert "https://doi.org/10.5281/zenodo.23608477" in notice
 
 
 def test_notice_ends_with_a_sourced_quote():

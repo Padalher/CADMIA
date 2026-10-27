@@ -42,6 +42,32 @@ jobs:
       - name: Test
         run: pytest tests/ -q
 
+  # macOS and Windows are not declared as supported yet: this job measures how far they are,
+  # without turning the workflow red, until it passes and the classifiers can say so.
+  test-other-os:
+    name: Python 3.12 · ${{ matrix.os }} (experimental)
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (core + dev)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Test
+        run: pytest tests/ -q
+
   # Optional extras (`pip install "cadmia[full]"`): figures, interactive plots and volumetric
   # isosurfaces. Without them ~16 tests skip; this job is what actually exercises them.
   test-full:

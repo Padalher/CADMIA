@@ -4,9 +4,10 @@ import textwrap
 
 from cadmia import __version__
 
-# Add the Zenodo and article DOIs here once they exist.
+# Zenodo concept DOI: it always resolves to the latest version. Add the article DOI when it exists.
 REFERENCES = (
-    f"P. D. Alvarez Hernandez, CADMIA (version {__version__}), https://github.com/Padalher/CADMIA",
+    f"P. D. Alvarez Hernandez, CADMIA (version {__version__}), Zenodo, "
+    "https://doi.org/10.5281/zenodo.23608477",
 )
 
 # One is printed under the notice, as Gaussian does at the end of a job. Every entry carries its

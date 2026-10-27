@@ -277,3 +277,50 @@ def test_validate_failure_stops_pipeline(tmp_path, monkeypatch):
     state = run_pipeline(n=n, np1=n, nm1=n, workdir=tmp_path / "pipe", engine="orca")
     assert state.stages["validate"].status == "failed"
     assert state.stages["cdft"].status == "pending"   # chain stopped at the gate
+
+
+def _manifest_with_params(tmp_path, functional, run_status="pending"):
+    from cadmia.calculators.params import CalcParams
+    state = PipelineState(cluster="X", probe="NH3", workdir=str(tmp_path))
+    state.inputs = {"n": "N.out", "np1": "A.out", "nm1": "C.out", "refs": [], "probe_free": None,
+                    "params": orchestrator._params_record(CalcParams(functional=functional))}
+    for s in ("validate", "cdft", "geometry"):
+        state.stages[s].status = DONE
+    state.stages["run"].status = run_status
+    state.save()
+
+
+def test_resume_keeps_the_saved_level_of_theory(tmp_path):
+    from cadmia.calculators.params import CalcParams
+    _manifest_with_params(tmp_path, "B3LYP")
+    state = run_pipeline(n=None, np1=None, nm1=None, workdir=tmp_path, resume=True,
+                         params=CalcParams(), params_explicit=False, dry_run=True,
+                         on_event=lambda s, m: None)
+    assert state.inputs["params"]["functional"] == "B3LYP"
+
+
+def test_resume_refuses_another_level_once_outputs_exist(tmp_path):
+    from cadmia.calculators.params import CalcParams
+    _manifest_with_params(tmp_path, "B3LYP", run_status=DONE)
+    with pytest.raises(ValueError, match="functional 'B3LYP' → 'PBE0'"):
+        run_pipeline(n=None, np1=None, nm1=None, workdir=tmp_path, resume=True,
+                     params=CalcParams(functional="PBE0"), dry_run=True, on_event=lambda s, m: None)
+
+
+def test_resume_accepts_another_level_before_any_calculation(tmp_path):
+    from cadmia.calculators.params import CalcParams
+    _manifest_with_params(tmp_path, "B3LYP", run_status=BLOCKED)
+    state = run_pipeline(n=None, np1=None, nm1=None, workdir=tmp_path, resume=True,
+                         params=CalcParams(functional="PBE0"), dry_run=True, on_event=lambda s, m: None)
+    assert state.inputs["params"]["functional"] == "PBE0"
+
+
+@_needs_data
+def test_pipeline_cli_until_is_not_reported_as_complete(tmp_path):
+    from click.testing import CliRunner
+    from cadmia.cli import main
+    res = CliRunner().invoke(main, ["pipeline", "--n", str(_N), "--np1", str(_NP1), "--nm1", str(_NM1),
+                                    "--cluster", "Al2TiO5", "--until", "geometry",
+                                    "--workdir", str(tmp_path / "p"), "--no-db"])
+    assert res.exit_code == 0, res.output
+    assert "Pipeline complete" not in res.output and "Still to run: run" in res.output

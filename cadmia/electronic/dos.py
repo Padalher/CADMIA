@@ -11,7 +11,11 @@ import numpy as np
 
 @dataclass
 class DOSResult:
-    """DOS curves for one or two spin channels."""
+    """DOS curves for one or two spin channels.
+
+    ``dos_alpha``/``dos_beta`` are per spin channel (one state per orbital); ``dos_total`` is
+    states/eV over both spins, so in a closed shell every spatial orbital counts twice.
+    """
 
     energy_ev: np.ndarray
     dos_alpha: np.ndarray
@@ -29,7 +33,7 @@ class DOSResult:
     def dos_total(self) -> np.ndarray:
         if self.dos_beta is not None:
             return self.dos_alpha + self.dos_beta
-        return self.dos_alpha
+        return 2.0 * self.dos_alpha
 
     @property
     def gap_ev(self) -> Optional[float]:
@@ -45,6 +49,8 @@ _TAIL_SIGMAS = 6
 def _energy_grid(e_min: float, e_max: float, n_points: int, sigma: float) -> np.ndarray:
     """n_points is a minimum: the core orbitals of a heavy atom stretch the range to thousands
     of eV, and a fixed count would leave the valence peaks with a handful of points each."""
+    if sigma <= 0:
+        raise ValueError(f"sigma must be positive, got {sigma}.")
     needed = int(np.ceil((e_max - e_min) * _GRID_STEPS_PER_SIGMA / sigma)) + 1
     return np.linspace(e_min, e_max, max(n_points, needed))
 
@@ -98,13 +104,15 @@ def compute_dos(
     sigma:
         Gaussian broadening width (eV). Typical: 0.05–0.3 eV.
     padding_ev:
-        Extra energy range beyond the outermost eigenvalue.
+        Extra energy range beyond the outermost eigenvalue; never less than the 6-sigma tail
+        of the Gaussian, so a wide broadening is not cut off at the edge of the grid.
     """
     all_eigs = list(alpha_eigenvalues_ev)
     if beta_eigenvalues_ev:
         all_eigs += list(beta_eigenvalues_ev)
 
     if energy_range is None:
+        padding_ev = max(padding_ev, _TAIL_SIGMAS * sigma)
         e_min = min(all_eigs) - padding_ev
         e_max = max(all_eigs) + padding_ev
     else:
@@ -182,6 +190,12 @@ def dos_from_output(
     )
 
 
+def _row(values, sep: str) -> str:
+    """Energy to 1e-4 eV, curves to 6 significant digits: the empty stretches of the grid
+    (zeros) are one character wide instead of eight."""
+    return sep.join([f"{values[0]:.4f}"] + [f"{v:.6g}" for v in values[1:]])
+
+
 def write_dos(
     dos: DOSResult,
     filepath: str | Path,
@@ -207,7 +221,7 @@ def write_dos(
         rows = np.column_stack([dos.energy_ev, dos.dos_alpha, dos.dos_beta, dos.dos_total])
     else:
         header = f"Energy(eV){sep}DOS"
-        rows = np.column_stack([dos.energy_ev, dos.dos_alpha])
+        rows = np.column_stack([dos.energy_ev, dos.dos_total])
 
     lines = ["# CADMIA DOS output"]
     if dos.homo_ev is not None:
@@ -216,10 +230,11 @@ def write_dos(
         lines.append(f"# LUMO = {dos.lumo_ev:.4f} eV")
     if dos.gap_ev is not None:
         lines.append(f"# Gap  = {dos.gap_ev:.4f} eV")
+    lines.append("# DOS in states/eV, both spins")
     lines.append(f"# grid step = {dos.energy_ev[1] - dos.energy_ev[0]:.4f} eV; the Gaussian broadening is set at call time")
     lines.append(header)
     for row in rows:
-        lines.append(sep.join(f"{v:.6f}" for v in row))
+        lines.append(_row(row, sep))
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
@@ -230,7 +245,7 @@ def write_dos(
 
 @dataclass
 class PDOSResult:
-    """Element-projected DOS. Series are alpha+beta summed per element."""
+    """Element-projected DOS in states/eV, both spins (a closed-shell orbital counts twice)."""
 
     energy_ev: np.ndarray
     series: "dict[str, np.ndarray]"        # element -> projected DOS
@@ -283,16 +298,18 @@ def pdos_from_output(
     lumo = min(virtual) if virtual else None
 
     if energy_range is None:
-        energy_range = (min(energies) - 5 * sigma, max(energies) + 5 * sigma)
+        energy_range = (min(energies) - _TAIL_SIGMAS * sigma, max(energies) + _TAIL_SIGMAS * sigma)
     grid = _energy_grid(energy_range[0], energy_range[1], n_points, sigma)
 
+    spin_factor = 1.0 if beta else 2.0
     elements = sorted({elem for mo in mos_all
                        for (_, elem, _) in mo["contributions"]})
     series = {}
     negative_elems = []
     for elem in elements:
         weights = [
-            sum(pct for (ai, el, orb), pct in mo["contributions"].items() if el == elem) / 100.0
+            spin_factor * sum(pct for (ai, el, orb), pct in mo["contributions"].items()
+                              if el == elem) / 100.0
             for mo in mos_all
         ]
         if any(w < 0 for w in weights):
@@ -306,7 +323,7 @@ def pdos_from_output(
             stacklevel=2,
         )
 
-    total = _weighted_dos(mos_all, [1.0] * len(mos_all), grid, sigma)
+    total = _weighted_dos(mos_all, [spin_factor] * len(mos_all), grid, sigma)
     return PDOSResult(energy_ev=grid, series=series, total=total,
                       homo_ev=homo, lumo_ev=lumo, spin_polarized=beta is not None)
 
@@ -319,7 +336,7 @@ def write_pdos(pdos: PDOSResult, filepath: str | Path, fmt: str = "dat") -> None
     elements = sorted(pdos.series)
     header = sep.join(["Energy(eV)"] + [f"PDOS_{e}" for e in elements] + ["DOS_total"])
     rows = np.column_stack([pdos.energy_ev] + [pdos.series[e] for e in elements] + [pdos.total])
-    lines = ["# CADMIA PDOS output (Loewdin per-MO projections)"]
+    lines = ["# CADMIA PDOS output (Loewdin per-MO projections, states/eV, both spins)"]
     if pdos.homo_ev is not None:
         lines.append(f"# HOMO = {pdos.homo_ev:.4f} eV")
     if pdos.lumo_ev is not None:
@@ -328,5 +345,5 @@ def write_pdos(pdos: PDOSResult, filepath: str | Path, fmt: str = "dat") -> None
         lines.append(f"# Gap  = {pdos.gap_ev:.4f} eV")
     lines.append(header)
     for row in rows:
-        lines.append(sep.join(f"{v:.6f}" for v in row))
+        lines.append(_row(row, sep))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

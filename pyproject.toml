@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cadmia"
-version = "0.3.0"
+version = "0.3.1"
 description = "CADMIA — Computational Agent-Driven Molecular Intelligence Architecture"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -15,7 +15,6 @@ keywords = [
     "heterogeneous catalysis", "nanoclusters", "ORCA", "computational chemistry",
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: POSIX :: Linux",
@@ -42,13 +41,12 @@ Changelog = "https://github.com/Padalher/CADMIA/blob/main/CHANGELOG.md"
 # Two user-facing install options:
 #   pip install cadmia          → recommended (core: parsing, CDFT, DB, reports)
 #   pip install "cadmia[full]"  → adds optional features (figures, interactive
-#                                 plots, volumetric/cube isosurfaces)
+#                                 plots, convex-hull shape descriptors)
 # Only dependencies actually imported by the codebase are listed.
 full = [
     "matplotlib>=3.5",     # report correlation figures (report_agent)
     "plotly>=5.0",         # interactive structural plots (structure visualization)
-    "scipy>=1.7",          # volumetric grid handling (cube_io)
-    "scikit-image>=0.19",  # isosurface extraction (cube_io)
+    "scipy>=1.7",          # convex hull of the cluster (structure morphology)
 ]
 # Developer tooling (not a user install option).
 dev = [

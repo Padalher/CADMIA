@@ -181,6 +181,8 @@ def rank(
         except (ValueError, OSError) as exc:
             item.error = f"{type(exc).__name__}: {exc}"
             result.warnings.append(f"{f.name}: {item.error}")
+        if item.error:
+            item.selected = False
         result.items.append(item)
 
     if not parsed:
@@ -293,6 +295,7 @@ def rank(
         # metadata.
         where = f"  [{label}]" if label else ""
         comment = (f"rank {rk}  +{item.rel_kcal:.3f} kcal/mol  E={energy:.6f} Eh  "
+                   f"charge={structure.charge} mult={structure.multiplicity}  "
                    f"{item.engine}  {Path(item.source).stem}{where}")
         blocks.append(structure.to_xyz(comment=comment))
     result.n_ranked = len(parsed)

@@ -780,3 +780,44 @@ def test_gaussian_counterpoise_log():
     assert _parse_bsse_hartree(log) == pytest.approx(0.001604618594, abs=1e-12)
     # The trap: the last SCF Done in the file is a fragment, an order of magnitude away.
     assert _parse_gaussian_energy(lines) < -1000.0
+
+
+def test_spin_and_charge_warnings():
+    from cadmia.agents.analysis_agent import spin_and_charge_warnings
+    from cadmia.core import Structure
+    import numpy as np
+
+    def st(atoms, q=0, m=1):
+        return Structure(atoms=atoms, positions=np.zeros((len(atoms), 3)), labels=list(atoms),
+                         structure_id="t", source_file="", charge=q, multiplicity=m)
+
+    cl = st(["Ti", "O", "O"])
+    assert spin_and_charge_warnings(st(["Ti", "O", "O", "O", "O"], 0, 3), cl, st(["O", "O"], 0, 3)) == []
+    w = spin_and_charge_warnings(st(["Ti", "O", "O", "O", "O"], 0, 1), cl, st(["O", "O"], 0, 1))
+    assert len(w) == 1 and "ground state is 3" in w[0]
+    w = spin_and_charge_warnings(st(["Ti", "O", "O", "C", "O"], -1, 2), cl, st(["C", "O"], 0, 1))
+    assert any("Charge does not add up" in x for x in w) and any("does not couple" in x for x in w)
+
+
+def test_no_free_energies_from_a_geometry_that_is_not_a_minimum(monkeypatch):
+    from pathlib import Path
+    from cadmia.agents import analysis_agent
+    d = Path(__file__).resolve().parents[1] / "fixtures" / "1tial_d4"
+    args = (str(d / "1tial_CO2.out"), str(d / "1tial.out"), str(d / "co2.out"))
+    ok = analysis_agent.analyze(*args, probe="CO2")
+    assert ok.delta_g_ads_kcal == pytest.approx(-20.553, abs=1e-3) and ok.delta_gq_ads_kcal is not None
+    monkeypatch.setattr(analysis_agent, "_unconverged_roles", lambda *a: ["adduct"])
+    bad = analysis_agent.analyze(*args, probe="CO2")
+    assert bad.e_ads_kcal is None and bad.delta_g_ads_kcal is None and bad.delta_h_ads_kcal is None
+    assert not any("ΔG/ΔH_ads not computed" in w for w in bad.warnings)
+
+
+def test_a_bent_co2_counts_as_activated():
+    from pathlib import Path
+    from cadmia.agents import analysis_agent
+    d = Path(__file__).resolve().parents[1] / "fixtures" / "1tial_d4"
+    r = analysis_agent.analyze(str(d / "1tial_CO2.out"), str(d / "1tial.out"), str(d / "co2.out"),
+                               probe="CO2")
+    (oco,) = r.probe_angles
+    assert oco["label"] == "O-C-O" and oco["free_deg"] == pytest.approx(180.0, abs=0.1)
+    assert r.max_bend_deg == pytest.approx(63.06, abs=0.05) and r.activated

@@ -491,3 +491,10 @@ def test_stability_warns_when_a_calculation_did_not_terminate_normally(oxides):
     w = next(w for w in r.warnings if w.startswith("Did not terminate normally"))
     assert "TiO2 (Error termination)" in w and "Al2O3 (No termination marker found)" in w
     assert "mixed" not in w
+
+
+def test_series_labels_that_collide_are_made_unique():
+    from cadmia.agents.stability_agent import _unique_labels
+    terms = [("opt", "n1/opt.out", None, "orca"), ("opt", "n2/opt.out", None, "orca"),
+             ("opt", "n2/opt.out", None, "orca"), ("TiO2", "ref/TiO2.out", None, "orca")]
+    assert [t[0] for t in _unique_labels(terms)] == ["opt (n1)", "opt (n2)", "opt (n2) #2", "TiO2"]

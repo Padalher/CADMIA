@@ -54,13 +54,6 @@ def test_cli_structure_directory_rerun_skips_its_own_report(tmp_path):
         assert main(["structure", str(tmp_path), "-o", str(tmp_path / "structural_report.txt")]) == 0
 
 
-def test_cli_render_writes_pov(tmp_path):
-    out = tmp_path / "scene"
-    code = main(["render", str(FIXTURES / "TiO2_monomer.xyz"), "-o", str(out)])
-    assert code == 0
-    assert out.with_suffix(".pov").exists()
-
-
 def test_cli_plot_writes_html(tmp_path):
     pytest.importorskip("plotly")
     out = tmp_path / "molecule.html"
@@ -75,7 +68,7 @@ def test_cli_plot_default_output_uses_current_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     code = main(["plot", str(FIXTURES / "TiO2_monomer.xyz")])
     assert code == 0
-    assert (tmp_path / "TiO2_monomer_molecule.html").exists()
+    assert (tmp_path / "TiO2_monomer_bonds.html").exists()
 
 
 def test_cli_plot_output_paths_default_to_cwd():
@@ -143,16 +136,6 @@ def test_cli_structure_help_describes_analysis(capsys):
     assert "--details" in text
     assert "coordination polyhedra" in normalized
     assert "Examples:" in text
-
-
-def test_cli_render_help_lists_presets(capsys):
-    with pytest.raises(SystemExit) as exc:
-        main(["render", "--help"])
-
-    assert exc.value.code == 0
-    text = capsys.readouterr().out
-    assert "Isosurface presets:" in text
-    assert "Resolution presets:" in text
 
 
 def test_cli_plot_help_lists_kinds(capsys):

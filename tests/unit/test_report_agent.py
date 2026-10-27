@@ -291,8 +291,8 @@ def test_full_report_has_a_structure_section():
           "rings": {"statistics": {"total": 0, "by_size": {}}}}
     md = build_report(structure=st, cdft=_cdft_dict(), full=True).markdown
     assert "## Structure" in md and "| Ti1 | 2 | 1.980 | 1.65 | O:2 |" in md
-    assert (md.index("please cite") < md.index("STAGE 1  ·  STRUCTURE") < md.index("## Structure")
-            < md.index("STAGE 2  ·  CDFT") < md.index("## Global CDFT descriptors")
-            < md.index("— ", md.index("Stages reported")))
-    assert "STAGE" not in build_report(cdft=_cdft_dict()).markdown
-    assert "Stages reported: Structure, CDFT" in md
+    assert (md.index("please cite") < md.index("MODULE 1  ·  STRUCTURE") < md.index("## Structure")
+            < md.index("MODULE 2  ·  CDFT") < md.index("## Global CDFT descriptors")
+            < md.index("— ", md.index("Modules reported")))
+    assert "MODULE" not in build_report(cdft=_cdft_dict()).markdown
+    assert "Modules reported: Structure, CDFT" in md

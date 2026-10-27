@@ -104,6 +104,7 @@ class PrescreenResult:
     n_input:    int = 0
     n_kept:     int = 0
     window_kcal: float = _DEFAULT_WINDOW_KCAL
+    frozen:     bool = False      # cluster atoms held fixed in xTB, only the probe relaxed
     items:      List[PrescreenItem] = field(default_factory=list)
     warnings:   List[str] = field(default_factory=list)
     output_dir: Optional[str] = None
@@ -121,6 +122,7 @@ class PrescreenResult:
                 "n_input": self.n_input,
                 "n_kept": self.n_kept,
                 "window_kcal": self.window_kcal,
+                "frozen_cluster": self.frozen,
                 "output_dir": self.output_dir,
                 "output_json": self.output_json,
                 "candidates_xyz": self.candidates_xyz,
@@ -214,11 +216,30 @@ def _classify_skeletons(
     return classes or None
 
 
+def _unique_names(files: List[Path]) -> dict:
+    """One name per config for its scratch dir and its outputs: the stem, or the stem with its
+    folder when two configs share it, so neither the runs nor their survivors overwrite."""
+    from collections import Counter
+    count = Counter(Path(f).stem for f in files)
+    return {str(f): Path(f).stem if count[Path(f).stem] == 1
+            else f"{Path(f).parent.name}_{Path(f).stem}" for f in files}
+
+
+def _multiplicity(xyz: Path, charge: int, explicit: Optional[int]) -> int:
+    if explicit is not None:
+        return explicit
+    from cadmia.core.spin import multiplicity_from_electrons
+    struct = parse_xyz(xyz)
+    if struct.metadata.get("spin_given") and int(struct.charge or 0) == charge:
+        return int(struct.multiplicity)
+    return multiplicity_from_electrons(struct.atoms, charge)
+
+
 def prescreen(
     configs: "Path | str | List[Path | str]",
     *,
     charge: int = 0,
-    multiplicity: int = 1,
+    multiplicity: Optional[int] = None,
     gfn: int = 2,
     top_n: int = 0,
     energy_window_kcal: float = _DEFAULT_WINDOW_KCAL,
@@ -230,6 +251,7 @@ def prescreen(
     jobs: int = 0,
     sanity: bool = True,
     cluster_ref: "Path | str | None" = None,
+    freeze: bool = False,
     on_progress: "Optional[Callable[[int, int, str, Optional[float], Optional[str]], None]]" = None,
 ) -> PrescreenResult:
     """Pre-screen adsorption configs with GFN-xTB; return ranked/deduped survivors.
@@ -237,7 +259,9 @@ def prescreen(
     Parameters
     ----------
     configs            : a dir of .xyz, a glob/file, or an explicit list.
-    charge, multiplicity, gfn : passed to xTB (gfn=2 → GFN2-xTB with D4).
+    charge, multiplicity, gfn : passed to xTB (gfn=2 → GFN2-xTB with D4). multiplicity None
+                   = per config: the ``mult=`` of its comment line (written by geometry),
+                   else the lowest spin for its electron count.
     top_n              : keep at most this many survivors (0 = no cap, window only).
     energy_window_kcal : keep configs within this of the lowest energy.
     dedup_rmsd         : Å threshold for treating two optimized geometries as the
@@ -252,12 +276,20 @@ def prescreen(
                          with its own zero — so a more stable cluster isomer cannot discard
                          the adducts that kept the reference skeleton. Omitted, a single
                          global zero is used, exactly as before.
+    freeze             : keep the cluster atoms fixed in xTB, so only the probe relaxes. Needs
+                         cluster_ref: its atoms must open every config, in the same order.
     output_dir         : where to write the survivors' optimized .xyz (created if absent).
     jobs               : xTB optimizations to run concurrently (0 = one per available CPU).
                          Each stays single-threaded; see _resolve_jobs.
     """
     files = _resolve_configs(configs)
-    result = PrescreenResult(n_input=len(files), window_kcal=energy_window_kcal)
+    names = _unique_names(files)
+    result = PrescreenResult(n_input=len(files), window_kcal=energy_window_kcal, frozen=freeze)
+    ref_atoms: tuple = ()
+    if freeze:
+        if cluster_ref is None:
+            raise ValueError("freeze needs cluster_ref: it says which atoms are the cluster.")
+        ref_atoms = tuple(parse_xyz(cluster_ref).atoms)
 
     # If the input directory carries a sidecar from the stage that produced it, check that it
     # still describes what is there. Reading files its record does not account for is how a
@@ -289,11 +321,14 @@ def prescreen(
         has its own scratch dir, so the runs cannot collide on disk.
         """
         item = PrescreenItem(source_xyz=str(f))
-        workdir = scratch_root / Path(f).stem
+        workdir = scratch_root / names[str(f)]
         relaxed = warning = None
         try:
-            res = run_xtb_opt(f, charge=charge, multiplicity=multiplicity,
-                              gfn=gfn, xtb_path=xtb_path, workdir=workdir, threads=threads)
+            mult = _multiplicity(f, charge, multiplicity)
+            if ref_atoms and tuple(parse_xyz(f).atoms)[:len(ref_atoms)] != ref_atoms:
+                raise ValueError("its first atoms are not the cluster of --cluster; not frozen")
+            res = run_xtb_opt(f, charge=charge, multiplicity=mult, gfn=gfn, xtb_path=xtb_path,
+                              workdir=workdir, threads=threads, fix_atoms=len(ref_atoms))
             item.energy_hartree = res.energy_hartree
             item.converged = res.converged
             opt_struct = parse_xyz(res.optimized_xyz)
@@ -301,7 +336,8 @@ def prescreen(
                 np.asarray(opt_struct.positions, dtype=float),
                 tuple(opt_struct.atoms),
                 # keep the optimized geometry in memory (tiny) so we can drop the scratch now
-                opt_struct.to_xyz(comment=f"xtbopt {Path(f).stem}"),
+                # the spin goes with the geometry, or the DFT inputs fall back to the parity
+                opt_struct.to_xyz(comment=f"xtbopt {names[str(f)]} charge={charge} mult={mult}"),
             )
             if not res.converged:
                 warning = f"{f.name}: xTB optimization did not converge; dropped (not a minimum)."
@@ -434,9 +470,11 @@ def prescreen(
     #        lowest `guarantee` distinct minima (so DFT always gets ≥min_keep to compare),
     #        always bounded above by top_n when that cap is set.
     reps = sorted(representative_idx, key=lambda i: result.items[i].energy_hartree)
+    # a frozen cluster keeps its skeleton by construction, and the DFT cluster it was frozen at
+    # may not match an xTB-relaxed reference (n=2 does not), which would call every config an isomer
     classes = (_classify_skeletons(reps, optimized_atoms, optimized_coords,
                                    cluster_ref, result.warnings)
-               if cluster_ref is not None else None)
+               if cluster_ref is not None and not freeze else None)
     # Each skeleton class is its own comparison set: its own zero, its own window, its own
     # cap and guarantee. A global cap would let the class that ranks first eat the budget,
     # which is the defect being fixed rather than a separate one.
@@ -480,7 +518,7 @@ def prescreen(
                     it.reason = f"kept (rank {rank}, +{it.rel_kcal:.2f} kcal/mol{where})"
                 kept_in[label] += 1
                 if out_dir is not None and i in opt_xyz_text:
-                    dst = out_dir / (Path(it.source_xyz).stem + "_xtbopt.xyz")
+                    dst = out_dir / (names[it.source_xyz] + "_xtbopt.xyz")
                     try:
                         dst.write_text(opt_xyz_text[i], encoding="utf-8")
                         it.optimized_xyz = str(dst)
@@ -519,12 +557,14 @@ def prescreen(
             if i not in opt_xyz_text:
                 continue
             tag = "to-DFT" if it.kept else f"reserve +{it.rel_kcal:.2f} kcal/mol beyond window"
+            spin = " ".join(t for t in opt_xyz_text[i].splitlines()[1].split()
+                            if t.startswith(("charge=", "mult=")))
             comment = (f"rank {rank}  +{it.rel_kcal:.3f} kcal/mol  "
-                       f"E={it.energy_hartree:.6f} Eh  [{tag}]  {Path(it.source_xyz).stem}")
+                       f"E={it.energy_hartree:.6f} Eh  {spin}  [{tag}]  {names[it.source_xyz]}")
             all_blocks.append(_relabel_xyz(opt_xyz_text[i], comment))
             if not it.kept:
                 reserve_dir.mkdir(parents=True, exist_ok=True)
-                dst = reserve_dir / (Path(it.source_xyz).stem + "_xtbopt.xyz")
+                dst = reserve_dir / (names[it.source_xyz] + "_xtbopt.xyz")
                 try:
                     dst.write_text(opt_xyz_text[i], encoding="utf-8")
                     n_reserve += 1

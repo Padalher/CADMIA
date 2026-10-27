@@ -668,7 +668,7 @@ def test_rank_db_records_each_output(tmp_path):
         "rank", str(src), "-o", str(tmp_path / "r.xyz"),
         "--db", "--db-path", str(db),
     ])
-    assert res.exit_code == 0, res.output
+    assert res.exit_code == 1, res.output   # nothing could be ranked
 
     with get_connection(db) as conn:
         rows = conn.execute(
@@ -735,7 +735,7 @@ def test_rank_persists_without_being_asked(tmp_path):
 
     res = CliRunner().invoke(main, ["rank", str(src), "-o", str(tmp_path / "r.xyz"),
                                     "--db-path", str(db)])          # no --db flag
-    assert res.exit_code == 0, res.output
+    assert res.exit_code == 1, res.output   # nothing could be ranked
     with get_connection(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM screening_results").fetchone()[0] == 1
 
@@ -751,7 +751,7 @@ def test_no_db_still_forbids_it(tmp_path):
 
     res = CliRunner().invoke(main, ["rank", str(src), "-o", str(tmp_path / "r.xyz"),
                                     "--no-db", "--db-path", str(db)])
-    assert res.exit_code == 0, res.output
+    assert res.exit_code == 1, res.output   # nothing could be ranked
     with get_connection(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM screening_results").fetchone()[0] == 0
 
@@ -766,6 +766,6 @@ def test_creating_a_database_is_announced(tmp_path):
 
     res = CliRunner().invoke(main, ["rank", str(src), "-o", str(tmp_path / "r.xyz"),
                                     "--db-path", str(db)])
-    assert res.exit_code == 0, res.output
+    assert res.exit_code == 1, res.output   # nothing could be ranked
     assert "creating" in res.output and "brand_new.db" in res.output
     assert db.exists()

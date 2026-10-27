@@ -14,19 +14,12 @@ import numpy as np
 
 from cadmia.structure.core.config import load_config
 from cadmia.io.cube import parse_cube
+from cadmia.io.figures import FIGURE_FORMATS, FIGURE_WIDTHS_IN, resolve_format
 from cadmia.io.gaussian import parse_gaussian_geometry
 from cadmia.io.orca import parse_orca_geometry
 from cadmia.io.xyz import parse_xyz, parse_xyz_database
-from cadmia.structure.rendering.geometry import align_to_inertia
-from cadmia.structure.rendering.povray import (
-    RESOLUTION_PRESETS,
-    check_dependencies,
-    render_pov,
-    write_pov_scene,
-)
 from cadmia.structure.reports import write_batch_report, write_report
 from cadmia.structure.structural.analyzer import analyze_structure
-from cadmia.structure.volumetric.cube_io import ISO_PRESETS, extract_isosurfaces, upsample_grid
 
 
 class _HelpFormatter(argparse.RawDescriptionHelpFormatter):
@@ -45,19 +38,16 @@ class _HelpFormatter(argparse.RawDescriptionHelpFormatter):
 ROOT_DESCRIPTION = """\
 CADMIA structure - Structural analysis
 
-Analyze molecular and cluster coordinate files, compute electronic descriptors,
-write structural reports, and prepare POV-Ray render scenes.
+Analyze molecular and cluster coordinate files and write structural reports and
+2D plots.
 """
 
 ROOT_EPILOG = """\
 Main workflows:
   structure   Analyze geometry, bonds, CN/ECN, local descriptors, bond
               statistics, coordination polyhedra, and distortion descriptors.
-  plot        Write interactive Plotly HTML plots for structures and
-              structural descriptors.
-  render      Write a POV-Ray scene from a structure, optionally adding cube
-              isosurfaces, upsampling/smoothing, inertia alignment, and PNG
-              rendering when POV-Ray is installed.
+  plot        Write interactive HTML plots, or static PNG/SVG/PDF figures,
+              for structures and structural descriptors.
 
 Supported structure inputs:
   .xyz        XYZ coordinate files, including concatenated multi-structure XYZ
@@ -76,16 +66,12 @@ Examples:
   cadmia structure report cluster.xyz -o report.json --format json
   cadmia structure report calculation.out --config atomic_data.yaml
   cadmia structure plot cluster.xyz
-  cadmia structure plot cluster.xyz --kind ecn
+  cadmia structure plot cluster.xyz --kind distances -o distances.png
   cadmia structure plot clusters/*.xyz --kind bonds -o plots
-  cadmia structure render cluster.xyz -o scene
-  cadmia structure render cluster.xyz --cube orbital.cube --iso-preset homo_lumo -o orbital
-  cadmia structure render cluster.xyz -o scene --render --resolution screen
 
 More detail:
   cadmia structure --help
   cadmia structure plot --help
-  cadmia structure render --help
 """
 
 STRUCTURE_DESCRIPTION = """\
@@ -120,42 +106,12 @@ Examples:
   cadmia structure report calculation.log --config atomic_data.yaml
 """
 
-RENDER_DESCRIPTION = """\
-Write a POV-Ray scene from a structure and optionally render it to PNG.
-
-The renderer can include positive/negative cube isosurfaces, field-specific
-isovalue presets, interpolation/smoothing for volumetric grids, and optional
-mass-weighted inertia alignment before writing the scene.
-"""
-
-RENDER_EPILOG = """\
-Isosurface presets:
-  homo_lumo  +0.040 / -0.040
-  fukui      +0.010 / -0.010
-  dual       +0.005 / -0.005
-  density    +0.002
-  mep        +0.050 / -0.050
-  adndp      +10.000 / -26.900
-
-Resolution presets:
-  preview       512 x 512
-  screen       1024 x 1024
-  publication  2560 x 2560
-  ultra        5120 x 5120
-
-Examples:
-  cadmia structure render TiO2_monomer.xyz -o tio2_scene
-  cadmia structure render TiO2_monomer.xyz --align-inertia -o aligned
-  cadmia structure render TiO2_monomer.xyz --cube orbital.cube --iso-preset homo_lumo -o orbital
-  cadmia structure render TiO2_monomer.xyz --cube fukui.cube --iso-pos 0.01 --iso-neg -0.01 --zoom 3 --sigma 1.0 -o fukui
-  cadmia structure render TiO2_monomer.xyz -o tio2_scene --render --resolution publication
-"""
-
 PLOT_DESCRIPTION = """\
-Write interactive Plotly HTML plots from structure files and structural reports.
+Write interactive HTML plots or static PNG/SVG/PDF figures from structure files and
+structural reports.
 
-The default plot is a 3D molecular view with cutoff-based bonds. Other plot
-kinds expose the same structural analysis already used by the structure command.
+The plots are 2D and expose the same structural analysis the structure command
+reports; 3D views of a structure are left to a molecular viewer.
 Batch mode accepts multiple structure files, directories, and glob patterns.
 ECN trend and heatmap plots read a TXT structural report or a table with
 n and *_ECN columns.
@@ -163,12 +119,15 @@ n and *_ECN columns.
 
 PLOT_EPILOG = """\
 Plot kinds:
-  molecule    3D molecule colored by element.
-  ecn         3D molecule colored by Hoppe ECN.
   bonds       Bond-distance histogram by bond type.
   distances   Interatomic-distance heatmap.
   ecn-trend   ECN average by coordination type vs cluster size n.
   ecn-heatmap ECN heatmap by coordination type and cluster size n.
+
+Output format: --format if given, else the -o suffix, else html. html is interactive (plotly);
+png, svg and pdf are static, publication-ready figures (matplotlib) for bonds, distances,
+ecn-trend and ecn-heatmap; --width single|double sets their width (3.4 in or 6.5 in). In batch
+mode -o is a directory, so pick the file type with --format.
 
 Examples:
   cadmia structure plot cluster.xyz
@@ -179,7 +138,12 @@ Examples:
   cadmia structure plot structural_report.txt --kind ecn-trend
   cadmia structure plot structural_report.txt --kind ecn-heatmap
   cadmia structure plot structural_report.txt --kind ecn-heatmap --ecn-label rounded
+  cadmia structure plot structural_report.txt --kind ecn-trend -o ecn_trend.pdf --width double
+  cadmia structure plot clusters/*.xyz --kind bonds --format png -o plots
 """
+
+
+_PLOT_FORMATS = ("html", *FIGURE_FORMATS)
 
 
 def _parse_structure(path: str | Path):
@@ -297,8 +261,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "--output",
         metavar="PATH",
         help=(
-            "Report filename to create in the analyzed folder. Absolute paths "
-            "are honored."
+            "Report file, relative to the current folder. Without it the report is "
+            "structural_report.<format> in the analyzed folder; inside a project it is "
+            "only the module result in results/."
         ),
     )
     structure.add_argument(
@@ -325,7 +290,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     plot = subparsers.add_parser(
         "plot",
-        help="Write interactive Plotly HTML plots for structures.",
+        help="Write interactive HTML plots or static PNG/SVG/PDF figures for structures.",
         description=PLOT_DESCRIPTION,
         epilog=PLOT_EPILOG,
         formatter_class=_HelpFormatter,
@@ -343,23 +308,37 @@ def _build_parser() -> argparse.ArgumentParser:
     plot.add_argument(
         "-o",
         "--output",
-        metavar="HTML",
+        metavar="PATH",
         help=(
-            "Output HTML file for one plot, or output directory for batch mode. "
-            "Defaults to the current directory."
+            "Output file for one plot (its suffix picks the format unless --format is given), "
+            "or output directory for batch mode. Defaults to the current directory."
         ),
+    )
+    plot.add_argument(
+        "--format",
+        choices=_PLOT_FORMATS,
+        default=None,
+        metavar="FORMAT",
+        help=(
+            "html (interactive), or png/svg/pdf (static figure). "
+            "Default: the -o suffix, else html."
+        ),
+    )
+    plot.add_argument(
+        "--width",
+        choices=list(FIGURE_WIDTHS_IN),
+        default="single",
+        help="Static figure width: single = 3.4 in, double = 6.5 in.",
     )
     plot.add_argument(
         "--kind",
         choices=[
-            "molecule",
-            "ecn",
             "bonds",
             "distances",
             "ecn-trend",
             "ecn-heatmap",
         ],
-        default="molecule",
+        default="bonds",
         metavar="KIND",
         help="Plot kind.",
     )
@@ -378,7 +357,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         metavar="N",
-        help="Display decimals for rounded ECN labels in ecn-trend/ecn-heatmap.",
+        help="Display decimals for rounded ECN labels (heatmap cells; hover text of the html trend).",
     )
     plot.add_argument(
         "--ecn-label",
@@ -386,97 +365,11 @@ def _build_parser() -> argparse.ArgumentParser:
         default="both",
         metavar="STYLE",
         help=(
-            "ECN label style for ecn-trend/ecn-heatmap: raw, rounded, "
+            "ECN label style (heatmap cells; hover text of the html trend): raw, rounded, "
             "or both as raw (rounded)."
         ),
     )
     plot.set_defaults(func=_cmd_plot)
-
-    render = subparsers.add_parser(
-        "render",
-        help="Write or render POV-Ray scenes, with optional cube isosurfaces.",
-        description=RENDER_DESCRIPTION,
-        epilog=RENDER_EPILOG,
-        formatter_class=_HelpFormatter,
-    )
-    render.add_argument(
-        "input_file",
-        metavar="INPUT",
-        help="Structure file: .xyz, .cube, Gaussian .out/.log, or ORCA .out/.log.",
-    )
-    render.add_argument(
-        "-o",
-        "--output",
-        default="structure_scene",
-        metavar="PATH",
-        help="Output scene path. The .pov suffix is added when omitted.",
-    )
-    render.add_argument(
-        "--cube",
-        metavar="CUBE",
-        help="Optional Gaussian cube file used to extract isosurfaces.",
-    )
-    render.add_argument(
-        "--field-type",
-        default="other",
-        metavar="NAME",
-        help="Field label stored with the cube grid, such as homo, lumo, density, fukui, or mep.",
-    )
-    render.add_argument(
-        "--iso-preset",
-        choices=sorted(ISO_PRESETS),
-        metavar="PRESET",
-        help="Named positive/negative isovalue pair for common fields.",
-    )
-    render.add_argument(
-        "--iso-pos",
-        type=float,
-        metavar="VALUE",
-        help="Positive isovalue. Overrides the positive value from --iso-preset.",
-    )
-    render.add_argument(
-        "--iso-neg",
-        type=float,
-        metavar="VALUE",
-        help="Negative isovalue. Overrides the negative value from --iso-preset.",
-    )
-    render.add_argument(
-        "--zoom",
-        type=int,
-        default=1,
-        metavar="N",
-        help="Volumetric upsampling factor for cube isosurfaces.",
-    )
-    render.add_argument(
-        "--sigma",
-        type=float,
-        default=0.0,
-        metavar="FLOAT",
-        help="Gaussian smoothing sigma applied after volumetric upsampling.",
-    )
-    render.add_argument(
-        "--align-inertia",
-        action="store_true",
-        help="Align atoms and isosurfaces to mass-weighted principal inertia axes.",
-    )
-    render.add_argument(
-        "--orientation",
-        metavar="JSON",
-        help="Orientation JSON exported by `cadmia view`: render in that exact framed pose.",
-    )
-    render.add_argument(
-        "--render",
-        action="store_true",
-        help="Run POV-Ray after writing the scene and create a PNG.",
-    )
-    render.add_argument(
-        "--resolution",
-        choices=sorted(RESOLUTION_PRESETS),
-        default="preview",
-        metavar="PRESET",
-        help="PNG render size preset used with --render.",
-    )
-    render.set_defaults(func=_cmd_render)
 
     return parser
 
@@ -488,6 +381,22 @@ def _cmd_structure(args) -> int:
     for input_path in input_paths:
         for structure in _parse_structures(input_path):
             results.append(analyze_structure(structure, config))
+
+    from cadmia.io.results import save_stage_result
+    from cadmia.structure.reports.generator import structural_payload, structural_text
+    in_project = False
+    for result in results:
+        item = _safe_filename_part(result.structure.structure_id)
+        saved = save_stage_result("structure", structural_payload(result, config),
+                                  structural_text(result, config, program_header=False),
+                                  item=item)
+        if saved:
+            in_project = True
+            print(f"Module result: {saved}")
+    if in_project and not args.output:
+        # results/ already holds the full report; a second copy beside the input would land
+        # outside the project, in a folder nobody asked to write to
+        return 0
 
     report_output = _structure_report_output(args.output, input_paths, args.format)
     if len(results) == 1:
@@ -521,10 +430,8 @@ def _structure_report_output(
         os.path.commonpath([str(path.resolve().parent) for path in input_paths])
     )
     if requested_output:
-        requested_path = Path(requested_output)
-        if requested_path.is_absolute():
-            return requested_path
-        return analysis_dir / requested_path.name
+        # Like every other command: a relative -o is relative to where the command runs.
+        return Path(requested_output)
 
     fmt = output_format or "txt"
     suffix = fmt if fmt in {"txt", "csv", "json"} else "txt"
@@ -544,6 +451,7 @@ def _plot_default_name(
     structure_index: int,
     structures_in_file: int,
     kind: str,
+    fmt: str = "html",
 ) -> str:
     parts = [_safe_filename_part(Path(input_file).stem)]
     if structures_in_file > 1:
@@ -552,7 +460,7 @@ def _plot_default_name(
             structure_id = f"structure_{structure_index + 1}"
         parts.append(structure_id)
     parts.append(kind)
-    return "_".join(parts) + ".html"
+    return "_".join(parts) + f".{fmt}"
 
 
 def _plot_output_path(
@@ -563,6 +471,7 @@ def _plot_output_path(
     kind: str,
     requested_output: str | None,
     is_batch: bool,
+    fmt: str = "html",
 ) -> Path:
     filename = _plot_default_name(
         input_file,
@@ -570,38 +479,39 @@ def _plot_output_path(
         structure_index,
         structures_in_file,
         kind,
+        fmt,
     )
     if is_batch:
         output_dir = Path(requested_output) if requested_output else Path(".")
-        if output_dir.suffix.lower() == ".html":
-            raise ValueError("For batch plotting, --output must be a directory.")
+        if output_dir.suffix.lower().lstrip(".") in _PLOT_FORMATS:
+            raise ValueError(
+                f"For batch plotting, --output must be a directory, not {output_dir}; "
+                "choose the file type with --format."
+            )
         return output_dir / filename
 
     if requested_output:
         path = Path(requested_output)
         if path.exists() and path.is_dir():
             return path / filename
-        if path.suffix.lower() != ".html":
-            path = path.with_suffix(".html")
-        return path
+        return path.with_suffix(f".{fmt}")
 
     return Path(filename)
 
 
-def _write_plot(structure, result, kind: str, title: str, output_path: Path) -> None:
+def _write_plot(structure, result, kind: str, title: str, output_path: Path,
+                fmt: str = "html", width: str = "single") -> None:
+    if fmt in FIGURE_FORMATS:
+        from cadmia.structure.visualization.figures import (
+            bond_histogram_figure, distance_heatmap_figure)
+        if kind == "bonds":
+            bond_histogram_figure(result, output_path, width=width)
+        else:
+            distance_heatmap_figure(structure, output_path, width=width,
+                                    bonds=result.bonds if result is not None else ())
+        return
     try:
-        if kind in {"molecule", "ecn"}:
-            from cadmia.structure.visualization.molecular import plot_molecule_3d
-
-            color_by = "ecn" if kind == "ecn" else "element"
-            plot_molecule_3d(
-                structure,
-                result=result,
-                color_by=color_by,
-                title=title,
-                output_html=str(output_path),
-            )
-        elif kind == "bonds":
+        if kind == "bonds":
             from cadmia.structure.visualization.plots import plot_bond_histogram
 
             plot_bond_histogram(result, output_html=str(output_path))
@@ -618,13 +528,13 @@ def _write_plot(structure, result, kind: str, title: str, output_path: Path) -> 
         ) from exc
 
 
-def _ecn_table_plot_output_path(kind: str, requested_output: str | None) -> Path:
-    filename = "ecn_trend.html" if kind == "ecn-trend" else "ecn_heatmap.html"
+def _ecn_table_plot_output_path(kind: str, requested_output: str | None, fmt: str = "html") -> Path:
+    filename = f"{'ecn_trend' if kind == 'ecn-trend' else 'ecn_heatmap'}.{fmt}"
     if requested_output is None:
         return Path(filename)
     path = Path(requested_output)
-    if path.suffix.lower() == ".html":
-        return path
+    if path.suffix.lower().lstrip(".") in _PLOT_FORMATS:
+        return path.with_suffix(f".{fmt}")
     return path / filename
 
 
@@ -633,7 +543,18 @@ def _cmd_ecn_table_plot(args) -> int:
         raise ValueError("ECN trend and heatmap plots accept one report/table file.")
 
     input_path = args.input_file[0]
-    output_path = _ecn_table_plot_output_path(args.kind, args.output)
+    fmt = _plot_format(args)
+    output_path = _ecn_table_plot_output_path(args.kind, args.output, fmt)
+    if fmt in FIGURE_FORMATS:
+        from cadmia.structure.visualization.figures import ecn_heatmap_figure, ecn_trend_figure
+        width = getattr(args, "width", None) or "single"
+        if args.kind == "ecn-trend":
+            ecn_trend_figure(input_path, output_path, width=width)
+        else:
+            ecn_heatmap_figure(input_path, output_path, display_decimals=args.ecn_decimals,
+                               label_style=args.ecn_label, width=width)
+        print(f"Plot written: {output_path}")
+        return 0
     try:
         if args.kind == "ecn-trend":
             from cadmia.structure.visualization.plot_generator import generate_ecn_trend_plot
@@ -665,10 +586,15 @@ def _cmd_ecn_table_plot(args) -> int:
     return 0
 
 
+def _plot_format(args) -> str:
+    return resolve_format(getattr(args, "format", None), args.output, _PLOT_FORMATS, "html")
+
+
 def _cmd_plot(args) -> int:
     if args.kind in {"ecn-trend", "ecn-heatmap"}:
         return _cmd_ecn_table_plot(args)
 
+    fmt = _plot_format(args)
     config = load_config(args.config)
     input_paths = _expand_structure_inputs(args.input_file)
     jobs = []
@@ -689,9 +615,11 @@ def _cmd_plot(args) -> int:
             args.kind,
             args.output,
             is_batch,
+            fmt,
         )
-        title = args.title if args.title is not None else structure.structure_id
-        _write_plot(structure, result, args.kind, title, output_path)
+        title = args.title if args.title is not None else structure.formula
+        _write_plot(structure, result, args.kind, title, output_path, fmt,
+                    getattr(args, "width", None) or "single")
         output_paths.append(output_path)
 
     if len(output_paths) == 1:
@@ -703,47 +631,11 @@ def _cmd_plot(args) -> int:
     return 0
 
 
-def _cmd_render(args) -> int:
-    structure = _parse_structure(args.input_file)
-    pos_iso = None
-    neg_iso = None
-
-    if args.cube:
-        grid = parse_cube(args.cube, field_type=args.field_type)
-        if args.zoom > 1 or args.sigma > 0:
-            grid = upsample_grid(grid, zoom=args.zoom, sigma=args.sigma)
-        preset = ISO_PRESETS.get(args.iso_preset) if args.iso_preset else (None, None)
-        iso_pos = args.iso_pos if args.iso_pos is not None else preset[0]
-        iso_neg = args.iso_neg if args.iso_neg is not None else preset[1]
-        pos_iso, neg_iso = extract_isosurfaces(grid, iso_pos=iso_pos, iso_neg=iso_neg)
-
-    if args.align_inertia:
-        structure, pos_iso, neg_iso = align_to_inertia(structure, pos_iso, neg_iso)
-
-    orientation = None
-    if getattr(args, "orientation", None):
-        from cadmia.structure.rendering.orientation import load_orientation
-        orientation = load_orientation(args.orientation)
-
-    pov_path = write_pov_scene(structure, pos_iso, neg_iso, args.output, orientation=orientation)
-    print(f"POV scene written: {pov_path}")
-
-    if args.render:
-        deps = check_dependencies()
-        if not deps["povray"]:
-            raise RuntimeError("POV-Ray is not available in PATH.")
-        render_pov(str(pov_path), RESOLUTION_PRESETS[args.resolution])
-        print(f"Rendered PNG: {pov_path.with_suffix('.png')}")
-    return 0
-
-
 def main(argv=None):
     parser = _build_parser()
     argv = list(sys.argv[1:] if argv is None else argv)
     known = {
         "structure",
-        "cdft",
-        "cdft-workflow",
         "plot",
         "render",
         "-h",

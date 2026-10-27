@@ -95,6 +95,15 @@ def test_run_xtb_opt_flags_an_unconverged_optimization(tmp_path, monkeypatch):
     assert res.energy_hartree == pytest.approx(-4.987139781408)
 
 
+def test_freeze_holds_the_cluster_with_constrain_not_fix(tmp_path, monkeypatch):
+    # $fix let the cluster move 1.6 A under xtb's default optimizer; $constrain holds it
+    xyz = _write_xyz(tmp_path / "m.xyz", [("H", 0, 0, 0), ("H", 0, 0, 0.74)])
+    _fake_xtb_run(monkeypatch, _CONVERGED_TAIL)
+    run_xtb_opt(xyz, workdir=tmp_path / "scratch", fix_atoms=8)
+    control = (tmp_path / "scratch" / "xcontrol").read_text()
+    assert control.startswith("$constrain") and "atoms: 1-8" in control
+
+
 def test_run_xtb_opt_accepts_a_converged_optimization(tmp_path, monkeypatch):
     xyz = _write_xyz(tmp_path / "m.xyz", [("H", 0, 0, 0), ("H", 0, 0, 0.74)])
     _fake_xtb_run(monkeypatch, _CONVERGED_TAIL)

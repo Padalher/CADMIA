@@ -12,6 +12,7 @@ from math import gcd
 from pathlib import Path
 from typing import Iterable, Optional
 
+from cadmia.io.results import fit_width, shown_path
 from cadmia.structure.core.config import Config, load_config
 from cadmia.structure.structural.analyzer import StructuralResult
 from cadmia.structure.structural.angles import (angle_statistics, bond_angles,
@@ -179,8 +180,8 @@ def _cation_neighbor_block(result: StructuralResult) -> dict:
 
 def _symmetry_line(result: StructuralResult) -> str:
     sym = detect_symmetry(result.structure.atoms, result.structure.positions)
-    return (f"Point group (from the geometry, tolerance {sym.tolerance} A): {sym.point_group}, "
-            f"rotational symmetry number {sym.sigma}, {'chiral' if sym.chiral else 'achiral'}")
+    return (f"Point group: {sym.point_group} from the geometry (tolerance {sym.tolerance} A); "
+            f"symmetry number {sym.sigma}; {'chiral' if sym.chiral else 'achiral'}")
 
 
 def _structure_blocks(result: StructuralResult) -> dict:
@@ -548,18 +549,18 @@ def _text_report_lines(
     result: StructuralResult,
     config: Config,
     include_concepts: bool = True,
+    include_program_header: bool = True,
 ) -> list[str]:
     cfg = config
     now = datetime.now()
 
     lines = [
-        *_program_header_lines(),
-        "",
+        *(_program_header_lines() + [""] if include_program_header else []),
         *_header_block("CADMIA Structural Report"),
         f"Date: {now:%Y-%m-%d}",
         f"Time: {now:%H:%M:%S}",
         f"Structure ID: {result.structure.structure_id}",
-        f"Source file: {result.structure.source_file}",
+        f"Source file: {shown_path(result.structure.source_file)}",
         f"Formula: {result.structure.formula}",
         f"Atoms: {result.structure.n_atoms}",
         f"Molecular weight: {_molecular_weight(result, cfg):.3f} g/mol",
@@ -569,17 +570,15 @@ def _text_report_lines(
     ]
     metals_present = sorted(set(result.structure.atoms) & set(cfg.metal_elements))
     lines.append(f"Metal elements present: {', '.join(metals_present) if metals_present else '(none)'}")
-    lines.append("Bond cutoffs (max. distance counted as a bond, per pair present in this structure):")
+    lines.append("Bond cutoffs (max. distance counted as a bond, per pair present):")
     for bond_type in sorted(result.bond_statistics):
         element_i, element_j = bond_type.split("-", 1)
         lines.append(f"  {bond_type:<9} {_distance_rounded(cfg.get_bond_cutoff(element_i, element_j))} A")
     ecn_params = cfg.ecn_parameters
     lines.append(
         "Hoppe ECN: every atom pair, no distance cutoff; weight exp[1 - (d/d_av)^"
-        f"{float(ecn_params.get('damping_factor', 6.0)):g}], d_av self-consistent from d_min,"
-    )
-    lines.append(
-        f"  tolerance {float(ecn_params.get('convergence_threshold', 1e-6)):g} A, "
+        f"{float(ecn_params.get('damping_factor', 6.0)):g}], d_av self-consistent from d_min, "
+        f"tolerance {float(ecn_params.get('convergence_threshold', 1e-6)):g} A, "
         f"at most {int(ecn_params.get('max_iterations', 100))} iterations."
     )
     if include_concepts:
@@ -634,15 +633,16 @@ def _text_report_lines(
         )
 
     lines.extend(["", *_header_block("Directed Pair Statistics (Central-Neighbor)")])
+    lines.append("Pair      Centers Active Bonds Directed CN/atom  ECN_act (1d)  d_av (A) "
+                 "MeanAux (A)")
     for pair_type, stats in sorted(result.directed_bond_statistics.items()):
         lines.append(
-            f"{pair_type:<12} centers={stats['central_atom_count']} "
-            f"active={stats['active_atom_count']} bonds={stats['bond_count']} "
-            f"directed={stats['directed_bond_count']} "
-            f"CN/atom={stats['mean_cn_per_atom']:.3f} "
-            f"ECN_act={_ecn_with_rounded(stats['mean_ecn_active_atoms'])} "
-            f"d_av={_d_av_value(stats['mean_atom_effective_avg_distance'])} A "
-            f"MeanAux={_distance_rounded(stats['mean_distance'])} A"
+            f"{pair_type:<9}{stats['central_atom_count']:>7}{stats['active_atom_count']:>7}"
+            f"{stats['bond_count']:>6}{stats['directed_bond_count']:>9}"
+            f"{stats['mean_cn_per_atom']:>8.3f}  "
+            f"{_ecn_with_rounded(stats['mean_ecn_active_atoms']):<14}"
+            f"{_d_av_value(stats['mean_atom_effective_avg_distance']):>8}"
+            f"{_distance_rounded(stats['mean_distance']):>12}"
         )
 
     polyhedra = _polyhedra(result)
@@ -651,18 +651,17 @@ def _text_report_lines(
         lines.append("No metal center with 3 or more ligands.")
     else:
         lines.append(
-            "Center      Elem    CN_L Type                d_mean   angle_mean   angle_dist"
-            "   volume     lambda     disp_r     shape      CShM"
+            "Center  CN_L Type                d_mean angle_mean angle_dist  volume  lambda"
+            "  disp_r shape    CShM"
         )
         for poly in polyhedra:
             lines.append(
-                f"{poly.center_label:<12}{poly.center_element:<8}{poly.cn:<5}"
-                f"{poly.polyhedron_type:<20}"
-                f"{_distance_rounded(poly.mean_bond_length):<9}"
-                f"{poly.mean_angle:<13.1f}{poly.angle_distortion:<13.1f}"
-                f"{poly.volume:<11.3f}{poly.quadratic_elongation:<11.4f}"
-                f"{poly.metal_displacement_ratio:<11.4f}"
-                f"{poly.shape:<11}{poly.shape_measure:.2f}"
+                f"{poly.center_label:<8}{poly.cn:<5}{poly.polyhedron_type:<19}"
+                f"{_distance_rounded(poly.mean_bond_length):>7}"
+                f"{poly.mean_angle:>11.1f}{poly.angle_distortion:>11.1f}"
+                f"{poly.volume:>8.3f}{poly.quadratic_elongation:>8.4f}"
+                f"{poly.metal_displacement_ratio:>8.4f} "
+                f"{poly.shape:<9}{poly.shape_measure:.2f}"
             )
 
     links = polyhedra_connectivity(polyhedra, result.structure)
@@ -681,10 +680,8 @@ def _text_report_lines(
         isolated = summary["isolated_centers"]
         lines.append("Isolated centers: " + (", ".join(isolated) if isolated else "none"))
         lines.append("Only metal centers with 3 or more ligands form a polyhedron, so a "
-                     "two-coordinate")
-        lines.append("edge atom is not counted here. Each linked pair, with the mu of its "
-                     "shared ligands,")
-        lines.append("is listed under Cation Neighborhood.")
+                     "two-coordinate edge atom is not counted here. Each linked pair, with the "
+                     "mu of its shared ligands, is listed under Cation Neighborhood.")
 
     bridges, neighborhood = cation_neighbors(result.structure, result)
     lines.extend(["", *_header_block("Cation Neighborhood (via shared ligand)")])
@@ -694,11 +691,9 @@ def _text_report_lines(
         lines.append("Two metals are neighbors when one ligand is bonded to both, under the bond "
                      "cutoffs above.")
         lines.append("Means run over ALL centers of the element: an isolated center counts as "
-                     "zero. Use this,")
-        lines.append("not the Hoppe ECN, for metal-metal coordination: ECN has no absolute "
-                     "distance scale")
-        lines.append("and gives a nonzero value to a center that shares no ligand with any "
-                     "metal of that element.")
+                     "zero. Use this, not the Hoppe ECN, for metal-metal coordination: ECN has "
+                     "no absolute distance scale and gives a nonzero value to a center that "
+                     "shares no ligand with any metal of that element.")
         lines.append("")
         lines.append("Pair       Centers   Mean neighbors   Isolated   Mean nearest d(M-M)")
         for pair, row in neighborhood.items():
@@ -718,9 +713,8 @@ def _text_report_lines(
         lines.append("")
         if bridges:
             lines.append("mu = number of metals bonded to the shared ligand. A mu_6 ligand "
-                         "spreads its bond")
-            lines.append("valence over six metals, so each bond to it is weaker than to a "
-                         "mu_2 bridge.")
+                         "spreads its bond valence over six metals, so each bond to it is "
+                         "weaker than to a mu_2 bridge.")
             lines.append("")
             lines.append("Pair              Sharing   d(M-M)   Shared ligands (mu)")
             for bridge in bridges:
@@ -739,9 +733,8 @@ def _text_report_lines(
     else:
         stats = angle_statistics(angles)
         lines.append("Mean, Std, Min and Max describe the CIS angles only; trans pairs (above "
-                     "150 degrees)")
-        lines.append("are counted apart, because pooling them makes an undistorted centre look "
-                     "distorted.")
+                     "150 degrees) are counted apart, because pooling them makes an undistorted "
+                     "centre look distorted.")
         lines.append("")
         lines.append("Triplet        Count   Mean      Std      Min       Max      "
                      "nTrans  MeanTrans")
@@ -849,8 +842,10 @@ def _text_report_lines(
 
 def _concept_lines() -> list[str]:
     lines = _header_block("Concepts and Parameter Definitions")
+    import textwrap
     for name, definition in PARAMETER_DEFINITIONS:
-        lines.append(f"{name:<15} {definition}")
+        # within the report's 80 columns, the term column kept clear
+        lines += textwrap.wrap(f"{name:<15} {definition}", 80, subsequent_indent=" " * 16)
     return lines
 
 
@@ -974,13 +969,18 @@ def write_text_report(
     config: Optional[Config] = None,
 ) -> Path:
     """Write a TXT report from a typed StructuralResult."""
-    cfg = config or load_config()
     path = Path(output_file)
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = _text_report_lines(result, cfg)
-
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    path.write_text(structural_text(result, config) + "\n", encoding="utf-8")
     return path
+
+
+def structural_text(result: StructuralResult, config: Optional[Config] = None,
+                    program_header: bool = True) -> str:
+    """The full text report of one structure; without the program header it reads as one
+    section of a larger document."""
+    return fit_width("\n".join(_text_report_lines(result, config or load_config(),
+                                                   include_program_header=program_header)))
 
 
 def write_csv_report(result: StructuralResult, output_file: str | Path) -> Path:
@@ -1002,9 +1002,18 @@ def write_json_report(
     config: Optional[Config] = None,
 ) -> Path:
     """Write a JSON report from a typed StructuralResult."""
-    cfg = config or load_config()
     path = Path(output_file)
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {**structural_payload(result, config),
+               "report_text": structural_text(result, config, program_header=False)}
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True, allow_nan=False),
+                    encoding="utf-8")
+    return path
+
+
+def structural_payload(result: StructuralResult, config: Optional[Config] = None) -> dict:
+    """Every value of the structural report, as data (format ``cadmia-structural-report-v1``)."""
+    cfg = config or load_config()
     structure_payload = result.structure.to_dict()
     structure_payload["formula"] = result.structure.formula
     payload = {
@@ -1022,8 +1031,7 @@ def write_json_report(
         "local_environment_statistics": result.local_environment_statistics,
         **_structure_blocks(result),
     }
-    path.write_text(json.dumps(_json_safe(payload), indent=2, ensure_ascii=True, allow_nan=False), encoding="utf-8")
-    return path
+    return _json_safe(payload)
 
 
 def write_batch_report(
@@ -1050,7 +1058,7 @@ def write_batch_report(
                         _text_report_lines(result, cfg, include_concepts=False)
                     )
                 )
-        path.write_text("\n\n".join(sections) + "\n", encoding="utf-8")
+        path.write_text(fit_width("\n\n".join(sections)) + "\n", encoding="utf-8")
         return path
 
     if fmt == "csv":

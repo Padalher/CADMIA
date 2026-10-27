@@ -1,7 +1,8 @@
 """Project scaffolding for CADMIA (`cadmia init`).
 
 Creates a tidy working directory for a study: the pipeline subfolders, a project manifest
-with the level-of-theory defaults, and (optionally) a local SQLite database.
+and (optionally) a local SQLite database. Inside a project every analysis stage saves its
+result to ``results/`` by itself, and `cadmia report` assembles them into one output.
 """
 from __future__ import annotations
 
@@ -9,7 +10,9 @@ from datetime import date
 from pathlib import Path
 from typing import Dict, List
 
-_SUBDIRS = ("scf", "configs", "adsorption", "reports")
+from cadmia.io.results import MANIFEST_NAME, RESULTS_DIR
+
+_SUBDIRS = ("configs", RESULTS_DIR, "reports")
 
 _MANIFEST = """# CADMIA project manifest
 name: {name}
@@ -48,7 +51,7 @@ def init_project(
             d.mkdir(parents=True)
             created.append(f"{sub}/")
 
-    manifest = root / "cadmia_project.yaml"
+    manifest = root / MANIFEST_NAME
     if manifest.exists() and not overwrite:
         skipped.append(manifest.name)
     else:

@@ -8,6 +8,7 @@
 
 [English](README.md) · **Español**
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23608477.svg)](https://doi.org/10.5281/zenodo.23608477)
 [![CI](https://github.com/Padalher/CADMIA/actions/workflows/ci.yml/badge.svg)](https://github.com/Padalher/CADMIA/actions/workflows/ci.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](LICENSE)
 [![Python 3.11–3.14](https://img.shields.io/badge/python-3.11%E2%80%933.14-blue)](pyproject.toml)
@@ -16,7 +17,9 @@
 
 Autor: Pablo Daniel Alvarez Hernandez, Universidad Juárez Autónoma de Tabasco (UJAT)
 
-Estado: alfa. Los comandos y los formatos de salida aún pueden cambiar entre versiones menores.
+Las versiones siguen [Semantic Versioning](https://semver.org/lang/es/): antes de la 1.0.0, una versión
+menor puede cambiar comandos o formatos de salida, y cada cambio así queda en el changelog. La 1.0.0
+marcará una interfaz pública estable.
 
 ## ¿Qué es CADMIA?
 
@@ -36,47 +39,53 @@ Funciones principales:
 - Estructura: números de coordinación (CN, ECN), distancias de enlace, anillos, poliedros de
   coordinación y simetría puntual.
 - Estructura electrónica: DOS y PDOS, potencial electrostático sobre la superficie molecular,
-  espectros IR y mapas volumétricos (densidad, Fukui, Δρ).
+  espectros IR y mapas volumétricos (densidad, Fukui, Δρ). El DOS, el PDOS, el IR y las gráficas
+  estructurales salen como HTML interactivo o como figuras PNG, SVG y PDF de una o dos columnas
+  (`--width`).
 - Cálculos: preparación de entradas, cola local secuencial y envío a SLURM, con flujos
   reanudables.
 - Procedencia: resultados guardados en una base de datos SQLite local con el hash del archivo, el
   comando exacto y la versión del programa.
-- Ayuda bilingüe (`--help` en inglés, `--ayuda` en español) y reportes en Markdown/LaTeX.
+- Ayuda bilingüe (`--help` en inglés, `--ayuda` en español) y un reporte de texto de columnas fijas
+  con todas las etapas (`reports/cadmia.out`), con resumen Markdown y tablas LaTeX bajo pedido.
 
-## Novedades de 0.3.0
+## Novedades de 0.3.1
 
-Solo lo principal; el detalle completo, con las versiones de desarrollo anteriores, está en
-[CHANGELOG.md](CHANGELOG.md).
+Solo lo principal; el detalle completo está en
+[CHANGELOG.md](https://github.com/Padalher/CADMIA/blob/main/CHANGELOG.md) (en inglés).
 
-- **Isómeros en `stability-series`:** varios `--cluster` con el mismo n se tratan como isómeros,
-  cada uno con grupo puntual, quiralidad, ΔE₀ y ΔG frente a su propio mínimo. Representa a n el
-  más bajo en la base elegida (E₀ por defecto); si los mínimos en E₀ y en G no coinciden, se
-  conservan ambos y se avisa.
-- **Poblaciones de Boltzmann en las dos bases:** `--pop` (apagado por defecto) añade P(G), con σ
-  de la geometría y g = 2 para isómeros quirales, y P(E₀), con el mismo g y sin σ. Los
-  descriptores promediados por población van rotulados como tales.
-- **Energía de mezcla a igual tamaño:** `stability` resuelve los coeficientes como fracciones
-  exactas (`--coeff` acepta `1/2` o `0.5`), y `stability-series --ref` empareja óxidos puros de
-  cualquier tamaño por estequiometría y reporta ΔE_mix por unidad fórmula.
-- **Simetría desde la geometría:** se detectan el grupo puntual, σ y la quiralidad (tolerancia de
-  0.01 Å); G y Gq se corrigen cuando el programa usó otro σ.
-- **Se comprueba cada término:** `stability` y `stability-series` registran la multiplicidad y
-  las frecuencias imaginarias de cada salida, y avisan si faltan frecuencias, si difieren las
-  multiplicidades o las temperaturas, si se mezclan entropías de ORCA y Gaussian, o si una salida
-  no terminó normalmente.
-- **`--energy Gq`:** energía libre con la entropía cuasi-RRHO de Grimme (ν₀ = 100 cm⁻¹, como
-  ORCA 6).
-- **Corregido:** `electronic mep --density` mide ahora sobre la isosuperficie ρ = isovalor, con
-  pesos de área (antes usaba una cáscara que se metía hacia los núcleos); coincide con Multiwfn
-  a ≤ 0.52 %. Un cálculo de solo frecuencias de Gaussian ya no se reporta como optimización no
-  convergida.
+- **Un solo origen por etapa:** dentro de un proyecto de `cadmia init`, `structure report`, `cdft`,
+  `analyze` y `stability` guardan sus datos y su reporte completo en `results/`; `cadmia report`
+  los reúne en `reports/cadmia.out`, y `--report/-r ARCHIVO` solo reescribe el reporte de una
+  etapa sin recalcular.
+- **BSSE por counterpoise en ORCA:** `prepare bsse` escribe los cuatro puntos sencillos de
+  Boys–Bernardi y `analyze --bsse` los lee; contrastado con `Counterpoise=2` de Gaussian en
+  Al₂TiO₅ + CO₂ (1.49 frente a 1.52 kcal/mol).
+- **Espín y carga a lo largo del flujo:** `geometry` escribe `charge=`/`mult=` (el O₂ es triplete),
+  y `prescreen`, `rank`, `prepare`, `benchmark` y `pipeline --charge` los conservan.
+- **Termoquímica:** ΔG con la corrección de σ y ΔG cuasi-RRHO en `analyze`; activación por
+  flexión de sondas lineales (`--bend-threshold`, 10° por omisión).
+- **Figuras estáticas:** `electronic dos|pdos|ir` y `structure plot` escriben PNG/SVG/PDF
+  (`--format`, `--width single|double`). La DOS está en estados/eV con ambos espines.
+- **Corridas más seguras:** no se mezclan resultados de cúmulos distintos en un reporte, una
+  carpeta de pipeline ya usada exige `--resume` y cada salida se revisa con su propio motor.
+
+## Lo que sigue
+
+Planeado para la próxima versión (puede cambiar):
+
+- **XYZ extendido:** `cdft`, `prescreen` y `rank` escribirán `.xyz` con la energía y su unidad, y
+  los valores por átomo (cargas, Fukui, dual, ECN), legibles por visores como MOLE y por ASE.
+- **Estilos de gráfica:** distintas formas para enlaces, ECN y DOS (barras, palitos, curvas).
+- **Definiciones por módulo** en la guía; el `cadmia.out` remitirá a ellas.
 
 ## Requisitos
 
 - Python 3.11 o posterior.
 - Salidas de ORCA 6 o de Gaussian 16. ORCA solo hace falta para correr cálculos; el análisis
   funciona en cualquier equipo.
-- Opcionales: `xtb` (pre-cribado), SLURM (envío de trabajos) y POV-Ray (render de estructuras).
+- Opcionales: `xtb` (pre-cribado), SLURM (envío de trabajos) y [MOLE](https://github.com/Padalher/MOLE)
+  (`pip install mole-viewer`, visor rápido de conjuntos de estructuras).
 
 ## Inicio rápido
 

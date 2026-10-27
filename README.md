@@ -8,6 +8,7 @@
 
 **English** · [Español](https://github.com/Padalher/CADMIA/blob/main/README.es.md)
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23608477.svg)](https://doi.org/10.5281/zenodo.23608477)
 [![CI](https://github.com/Padalher/CADMIA/actions/workflows/ci.yml/badge.svg)](https://github.com/Padalher/CADMIA/actions/workflows/ci.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue)](https://github.com/Padalher/CADMIA/blob/main/LICENSE)
 [![Python 3.11–3.14](https://img.shields.io/badge/python-3.11%E2%80%933.14-blue)](https://github.com/Padalher/CADMIA/blob/main/pyproject.toml)
@@ -16,7 +17,9 @@
 
 Author: Pablo Daniel Alvarez Hernandez, Universidad Juárez Autónoma de Tabasco (UJAT)
 
-Status: alpha. Commands and output formats may still change between minor versions.
+Versions follow [Semantic Versioning](https://semver.org): before 1.0.0, a minor version may change
+commands or output formats, and every such change is listed in the changelog. 1.0.0 will mark a
+stable public interface.
 
 ## What is CADMIA?
 
@@ -36,54 +39,65 @@ Main features:
 - Structure: coordination numbers (CN, ECN), bond lengths, rings, coordination polyhedra and
   point-group symmetry.
 - Electronic structure: DOS and PDOS, electrostatic potential on the molecular surface, IR spectra
-  and volumetric maps (density, Fukui, Δρ).
+  and volumetric maps (density, Fukui, Δρ). DOS, PDOS, IR and the structural plots come as
+  interactive HTML or as PNG, SVG and PDF figures at one- or two-column width (`--width`).
 - Calculations: input preparation, a local sequential queue and SLURM submission, with
   resumable pipelines.
 - Provenance: results stored in a local SQLite database with file hash, exact command and
   program version.
-- Bilingual help (`--help` in English, `--ayuda` in Spanish) and Markdown/LaTeX reports.
+- Bilingual help (`--help` in English, `--ayuda` in Spanish) and a fixed-width text report of all
+  the stages (`reports/cadmia.out`), with a Markdown summary and LaTeX tables on request.
 
-## What's new in 0.3.0
+## What's new in 0.3.1
 
-Highlights only; the full detail, with the earlier development versions, is in
+Highlights only; the full detail is in
 [CHANGELOG.md](https://github.com/Padalher/CADMIA/blob/main/CHANGELOG.md).
 
-- **Isomers in `stability-series`:** several `--cluster` outputs with the same n are treated as
-  isomers, each with point group, chirality, ΔE₀ and ΔG to its own minimum. The lowest in the
-  chosen basis (E₀ by default) represents n; if the E₀ and G minima differ, both are kept and
-  flagged.
-- **Boltzmann populations in both bases:** `--pop` (off by default) adds P(G), with σ from the
-  geometry and g = 2 for chiral isomers, and P(E₀), with the same g and no σ. Population-weighted
-  descriptors are labelled as such.
-- **Mixing energy at equal size:** `stability` solves the coefficients as exact fractions
-  (`--coeff` accepts `1/2` or `0.5`), and `stability-series --ref` pairs pure oxides of any size by
-  stoichiometry, reporting ΔE_mix per formula unit.
-- **Symmetry from the geometry:** point group, σ and chirality are detected (0.01 Å tolerance); G
-  and Gq are corrected when the engine used a different σ.
-- **Every term is checked:** `stability` and `stability-series` record the multiplicity and the
-  imaginary frequencies of each output, and warn about missing frequencies, mismatched
-  multiplicities or temperatures, mixed ORCA/Gaussian entropies and abnormal terminations.
-- **`--energy Gq`:** free energy with Grimme's quasi-RRHO entropy (ν₀ = 100 cm⁻¹, as in ORCA 6).
-- **Fixed:** `electronic mep --density` now samples the actual ρ = isovalue surface with area
-  weights (it used a shell that reached into the nuclei); it matches Multiwfn within 0.52 %.
-  A frequency-only Gaussian job is no longer reported as a non-converged optimization.
+- **One source per stage:** inside a `cadmia init` project, `structure report`, `cdft`, `analyze`
+  and `stability` save their data and full text report to `results/`; `cadmia report` assembles
+  them into `reports/cadmia.out`, and `--report/-r FILE` alone rewrites a stage's report without
+  recomputing.
+- **Counterpoise BSSE for ORCA:** `prepare bsse` writes the four Boys–Bernardi single points and
+  `analyze --bsse` reads them; checked against Gaussian `Counterpoise=2` on Al₂TiO₅ + CO₂
+  (1.49 vs 1.52 kcal/mol).
+- **Spin and charge carried through:** `geometry` writes `charge=`/`mult=` (O₂ is a triplet), and
+  `prescreen`, `rank`, `prepare`, `benchmark` and `pipeline --charge` keep them.
+- **Thermochemistry:** ΔG with the σ correction and quasi-RRHO ΔG in `analyze`; activation by
+  bending for linear probes (`--bend-threshold`, 10° by default).
+- **Static figures:** `electronic dos|pdos|ir` and `structure plot` write PNG/SVG/PDF
+  (`--format`, `--width single|double`). The DOS is in states/eV over both spins.
+- **Safer runs:** results of different clusters are not mixed in one report, a used pipeline
+  folder needs `--resume`, and each output is checked with its own engine.
+
+## What's next
+
+Planned for the next version (subject to change):
+
+- **Extended XYZ:** `cdft`, `prescreen` and `rank` will write `.xyz` files with the energy and its
+  unit and per-atom values (charges, Fukui, dual, ECN), readable by viewers such as MOLE
+  and by ASE.
+- **Plot styles:** other forms for bonds, ECN and DOS plots (bars, sticks, curves).
+- **Definitions per module** in the guide; `cadmia.out` will point to them.
 
 ## Requirements
 
 - Python 3.11 or newer.
 - Outputs from ORCA 6 or Gaussian 16. ORCA is needed only to run calculations; analysis works on
   any machine.
-- Optional: `xtb` (pre-screening), SLURM (job submission) and POV-Ray (structure rendering).
+- Optional: `xtb` (pre-screening), SLURM (job submission) and [MOLE](https://github.com/Padalher/MOLE)
+  (`pip install mole-viewer`, a quick viewer for sets of structures).
 
 ## Installation
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .            # core
-pip install -e ".[full]"    # optional: figures, interactive plots, isosurfaces
-cadmia doctor               # checks engines, dependencies and configuration
+python -m venv ~/cadmia-env
+source ~/cadmia-env/bin/activate
+pip install cadmia            # core, from PyPI
+pip install "cadmia[full]"    # optional: figures and interactive 2D plots
+cadmia doctor                 # checks engines, dependencies and configuration
 ```
+
+From a clone of this repository, `pip install -e ".[full]"` installs the working copy instead.
 
 ## Quick start
 

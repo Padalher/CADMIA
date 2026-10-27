@@ -98,7 +98,7 @@ UNICODE_TEXT = {
     "⟨": r"\ensuremath{\langle}", "⟩": r"\ensuremath{\rangle}",
     "²": r"\textsuperscript{2}", "³": r"\textsuperscript{3}", "½": r"\ensuremath{\frac{1}{2}}",
     "⁺": r"\textsuperscript{+}", "⁻": r"\textsuperscript{-}",
-    "⁰": r"\textsuperscript{0}", "¹": r"\textsuperscript{1}",
+    "⁰": r"\textsuperscript{0}", "¹": r"\textsuperscript{1}", "⁸": r"\textsuperscript{8}",
     "₁": r"\textsubscript{1}", "₂": r"\textsubscript{2}",
     "₃": r"\textsubscript{3}", "₄": r"\textsubscript{4}",
     "₅": r"\textsubscript{5}", "₆": r"\textsubscript{6}",

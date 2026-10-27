@@ -18,7 +18,10 @@ SPANISH_HELP: dict[str, str] = {
     "init": """
 cadmia init — Crea el andamiaje de un proyecto CADMIA.
 
-Genera las carpetas del pipeline, un manifiesto y una base de datos local.
+Genera las carpetas del pipeline, un manifiesto y una base de datos local. Dentro del
+proyecto, cada etapa (structure report, cdft, analyze, stability) guarda sola su resultado
+en results/ — datos y reporte completo en un JSON — y `cadmia report` arma con ellos
+reports/cadmia.out.
 
 Argumento:
   DIRECTORIO            Carpeta del proyecto (por defecto: el directorio actual).
@@ -271,33 +274,6 @@ Ejemplos:
   cadmia molden *.gbw -o molden/
 """,
 
-    "view": """
-cadmia view — Visor 3D interactivo: rota/zoom, resalta sitios y exporta la orientación.
-
-Abre un HTML autocontenido (3Dmol.js) para encuadrar la estructura de modo que se vean los
-sitios/átomos relevantes, y exportar esa orientación para renderizar EXACTAMENTE esa pose
-("lo que orientas es lo que renderizas"). Sirve para estructuras de tamaño considerable.
-
-Uso:
-  cadmia view ESTRUCTURA [opciones]
-  ESTRUCTURA: un .xyz o una salida Gaussian/ORCA (.out/.log; geometría autodetectada).
-
-Opciones:
-  --cdft ARCHIVO     CDFTResult JSON: resalta automáticamente sus mejores sitios reactivos.
-  --n-sites N        Cuántos sitios CDFT resaltar (por defecto: 3).
-  --highlight N      Índices de átomo extra a resaltar (base 1, repetible).
-  --cube ARCHIVO     Superpone una isosuperficie .cube (HOMO/LUMO/Fukui/dual/MEP/Δρ).
-  --isovalue VALOR   Valor de isosuperficie para --cube.
-  --output, -o RUTA  HTML de salida (por defecto: <estructura>_view.html).
-
-Flujo: abre el HTML, encuadra, pulsa "Exportar orientación" (.json), y luego:
-  cadmia structure render ESTRUCTURA --orientation <archivo>.json
-
-Ejemplos:
-  cadmia view N.out --cdft cdft.json --n-sites 3
-  cadmia view aducto.xyz --cube dual.cube --isovalue 0.01
-""",
-
     "prescreen": """
 cadmia prescreen — Cribado rápido de configuraciones de adsorción con GFN2-xTB (antes del DFT).
 
@@ -314,7 +290,8 @@ Argumento:
 
 Opciones:
   --charge N            Carga total del aducto (por defecto: 0).
-  --mult N              Multiplicidad de espín 2S+1 (por defecto: 1).
+  --mult auto|N         Multiplicidad 2S+1. auto (por defecto): la mult= que geometry escribe
+                        en el comentario de cada .xyz; si no hay, la menor por paridad.
   --gfn 0|1|2           Parametrización GFN (por defecto: 2 = GFN2-xTB con D4).
   --top N               Limita a N los supervivientes dentro de la ventana (0 = sin tope;
                         por defecto se conservan TODOS los que caen en --window).
@@ -344,6 +321,10 @@ Opciones:
                         OJO: la referencia debe venir del mismo nivel de teoría. El esqueleto
                         de un cúmulo puede diferir entre DFT y GFN2-xTB; cribar con xTB contra
                         una referencia DFT marca como isómeros a casi todas.
+  --freeze              Mantiene rígido el cúmulo en xTB y solo relaja la sonda (requiere
+                        --cluster, cuyos átomos deben abrir cada configuración). Por defecto
+                        se relaja todo: un cribado congelado pierde los sitios que solo
+                        enlazan si el cúmulo se acomoda. El DFT nunca va restringido.
 
 Dentro de la carpeta -o se escribe SOLO un sidecar prescreen.json con el resultado
 completo: energía xTB, ΔE y el motivo por el que cada configuración se conservó o se
@@ -357,7 +338,7 @@ descartó (lo que los .xyz supervivientes no pueden decir de las que no pasaron)
                      trabajo cae dentro de uno, si no ~/.cadmia/cadmia.db).
 
 Ejemplo:
-  cadmia prescreen ./configs/ --charge 0 --mult 1 --window 20 -o ./prescreened/
+  cadmia prescreen ./configs/ --window 20 -o ./prescreened/
   # conserva TODOS los que caen dentro de 20 kcal/mol + pool/candidates_by_energy.xyz (1 archivo)
   # luego: cadmia prepare ./prescreened/ ... && cadmia submit ... (re-opt en DFT con D4)
 """,
@@ -381,7 +362,7 @@ Comandos disponibles:
 
  Cálculo y HPC:
   prepare     Genera los inputs DFT (.inp/.gjf) desde .xyz u .out SIN ejecutarlos.
-              Etapas: screen-opt | screen-freq | opt | freq | opt+freq | char | cdft.
+              Etapas: screen-opt | screen-freq | opt | freq | opt+freq | char | cdft | bsse.
   run         Corre cálculos EN ESTA MÁQUINA, en cola secuencial (workstation).
   submit      Envía cálculos DFT al HPC vía SLURM.
   monitor     Sondea el estado de los trabajos y descarga los resultados.
@@ -394,14 +375,13 @@ Comandos disponibles:
   stability-series  E_b, ΔE_mix, E_f (fragmentación), Δ²E e isómeros a lo largo de la serie.
   bde         Energía de disociación de enlace desde fragmentos.
   correlate   Regresión de descriptores contra datos experimentales o calculados (r²).
-  report      Reporte integrador (Markdown/LaTeX) de CDFT + adsorción.
+  report      Reporte integrador: reports/cadmia.out (texto); resumen Markdown con -o NOMBRE.md.
 
  Electrónica y estructura:
-  electronic  Propiedades electrónicas: DOS/PDOS, IR, MEP, visor cube, export VMD.
-  structure   Análisis estructural (ECN/coordinación), gráficas y render.
+  electronic  Propiedades electrónicas: DOS/PDOS, IR, MEP.
+  structure   Análisis estructural (ECN/coordinación) y gráficas 2D.
   density     Cubos de densidad/HOMO/LUMO/MEP y mapas Fukui/dual/Δρ (requiere orca_plot).
   molden      Exporta .gbw → .molden para NPA (JANPA) y AIM (Multiwfn).
-  view        Visor 3D interactivo: rota/zoom, resalta sitios y exporta la orientación.
   bonds       Órdenes de enlace de Mayer desde una salida ORCA (necesita Print[P_Mayer] 1).
 
  Datos y proyecto:
@@ -449,11 +429,15 @@ Opciones principales:
   --engine gaussian|orca  Motor de la etapa run (autodetectado de los outputs si se omite).
   --engine-path RUTA    Directorio de ORCA o binario g16 para la etapa run.
   --task/--functional/--basis/--dispersion   Nivel de teoría de los aductos.
+  --charge N            Carga total del cúmulo (def.: 0); los aductos suman la de la sonda
+                        (0 en todas las sondas incorporadas).
   --nprocs N / --mem-o MB   Recursos por trabajo en la etapa run.
   --bsse                Corrige por BSSE las energías de adsorción.
   --latex               Escribe también las tablas LaTeX del reporte.
   --until ETAPA         Detenerse después de esa etapa.
-  --resume              Reanuda desde pipeline.json saltando lo ya hecho.
+  --resume              Reanuda desde pipeline.json saltando lo ya hecho. Conserva el nivel de
+                        teoría de la primera corrida (task, preset, funcional, base,
+                        dispersión y carga) salvo que des alguna de esas opciones de nuevo.
   --dry-run             Muestra el plan de etapas sin ejecutar nada.
   --workdir, -o DIR     Directorio del manifiesto y de todas las salidas
                         (def.: ./pipeline).
@@ -488,16 +472,19 @@ funciones de Fukui condensadas, descriptores globales (η, μ, ω, gap, IP, EA)
 y clasifica cada átomo como electrofílico, nucleofílico o ambifílico.
 
 Opciones:
-  --n ARCHIVO        Salida SCF con N electrones (requerido).
-  --np1 ARCHIVO      Salida SCF con N+1 electrones, anión (requerido).
-  --nm1 ARCHIVO      Salida SCF con N-1 electrones, catión (requerido).
+  --n ARCHIVO        Salida SCF con N electrones. Opcional solo dentro de un proyecto y
+                     con --report (ver abajo); si no, requerido.
+  --np1 ARCHIVO      Salida SCF con N+1 electrones, anión (ídem).
+  --nm1 ARCHIVO      Salida SCF con N-1 electrones, catión (ídem).
   --cluster TEXTO    Etiqueta del cúmulo (por defecto: directorio padre).
   --engine {gaussian,orca}   Motor; autodetectado del contenido si se omite.
   --output, -o ARCHIVO       Escribe el JSON de salida a un archivo (sin -o, --no-table lo
                              imprime en pantalla).
-  --report ARCHIVO   Escribe además el reporte completo estilo Multiwfn
+  --report, -r ARCHIVO  Escribe además el reporte completo
                      (global + condensados por átomo, electro/nucleofilicidad
-                     local, softnesses).
+                     local, softnesses). Dentro de un proyecto el resultado se guarda
+                     en results/cdft.json, y --report solo (sin --n/--np1/--nm1) lo
+                     escribe desde ese archivo, sin recalcular.
   --report-format {txt,json}  Formato de --report (def.: txt).
   --tce-homo EV      Referencia HOMO(TCE) en eV para el índice de nucleofilicidad.
   --top N            Número de sitios a mostrar en la tabla (por defecto: 5).
@@ -589,7 +576,12 @@ cadmia analyze — Energética de adsorción y activación post-cálculo (Analys
 A partir de tres salidas validadas —adducto (cúmulo+sonda), cúmulo aislado y
 sonda libre— calcula la energía de adsorción, la corrección BSSE (counterpoise),
 las energías de deformación/interacción, la elongación del enlace de la sonda y
-su activación (≥5 %), y contrasta el sitio de enlace con el ranking CDFT.
+su activación, y contrasta el sitio de enlace con el ranking CDFT.
+
+Una sonda cuenta como activada si un enlace se alarga ≥ 5 % respecto a la molécula libre
+o si un ángulo que era lineal en ella (≥ 175°, como en el CO2) se dobla ≥ 10° en el
+aducto. El JSON añade probe_angles (libre, aducto y Δ de cada ángulo, en grados) y
+max_bend_deg (la mayor flexión de un ángulo lineal).
 
 Además del veredicto de reorganización del cúmulo, el JSON incluye cuánto se movió
 cada átomo del cúmulo al adsorber (`cluster_displacement_ang`, por átomo, tras
@@ -611,8 +603,12 @@ Opciones:
   --probe-deformed ARCHIVO    SP de la sonda a la geometría del adducto (solo modo simple).
   --cdft ARCHIVO          JSON de CDFTResult para contrastar el sitio de enlace.
   --config-index N        Índice de configuración del triplete (modo simple).
+  --bend-threshold GRADOS Flexión de un ángulo lineal de la sonda que cuenta como
+                          activación (def.: 10).
   --label TEXTO           Etiqueta del cúmulo.
   --output, -o RUTA       Modo simple: archivo JSON. Modo lote: carpeta de salida.
+  --report, -r ARCHIVO    Escribe además el reporte de texto completo. Solo, dentro de un
+                          proyecto, lo escribe desde results/analysis/ sin recalcular.
   --no-table              Omite la tabla; emite solo JSON.
   --db / --no-db [--db-path RUTA]   Persiste la(s) fila(s) de adsorción en la base de datos
                                     (activo por defecto).
@@ -654,7 +650,7 @@ cadmia doctor — Diagnóstico del entorno CADMIA.
 Verifica Python, dependencias requeridas (numpy, click, pyyaml), los
 subpaquetes de CADMIA, la configuración (atomic_data.yaml), las dependencias
 opcionales (rich, matplotlib, plotly, scipy, skimage), las herramientas
-externas en el PATH (orca, g16, ssh, povray) y el estado/esquema de la base
+externas en el PATH (orca, g16, xtb, ssh) y el estado/esquema de la base
 de datos.
 
 Opciones:
@@ -690,6 +686,8 @@ Opciones:
                       no tiene frecuencias, todas pasan a E y se avisa: nunca se resta
                       una E de una E0.
   --output, -o ARCHIVO  Escribe el JSON de StabilityResult.
+  --report, -r ARCHIVO  Escribe además el reporte de texto completo. Solo, dentro de un
+                        proyecto, lo escribe desde results/stability.json sin recalcular.
   --no-table          Omite la tabla; emite solo JSON.
   --db / --no-db [--db-path RUTA]  Persiste la estabilidad relativa en la base de datos
                                    (activo por defecto).
@@ -783,21 +781,35 @@ Ejemplos:
 """,
 
     "report": """
-cadmia report — Reporte de proceso COMPLETO a partir de resultados de otros agentes (Report Agent).
+cadmia report — El output de CADMIA: el reporte completo de todos los módulos (Report Agent).
 
-Por defecto escribe un reporte de proceso completo: cabecera (programa, versión, autor),
-información de la corrida, las etapas ejecutadas, las tablas/correlaciones de resultados
-(Δf del sitio vs E_ads) y un pie de terminación normal. Usa --simple para la variante
-ligera de solo tablas. Lee los JSON de estructura, CDFT, análisis de adsorción, estabilidad y benchmark.
-Las figuras matplotlib se escriben solo si matplotlib está instalado; si no, se emite (x,y) como CSV.
+Dentro de un proyecto (cadmia init), sin opciones de módulo, lee los resultados originales
+que cada módulo guardó en results/ (las copias, cdft-2.json…, se dejan fuera y se listan) y
+escribe reports/cadmia.out: cabecera (programa, versión, cita, nivel de teoría), el reporte
+COMPLETO de cada módulo en su recuadro numerado (1 Structure, 2 CDFT, 3 Adsorption,
+4 Stability; el número es fijo), las correlaciones entre módulos y el pie de terminación
+normal. Es texto de columnas fijas, legible con cat.
+
+Las opciones de módulo (--structure, --cdft, --analysis, --stability) toman uno o más JSON
+seguidos, o 'all' para todos los de ese módulo en results/ (copias incluidas); entonces solo
+se reportan los módulos dados:
+  cadmia report --cdft results/cdft.json results/cdft-2.json --structure all Con
+-o NOMBRE.out el output lleva otro nombre; con -o NOMBRE.md se escribe en cambio el resumen
+Markdown (--simple: solo tablas), y --latex añade las tablas LaTeX.
+
+Un resultado de results/ nunca se pisa con uno calculado desde otros archivos: las mismas
+entradas actualizan su archivo y otras van a la siguiente copia (cdft-2.json, site5-2.json…);
+ese nombre es el identificador persistente del resultado. Si results/ mezcla cúmulos distintos
+(se compara la fórmula entre módulos), el reporte se detiene y nombra el archivo que no coincide. Las figuras
+matplotlib se escriben solo si matplotlib está instalado; si no, se emite (x,y) como CSV.
 
 Opciones:
-  --structure ARCHIVO   JSON de cadmia structure report (-o estructura.json).
-  --cdft ARCHIVO        JSON de CDFTResult.
-  --analysis ARCHIVO    JSON de AnalysisResult (repetible, uno por configuración).
+  --structure ARCH…|all  JSON de structure report (uno o más, o all).
+  --cdft ARCH…|all       JSON de cdft (uno o más, o all).
+  --analysis ARCH…|all   JSON de analyze (uno o más, o all; uno por configuración).
   --analysis-dir CARPETA  Carpeta de JSON de AnalysisResult (agrega todos los *.json);
                         evita listarlos uno a uno con --analysis.
-  --stability ARCHIVO   JSON de StabilityResult.
+  --stability ARCH…|all JSON de stability (uno o más, o all).
   --benchmark ARCHIVO   JSON de BenchmarkResult.
   --literature ARCHIVO  JSON de LiteratureResult (cadmia literature --format json):
                         añade una sección de bibliografía al reporte.
@@ -805,7 +817,8 @@ Opciones:
                         en una sección "Density of states" del reporte.
   --pdos ARCHIVO        Archivo PDOS de `cadmia electronic pdos` (repetible): idem.
   --title TEXTO         Título del reporte.
-  --output, -o ARCHIVO  Ruta del reporte Markdown (por defecto: report.md).
+  --output, -o ARCHIVO  Archivo de salida. Con sufijo .md, el resumen Markdown (por defecto:
+                        reports/cadmia.out dentro de un proyecto, si no cadmia.out).
   --latex               Escribe también las tablas en LaTeX (.tex).
   --figures             Escribe figuras de correlación (matplotlib; CSV si falta).
   --engine gaussian|orca  Motor a registrar en la cabecera de información de la corrida.
@@ -822,8 +835,9 @@ Opciones:
                         a partir de los números ya calculados; nunca los altera.
   --language es|en      Idioma del borrador de discusión (por defecto: es).
 
-Ejemplo:
-  cadmia report --cdft cdft.json --analysis a0.json --analysis a1.json --stability s.json -o reporte.md --latex --narrate
+Ejemplos:
+  cadmia report                                   (dentro del proyecto → reports/cadmia.out)
+  cadmia report --cdft cdft.json --analysis a0.json --stability s.json -o reporte.md --latex
 """,
 
     "prepare": """
@@ -858,6 +872,9 @@ Etapas:
   opt+freq     Geometría + frecuencias en un solo job (Opt Freq).
   char         Caracterización electrónica: single point con Hirshfeld/CHELPG/Mayer/PDOS.
   cdft         Trío N/N+1/N−1 (single points) para descriptores por diferencias finitas.
+  bsse         Counterpoise (ORCA): cada fragmento del aducto con su base y con la base
+               completa (átomos fantasma), en la geometría del aducto. Requiere --cluster
+               y --probe-free; luego `cadmia analyze --bsse` lee los cuatro *_cp_*.out.
 
 Por qué screen-freq existe y no se usa `freq` en el cribado: una Freq solo tiene sentido
 sobre una geometría optimizada AL MISMO NIVEL, y el nivel incluye el umbral SCF y la malla,
@@ -876,8 +893,12 @@ Opciones (todas opcionales; sobrescriben la etapa):
   --functional/--basis/--dispersion   Nivel de teoría (def.: PBE0/def2-TZVP/d4;
                         las etapas screen-* usan def2-SVP salvo que pases --basis).
   --charge N            Carga total (def.: 0).
-  --mult auto|N         Multiplicidad: 'auto' (por paridad de electrones) o un entero.
+  --mult auto|N         Multiplicidad: 'auto' (la mult= del comentario del .xyz que escribe
+                        geometry; si no hay, por paridad de electrones) o un entero.
   --mult-anion/--mult-cation   [etapa cdft] Multiplicidad del anión/catión ('auto' o N).
+  --cluster ARCHIVO     [etapa bsse] Output del cúmulo aislado: su número de átomos parte
+                        el aducto, y su carga y multiplicidad son las del fragmento.
+  --probe-free ARCHIVO  [etapa bsse] Output de la sonda libre (carga y multiplicidad).
   --preset NOMBRE       none | cdft | analysis | accurate — sobrescribe la salida de la etapa.
   --nprocs N            Núcleos por trabajo (%pal / %nprocshared; def.: 8).
   --mem-o MB            %maxcore de ORCA en MB por núcleo (def.: 2000).
@@ -930,7 +951,8 @@ Opciones principales:
   --task TAREA          sp | opt | freq | opt+freq (def.: opt; para .xyz).
   --functional/--basis/--dispersion   Nivel de teoría (def.: PBE0/def2-TZVP/d4).
   --charge N            Carga para inputs generados de .xyz.
-  --mult auto|N         Multiplicidad: 'auto' (por paridad de electrones) o un entero.
+  --mult auto|N         Multiplicidad: 'auto' (la mult= del comentario del .xyz que escribe
+                        geometry; si no hay, por paridad de electrones) o un entero.
   --preset NOMBRE       none | cdft | analysis | accurate — salidas a pedir (def.: analysis:
                         Hirshfeld+CHELPG + Mayer + poblaciones por MO para PDOS).
   --nprocs N            Núcleos por trabajo (def.: 8).
@@ -1092,7 +1114,8 @@ Opciones:
   --dispersion {d3bj,d4,none}   Corrección de dispersión (def.: d3bj).
   --task {sp,opt,freq,opt+freq} Tipo de cálculo (def.: opt).
   --charge CARGA     Carga molecular total (def.: 0).
-  --mult auto|N      Multiplicidad: 'auto' (por paridad de electrones) o un entero (def.: auto).
+  --mult auto|N      Multiplicidad: 'auto' (la mult= del comentario del .xyz; si no hay, por
+                     paridad de electrones) o un entero (def.: auto).
   --nprocs N         Núcleos solicitados en la entrada (def.: 8).
   --mem-g GB         Memoria de Gaussian en GB (def.: 16).
   --mem-o MB         Memoria por núcleo de ORCA en MB (def.: 2000).
@@ -1196,6 +1219,20 @@ Ejemplos:
   cadmia guide -en --show      # imprime la guía en inglés
 """,
 
+    "paths": """
+cadmia paths — Cómo muestran las rutas los reportes de texto (.txt, cadmia.out).
+
+Uso:
+  cadmia paths               # muestra el modo actual
+  cadmia paths relative      # rutas relativas al proyecto (por defecto)
+  cadmia paths absolute      # rutas completas, con aviso
+
+Con relative, un reporte compartido no lleva el nombre de usuario ni las carpetas
+de la máquina. Con absolute, cadmia lo avisa al cambiar y en cada cadmia report.
+Los JSON de results/ y la base de datos guardan siempre la ruta absoluta y el hash.
+El modo se guarda en ~/.cadmia/config.yaml (report_paths).
+""",
+
     "electronic": """
 cadmia electronic — Propiedades electrónicas.
 
@@ -1204,8 +1241,6 @@ Subcomandos:
   pdos    DOS proyectada por elemento (requiere Print[P_OrbPopMO_L] 1 en ORCA).
   ir      Espectro IR desde las intensidades de los modos normales (Freq de ORCA).
   mep     Análisis del potencial electrostático molecular desde un .cube.
-  cube    Visor HTML interactivo de un campo .cube (orbital/densidad/MEP).
-  vmd     Genera un script VMD/Tachyon (.tcl) para renders de alta calidad.
 
 Ayuda detallada: cadmia electronic SUBCOMANDO --ayuda
 """,
@@ -1244,8 +1279,15 @@ Opciones:
   --fwhm FLOAT       Ancho a media altura de los picos en cm⁻¹ (def.: 16.0).
   --lineshape lorentzian|gaussian   Perfil de ensanchamiento (def.: lorentzian).
   --points N         Puntos de la malla (def.: 4000).
-  -o, --output ARCH  Escribe el espectro (.dat/.csv/.json/.html).
-  --format FMT       dat | csv | json | html (html = gráfica interactiva; def.: dat).
+  -o, --output ARCH  Escribe el espectro (.dat/.csv/.json/.html/.png/.svg/.pdf).
+  --format FMT       dat | csv | json | html | png | svg | pdf (html = gráfica interactiva;
+                     png/svg/pdf = figura estática con matplotlib). Si se omite: el sufijo
+                     de -o; si no, dat.
+  --width ANCHO      single | double: ancho de la figura estática, 3.4 in (una columna) o
+                     6.5 in (def.: single).
+
+La figura estática dibuja la curva en el eje izquierdo (unidades arbitrarias) y los modos
+activos como palitos en su propio eje derecho, en km/mol.
 
 Ejemplo:
   cadmia electronic ir 1tial_freq.out --scale 0.96 -o ir.html --format html
@@ -1260,10 +1302,16 @@ Argumento:
 Opciones:
   --sigma EV         Ancho del ensanchamiento gaussiano en eV (def.: 0.1).
   --points N         Mínimo de puntos de la malla de energía; se usan más para un paso de σ/4 (def.: 2000).
-  -o, --output ARCH  Escribe la curva (.dat/.csv/.json/.html).
-  --format FMT       dat | csv | json | html (html = gráfica interactiva).
+  -o, --output ARCH  Escribe la curva (.dat/.csv/.json/.html/.png/.svg/.pdf).
+  --format FMT       dat | csv | json | html | png | svg | pdf (html = gráfica interactiva;
+                     png/svg/pdf = figura estática con matplotlib). Si se omite: el sufijo
+                     de -o; si no, dat.
+  --width ANCHO      single | double: ancho de la figura estática, 3.4 in (una columna) o
+                     6.5 in (def.: single).
 
-En capa abierta separa los canales alfa/beta.
+El DOS está en estados/eV y suma AMBOS espines: en capa cerrada cada orbital espacial cuenta 2
+(la integral es el nº de orbitales por 2). En capa abierta suma los canales alfa y beta, que
+también guarda por separado. --sigma debe ser positivo.
 """,
 
     "electronic pdos": """
@@ -1278,43 +1326,14 @@ Argumento:
 Opciones:
   --sigma EV         Ancho del ensanchamiento gaussiano en eV (def.: 0.1).
   --points N         Mínimo de puntos de la malla de energía; se usan más para un paso de σ/4 (def.: 2000).
-  -o, --output ARCH  Escribe las curvas (.dat/.csv/.json/.html).
-  --format FMT       dat | csv | json | html (html = gráfica interactiva
-                     autocontenida con una curva por elemento + total).
-""",
+  -o, --output ARCH  Escribe las curvas (.dat/.csv/.json/.html/.png/.svg/.pdf).
+  --format FMT       dat | csv | json | html | png | svg | pdf: html = gráfica interactiva
+                     autocontenida con una curva por elemento + total; png/svg/pdf = figura
+                     estática con matplotlib. Si se omite: el sufijo de -o; si no, dat.
+  --width ANCHO      single | double: ancho de la figura estática, 3.4 in (una columna) o
+                     6.5 in (def.: single).
 
-    "electronic cube": """
-cadmia electronic cube — Visor HTML interactivo de un archivo .cube.
-
-Construye la isosuperficie en el navegador (plotly.js), sin dependencias
-Python. Campos con signo (orbitales, MEP) muestran ±isovalor (azul/rojo).
-
-Argumento:
-  CUBE               Archivo .cube de Gaussian/ORCA.
-
-Opciones:
-  -o, --output ARCH  HTML de salida (def.: <cube>_view.html).
-  --isovalue VALOR   Isovalor (def.: 15% del |valor| máximo del campo).
-  --max-points N     Máx. puntos de malla tras submuestreo (def.: 60000).
-  --field-type TIPO  other | density | orbital | mep (etiqueta del título).
-""",
-
-    "electronic vmd": """
-cadmia electronic vmd — Script VMD/Tachyon (.tcl) para renders de alta calidad.
-
-Reproduce el flujo Multiwfn→VMD→Tachyon sin clics: carga el cubo, dibuja
-átomos + ±isosuperficies y expone el proc render_hires.
-
-Argumento:
-  CUBE               Archivo .cube de Gaussian/ORCA.
-
-Opciones:
-  -o, --output ARCH  Script .tcl de salida (def.: <cube>_vmd.tcl).
-  --isovalue VALOR   Isovalor (def.: 15% del |valor| máximo del campo).
-  --resolution WxH   Resolución del render (def.: 1920x1440).
-  --material MAT     Material VMD de las isosuperficies (def.: Transparent).
-  --render-output A  Imagen que escribe render_hires (def.: render.tga).
-  --tachyon RUTA     Tachyon externo; omítelo para el renderer interno de VMD.
+Como el DOS, el PDOS está en estados/eV con ambos espines (un orbital de capa cerrada cuenta 2).
 """,
 
     "structure": """
@@ -1328,8 +1347,11 @@ Subcomandos:
   report      Enlaces, CN/ECN de Hoppe, poliedros, formas continuas,
               conectividad, ángulos, anillos y forma global → TXT/CSV/JSON.
   compare     Compara estructuras: ¿el mismo isómero? ¿cuánto se movieron?
-  plot        Gráficas interactivas Plotly (requiere el extra [full]).
-  render      Escenas POV-Ray, con isosuperficies de cubo opcionales.
+  plot        Gráficas interactivas (HTML) o figuras estáticas PNG/SVG/PDF (extra [full]).
+
+Opción:
+  --report, -r ARCHIVO  Dentro de un proyecto, escribe el reporte estructural completo
+                        desde results/structure/, sin recalcular.
 
 Ayuda detallada: cadmia structure SUBCOMANDO --ayuda
 """,
@@ -1389,53 +1411,41 @@ Argumento:
                      ecn-trend/ecn-heatmap pasa un reporte/tabla estructural.
 
 Opciones:
-  -o, --output ARCH  Nombre del reporte en la carpeta analizada.
+  -o, --output ARCH  Archivo del reporte (relativo a la carpeta actual). Sin -o, va a
+                     structural_report.<formato> en la carpeta analizada.
   --format FMT       txt | csv | json (si se omite, usa el sufijo del archivo).
   --config YAML      YAML propio (masas, cortes, parámetros ECN).
   --details          En reportes TXT por lote, añade secciones por estructura.
 """,
 
     "structure plot": """
-cadmia structure plot — Gráficas interactivas (Plotly HTML). Requiere [full].
+cadmia structure plot — Gráficas interactivas (HTML, plotly) o figuras estáticas para publicar
+(PNG/SVG/PDF, matplotlib) de bonds, distances, ecn-trend y ecn-heatmap. Requiere [full].
 
 Argumento:
   ENTRADA            Archivo(s)/directorio/glob, o un reporte/tabla ECN para
                      ecn-trend/ecn-heatmap.
 
 Opciones:
-  -o, --output RUTA  HTML (una gráfica) o directorio (lote). Def.: carpeta actual.
-  --kind TIPO        molecule | ecn | bonds | distances | ecn-trend | ecn-heatmap.
-  --title TEXTO      Título opcional (molecule/ECN).
+  -o, --output RUTA  Archivo (una gráfica) o directorio (lote). Sin --format, el sufijo
+                     decide: .html interactiva; .png/.svg/.pdf estática. En lote -o es siempre una carpeta: un -o
+                     con sufijo de archivo (figs.png) es un error.
+  --format FMT       html | png | svg | pdf. Si se omite: el sufijo de -o; si no, html. En
+                     lote es la forma de pedir figuras estáticas (--format png -o figs/).
+  --width ANCHO      single | double: ancho de la figura estática, 3.4 in (una columna) o
+                     6.5 in (def.: single).
+  --kind TIPO        bonds (def.) | distances | ecn-trend | ecn-heatmap. Solo 2D: las
+                     vistas 3D de una estructura quedan para un visor molecular.
+  --title TEXTO      Título opcional.
   --config YAML      YAML propio (masas, cortes, parámetros ECN).
   --ecn-decimals N   Decimales de las etiquetas ECN redondeadas (def.: 1).
-  --ecn-label EST    raw | rounded | both (def.: both → "2.985 (3.0)").
+  --ecn-label EST    raw | rounded | both (def.: both → "2.985 (3.0)"); celdas del
+                     heatmap y texto emergente de la tendencia interactiva.
 
 Las gráficas ECN descubren los pares presentes dinámicamente (cualquier
 sistema); Ti-O/Al-O/Ti-Ti/Al-Al/Ti-Al es solo el orden preferente.
 """,
 
-    "structure render": """
-cadmia structure render — Escenas POV-Ray (con isosuperficies de cubo opcionales).
-
-POV-Ray se instala aparte (sudo apt install povray).
-
-Argumento:
-  ENTRADA            Estructura: .xyz, .cube, salida Gaussian/ORCA.
-
-Opciones:
-  -o, --output RUTA  Ruta de la escena (.pov si se omite el sufijo).
-  --cube CUBE        Cubo Gaussian para extraer isosuperficies.
-  --field-type NOMBRE Etiqueta del campo (homo, lumo, density, fukui, mep…).
-  --iso-preset PRESET Par de isovalores +/- con nombre, para campos comunes.
-  --iso-pos VALOR    Isovalor positivo (anula el de --iso-preset).
-  --iso-neg VALOR    Isovalor negativo (anula el de --iso-preset).
-  --zoom N           Factor de sobremuestreo volumétrico del cubo.
-  --sigma FLOAT      Suavizado gaussiano tras el sobremuestreo.
-  --align-inertia    Alinea átomos/isosuperficies a los ejes principales de inercia.
-  --orientation JSON Orientación exportada por `cadmia view`; renderiza esa pose exacta.
-  --render           Corre POV-Ray tras escribir la escena y crea un PNG.
-  --resolution PRESET Tamaño del PNG (preview | screen | publication | ultra).
-""",
 }
 
 
@@ -1496,9 +1506,9 @@ COMMAND_GROUPS: list[tuple[str, list[str]]] = [
     ("Reactivity & geometry", ["cdft", "geometry", "prescreen", "rank"]),
     ("Calculation & HPC", ["prepare", "run", "submit", "monitor", "profile"]),
     ("Analysis & reporting", ["validate", "analyze", "stability", "stability-series", "bde", "correlate", "report"]),
-    ("Electronic & structural", ["electronic", "structure", "density", "molden", "view", "bonds"]),
+    ("Electronic & structural", ["electronic", "structure", "density", "molden", "bonds"]),
     ("Data & project", ["init", "import", "db"]),
-    ("Utilities", ["xyz", "doctor", "guide", "diagnose", "literature", "benchmark"]),
+    ("Utilities", ["xyz", "doctor", "paths", "guide", "diagnose", "literature", "benchmark"]),
 ]
 
 

@@ -583,3 +583,18 @@ def test_cli_rank_accepts_cluster(tmp_path):
                                     "--cluster", _cluster_ref_xyz(tmp_path), "-o", str(out)])
     assert res.exit_code == 0, res.output
     assert out.read_text().count("[reference]") == 2
+
+
+def test_rank_cli_fails_when_nothing_could_be_ranked(tmp_path):
+    bad = tmp_path / "broken.out"
+    bad.write_text("not an engine output\n")
+    res = CliRunner().invoke(main, ["rank", str(bad), "--no-db"])
+    assert res.exit_code != 0 and "could be ranked" in res.output
+
+
+def test_an_unreadable_output_is_not_kept(tmp_path):
+    broken = tmp_path / "broken.out"
+    broken.write_text("not an engine output\n")
+    result = rank_agent.rank([str(p) for p in GAUSS] + [str(broken)], output=tmp_path / "r.xyz")
+    item = next(i for i in result.items if i.source.endswith("broken.out"))
+    assert item.error and not item.selected

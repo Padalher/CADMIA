@@ -29,6 +29,8 @@ _PAIR_LINE_RE = re.compile(
     r"^([A-Z][a-z]?-[A-Z][a-z]?)\s+.*?"
     r"ECN(?:\(active\)|_act)=\s*([-+]?\d*\.?\d+(?:[Ee][-+]?\d+)?)"
 )
+# the column layout of 0.3.1: pair, centers, active, bonds, directed, CN/atom, ECN_act
+_PAIR_ROW_RE = re.compile(r"^([A-Z][a-z]?-[A-Z][a-z]?)\s+(?:\d+\s+){4}[-+\d.]+\s+([-+]?\d*\.?\d+)")
 
 
 def _strip_ansi(text: str) -> str:
@@ -246,7 +248,7 @@ def _parse_single_report(lines: list[str]) -> list[dict]:
         if line.startswith("-"):
             continue
 
-        match = _PAIR_LINE_RE.match(line)
+        match = _PAIR_LINE_RE.match(line) or _PAIR_ROW_RE.match(line)
         if not match:
             continue
         column = _pair_to_column(match.group(1))
@@ -327,7 +329,7 @@ def _ordered_ecn_columns(rows: list[dict]) -> list[str]:
     return preferred + extra
 
 
-def _available_ecn_columns(rows: list[dict]) -> list[str]:
+def available_ecn_columns(rows: list[dict]) -> list[str]:
     available = []
     for column in _ordered_ecn_columns(rows):
         if any(not math.isnan(row.get(column, math.nan)) for row in rows):
@@ -337,7 +339,7 @@ def _available_ecn_columns(rows: list[dict]) -> list[str]:
     return available
 
 
-def _validate_label_options(display_decimals: int, label_style: str) -> None:
+def validate_label_options(display_decimals: int, label_style: str) -> None:
     if display_decimals < 0:
         raise ValueError("ECN display decimals must be >= 0.")
     if label_style not in ECN_LABEL_STYLES:
@@ -347,7 +349,7 @@ def _validate_label_options(display_decimals: int, label_style: str) -> None:
 def _write_html(fig, output_path: str | Path) -> Path:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.write_html(path, include_plotlyjs=True, full_html=True)
+    fig.write_html(path, include_plotlyjs="cdn", full_html=True)   # as electronic: KB, not MB
     return path
 
 
@@ -360,9 +362,9 @@ def generate_ecn_trend_plot(
     """Generate the ECN-vs-n trend plot and save it as HTML."""
     import plotly.graph_objects as go
 
-    _validate_label_options(display_decimals, label_style)
+    validate_label_options(display_decimals, label_style)
     rows = prepare_ecn_table(data)
-    available_columns = _available_ecn_columns(rows)
+    available_columns = available_ecn_columns(rows)
     x_values = [row["n"] for row in rows]
     atom_counts = [row.get("atom_count") for row in rows]
     has_atom_counts = any(value is not None for value in atom_counts)
@@ -414,9 +416,9 @@ def generate_ecn_heatmap(
     """Generate the ECN heatmap and save it as HTML."""
     import plotly.graph_objects as go
 
-    _validate_label_options(display_decimals, label_style)
+    validate_label_options(display_decimals, label_style)
     rows = prepare_ecn_table(data)
-    available_columns = _available_ecn_columns(rows)
+    available_columns = available_ecn_columns(rows)
     pairs = [column.removesuffix("_ECN") for column in available_columns]
     x_values = [row["n"] for row in rows]
     atom_counts = [row.get("atom_count") for row in rows]

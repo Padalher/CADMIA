@@ -37,7 +37,7 @@ ENERGY_BASES = ("E0", "E", "H", "G", "Gq")
 DEFAULT_ENERGY_BASIS = "E0"
 
 
-def _energy(state, basis: str) -> Optional[float]:
+def energy_in_basis(state, basis: str) -> Optional[float]:
     """Total energy of a parsed state in the given basis (Hartree), or None if not printed."""
     if basis == "E":
         return state.energy_hartree
@@ -75,7 +75,7 @@ def _sigma_correction(state) -> float:
     return _KB_HARTREE * state.temperature_kelvin * log(sym.sigma / sigma_engine)
 
 
-def _detect_symmetry(states) -> None:
+def detect_symmetries(states) -> None:
     """Attach the symmetry detected from each final geometry."""
     from cadmia.structure.structural.symmetry import detect_symmetry
     for state in states:
@@ -86,7 +86,7 @@ def _detect_symmetry(states) -> None:
 def _resolve_basis(requested: str, named_states) -> tuple[str, Optional[str]]:
     """The basis every term will use, and the warning to raise if it is not the requested one."""
     missing = [label for label, state in named_states
-               if state is not None and _energy(state, requested) is None]
+               if state is not None and energy_in_basis(state, requested) is None]
     if not missing or requested == "E":
         return requested, None
     return "E", (
@@ -271,7 +271,7 @@ class StabilityResult:
         return json.dumps(self.to_dict(), indent=2)
 
 
-def _warn_unconverged(result, named_paths, engine) -> None:
+def _warn_unconverged(result, named_paths) -> None:
     """Flag any input whose optimization did not converge.
 
     Same reason as in analysis_agent: a run that exhausted its cycles still ends normally and
@@ -280,6 +280,7 @@ def _warn_unconverged(result, named_paths, engine) -> None:
     Reported rather than suppressed here, because a series is read as a whole and dropping one
     member silently would distort the trend more than flagging it.
     """
+    from cadmia.agents.cdft_agent import _detect_engine
     from cadmia.agents.validation_agent import _check_termination, _read_lines, geometry_converged
 
     failed, unfinished = [], []
@@ -287,13 +288,14 @@ def _warn_unconverged(result, named_paths, engine) -> None:
         if path is None:
             continue
         try:
+            engine = _detect_engine(Path(path))      # each term with its own engine's markers
             if geometry_converged(path, engine) is False:
                 failed.append(str(label))
             term = _check_termination(_read_lines(Path(path)), engine)
             if term.status == "fail":
                 unfinished.append(f"{label} ({term.message.split(':')[0].split(' —')[0]})")
-        except Exception:
-            continue
+        except (OSError, ValueError):
+            continue          # unreadable here means the parser already complained
     if unfinished:
         result.warnings.append(
             "Did not terminate normally: " + ", ".join(unfinished)
@@ -337,7 +339,7 @@ def compute_stability(
         {"mixed": mixed_out, **{f"ref[{i}]": p for i, p in enumerate(reference_outs)}})
 
     named_states = [("mixed", mixed_state)] + list(zip(ref_labels, ref_states))
-    _detect_symmetry([mixed_state, *ref_states])
+    detect_symmetries([mixed_state, *ref_states])
     basis, fallback = _resolve_basis(energy, named_states)
 
     result = StabilityResult(
@@ -345,7 +347,7 @@ def compute_stability(
         formula=_formula(mixed_atoms),
         n_atoms=len(mixed_atoms),
         engine=engine,
-        e_mixed_hartree=_energy(mixed_state, basis),
+        e_mixed_hartree=energy_in_basis(mixed_state, basis),
         energy_basis=basis,
         temperature_k=mixed_state.temperature_kelvin if basis in ("H", "G", "Gq") else None,
         mixed_atoms=list(mixed_atoms),
@@ -354,7 +356,7 @@ def compute_stability(
     if fallback:
         result.warnings.append(fallback)
     _warn_unconverged(result, [("mixed", mixed_out)]
-                      + [(lbl, pth) for lbl, pth in zip(ref_labels, reference_outs)], engine)
+                      + [(lbl, pth) for lbl, pth in zip(ref_labels, reference_outs)])
     _check_terms(result, [("mixed", mixed_out, mixed_state, engine)]
                  + [(lbl, pth, s, eng) for lbl, pth, (s, eng)
                     in zip(ref_labels, reference_outs, ref_parsed)],
@@ -385,12 +387,12 @@ def compute_stability(
 
     result.references = [
         StabilityReference(label=lbl, formula=_formula(s.structure.atoms),
-                           coefficient=_coefficient(c), e_hartree=_energy(s, basis))
+                           coefficient=_coefficient(c), e_hartree=energy_in_basis(s, basis))
         for lbl, c, s in zip(ref_labels, coeffs, ref_states)
     ]
 
     for other in ENERGY_BASES:
-        values = [_energy(s, other) for s in [mixed_state, *ref_states]]
+        values = [energy_in_basis(s, other) for s in [mixed_state, *ref_states]]
         if all(v is not None for v in values):
             result.e_rel_by_basis_kcal[other] = (
                 values[0] - sum(c * e for c, e in zip(coeffs, values[1:]))) * _HARTREE_TO_KCAL
@@ -504,9 +506,9 @@ def _descriptors(members: Dict[int, SeriesMember], counts: Dict[int, dict], ref_
         for size, refs in sorted(ref_sets.items()):
             states = list(refs.values())
             coeffs, ok = _solve_coefficients(counts[n], [dict(Counter(s.structure.atoms)) for s in states])
-            if not ok or any(_energy(s, basis) is None for s in states):
+            if not ok or any(energy_in_basis(s, basis) is None for s in states):
                 continue
-            e_rel = en - sum(c * _energy(s, basis) for c, s in zip(coeffs, states) if c)
+            e_rel = en - sum(c * energy_in_basis(s, basis) for c, s in zip(coeffs, states) if c)
             if size == 1:
                 _set(m, "e_b", e_rel / n)
             kind = _reference_size(n, coeffs, [size] * len(states))
@@ -532,7 +534,7 @@ def _isomers(result, n: int, isos, basis: str, representative: str, populations:
             for label, s in isos]
     lowest = {}
     for b in dict.fromkeys([basis, "E0", "G"]):
-        values = [_energy(s, b) for _, s in isos]
+        values = [energy_in_basis(s, b) for _, s in isos]
         if any(v is None for v in values):
             continue
         low = min(values)
@@ -556,7 +558,7 @@ def _isomers(result, n: int, isos, basis: str, representative: str, populations:
 
 def _boltzmann(rows, states, basis: str, attr: str, result, n: int, quiet: bool = False) -> bool:
     """P_i = g_i·exp(−ΔX_i/RT)/Σ over the isomers that have *basis*, at the outputs' T."""
-    included = [(row, s, _energy(s, basis)) for row, s in zip(rows, states)]
+    included = [(row, s, energy_in_basis(s, basis)) for row, s in zip(rows, states)]
     excluded = [row.label for row, _, x in included if x is None]
     included = [t for t in included if t[2] is not None]
     if excluded and not quiet:
@@ -578,6 +580,23 @@ def _boltzmann(rows, states, basis: str, attr: str, result, n: int, quiet: bool 
     for (row, _, _), w in zip(included, weights):
         setattr(row, attr, w / sum(weights))
     return True
+
+
+def _unique_labels(terms: list) -> list:
+    """Terms whose labels collide (``opt.out`` in n1/ and in n2/) get their folder, then a
+    number, appended: every per-term table is keyed by label, so two equal ones would merge."""
+    from collections import Counter
+    count = Counter(t[0] for t in terms)
+    out, seen = [], set()
+    for label, path, state, eng in terms:
+        new = label if count[label] == 1 else f"{label} ({Path(path).parent.name or '.'})"
+        k = 2
+        base = new
+        while new in seen:
+            new, k = f"{base} #{k}", k + 1
+        seen.add(new)
+        out.append((new, path, state, eng))
+    return out
 
 
 def compute_series_stability(
@@ -608,10 +627,11 @@ def compute_series_stability(
     clusters = [parse(p, labels[i] if labels and i < len(labels) else None)
                 for i, p in enumerate(cluster_outs)]
     refs = [parse(p) for p in reference_outs]
-    terms = refs + clusters
+    terms = _unique_labels(refs + clusters)
+    refs, clusters = terms[:len(refs)], terms[len(refs):]
 
-    _warn_unconverged(result, [(t[0], t[1]) for t in terms], result.engine)
-    _detect_symmetry([t[2] for t in terms])
+    _warn_unconverged(result, [(t[0], t[1]) for t in terms])
+    detect_symmetries([t[2] for t in terms])
     basis, fallback = _resolve_basis(energy, [(t[0], t[2]) for t in terms])
     result.energy_basis = basis
     result.population_basis = ("Gq" if basis == "Gq" else "G") if populations else None
@@ -624,7 +644,7 @@ def compute_series_stability(
         atoms = state.structure.atoms
         size, family = _formula_units(atoms), _family(atoms)
         result.references.append({"label": label, "formula": _formula(atoms), "n": size,
-                                  "e_hartree": _energy(state, basis)})
+                                  "e_hartree": energy_in_basis(state, basis)})
         sized = ref_sets.setdefault(size, {})
         if family in sized:
             result.warnings.append(f"Two references {family} of size {size}; keeping "
@@ -645,10 +665,10 @@ def compute_series_stability(
     members: Dict[int, SeriesMember] = {}
     counts: Dict[int, dict] = {}
     for n, isos in sorted(groups.items()):
-        label, state = min(isos, key=lambda t: (_energy(t[1], basis) is None,
-                                                _energy(t[1], basis) or 0.0, t[0]))
+        label, state = min(isos, key=lambda t: (energy_in_basis(t[1], basis) is None,
+                                                energy_in_basis(t[1], basis) or 0.0, t[0]))
         members[n] = SeriesMember(n=n, label=label, formula=_formula(state.structure.atoms),
-                                  e_hartree=_energy(state, basis))
+                                  e_hartree=energy_in_basis(state, basis))
         counts[n] = dict(Counter(state.structure.atoms))
         if members[n].e_hartree is None:
             result.warnings.append(f"Missing total energy for n={n} ({label}); descriptors skipped.")
@@ -677,7 +697,7 @@ def compute_series_stability(
                 e = m.e_hartree
             elif any(r.population is not None for r in rows):
                 by_label = dict(groups[n])
-                e = sum(r.population * _energy(by_label[r.label], basis)
+                e = sum(r.population * energy_in_basis(by_label[r.label], basis)
                         for r in rows if r.population is not None)
             else:
                 e = None

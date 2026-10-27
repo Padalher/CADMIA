@@ -8,6 +8,7 @@ from typing import Optional
 from cadmia.cdft.calculator import HARTREE_TO_EV, HOMO_TCE_EV, FiniteDifferenceCDFT, FukuiResult
 from cadmia.cdft.workflow import CDFTWorkflowResult
 from cadmia.core.electronic_descriptors import GlobalElectronic
+from cadmia.io.results import fit_width, shown_path
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +191,7 @@ def _section_softness(result: CDFTWorkflowResult) -> str:
     if f.local_softness_plus is None and f.local_softness_minus is None:
         return ""
     lines = [
-        _hdr("Condensed local softnesses (Hartree·e) and relative electrophilicity/nucleophilicity"),
+        _hdr("Condensed local softnesses (Hartree·e), relative electro-/nucleophilicity"),
         f" {'Atom':>8}  {'s-':>9}  {'s+':>9}  {'s0':>9}  {'s+/s-':>9}  {'s-/s+':>9}",
     ]
     for i, atom in enumerate(result.structure.atoms):
@@ -360,19 +361,21 @@ def write_cdft_report(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     if fmt == "json":
-        _write_json(result, path, charges_n, charges_np1, charges_nm1, nuclear)
+        payload = cdft_report_payload(result, charges_n, charges_np1, charges_nm1, nuclear)
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         return
 
-    _write_txt(result, path, charges_n, charges_np1, charges_nm1)
+    path.write_text(cdft_report_text(result, charges_n, charges_np1, charges_nm1) + "\n",
+                    encoding="utf-8")
 
 
-def _write_txt(
+def cdft_report_text(
     result: CDFTWorkflowResult,
-    path: Path,
-    charges_n,
-    charges_np1,
-    charges_nm1,
-) -> None:
+    charges_n=None,
+    charges_np1=None,
+    charges_nm1=None,
+) -> str:
+    """The full text report."""
     import cadmia
     from datetime import datetime
 
@@ -383,12 +386,12 @@ def _write_txt(
         f" CADMIA CDFT Report — CADMIA {cadmia.__version__}, "
         f"{datetime.now():%Y-%m-%d %H:%M:%S}\n"
         f" System  : {formula}  ({result.structure.n_atoms} atoms)\n"
-        f" Source N: {result.source_n or '(not specified)'}\n"
+        f" Source N: {shown_path(result.source_n) or '(not specified)'}\n"
     )
     if result.source_np1:
-        header += f" Source N+1: {result.source_np1}\n"
+        header += f" Source N+1: {shown_path(result.source_np1)}\n"
     if result.source_nm1:
-        header += f" Source N-1: {result.source_nm1}\n"
+        header += f" Source N-1: {shown_path(result.source_nm1)}\n"
     header += (
         f"\n Note: the nucleophilicity index N is referenced to tetracyanoethylene\n"
         f"       (TCE) — the standard reference of Domingo's nucleophilicity scale,\n"
@@ -418,18 +421,17 @@ def _write_txt(
         sections.append(_section_global_koopmans(result.global_koopmans, open_shell=open_shell))
         sections.append(_section_koopmans_vs_scf(fd, result.global_koopmans, open_shell=open_shell))
 
-    text = "\n".join(s for s in sections if s)
-    path.write_text(text + "\n", encoding="utf-8")
+    return fit_width("\n".join(s for s in sections if s))
 
 
-def _write_json(
+def cdft_report_payload(
     result: CDFTWorkflowResult,
-    path: Path,
-    charges_n,
-    charges_np1,
-    charges_nm1,
+    charges_n=None,
+    charges_np1=None,
+    charges_nm1=None,
     nuclear=None,
-) -> None:
+) -> dict:
+    """Every value of the full report, as data (format ``cadmia-cdft-v1``)."""
     fd = result.global_fd
     f = result.fukui
 
@@ -543,4 +545,4 @@ def _write_json(
                 for key in ("phi_norm", "phi_along", "phi_dual_norm"):
                     if key in row:
                         entry[key] = row[key]
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    return payload

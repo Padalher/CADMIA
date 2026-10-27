@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -27,6 +26,8 @@ from cadmia.utils.geometry import kabsch_deviations
 
 _BOND_CUTOFF = 1.3        # × sum of covalent radii → counts as an intramolecular bond
 _ACTIVATION_PCT = 5.0     # probe-bond elongation ≥ 5 % flags activation
+_LINEAR_DEG = 175.0       # a free-probe angle this open counts as linear (CO2, N2O…)
+_ACTIVATION_BEND_DEG = 10.0   # bending a linear probe this much flags activation (bent CO2δ−)
 
 
 def _electronic_descriptors(state) -> Optional[dict]:
@@ -52,6 +53,32 @@ def _electronic_descriptors(state) -> Optional[dict]:
     if dipole is not None:
         out["dipole_debye"] = float(np.linalg.norm(np.asarray(dipole, dtype=float)))
     return out or None
+
+
+def _angle(pos, i: int, c: int, j: int) -> float:
+    """Angle i–c–j in degrees."""
+    u, v = np.asarray(pos[i]) - np.asarray(pos[c]), np.asarray(pos[j]) - np.asarray(pos[c])
+    cos = float(np.dot(u, v) / (np.linalg.norm(u) * np.linalg.norm(v)))
+    return float(np.degrees(np.arccos(max(-1.0, min(1.0, cos)))))
+
+
+def _counterpoise_bsse_hartree(adduct: str | Path) -> Optional[float]:
+    """BSSE from the four ghost-atom outputs that `cadmia prepare bsse` sets up (ORCA), looked
+    for next to the adduct and in the working directory; None unless all four are there.
+
+    BSSE = [E_cl(own basis) − E_cl(full)] + [E_pr(own) − E_pr(full)], all at the adduct
+    geometry: positive, and added to E_ads.
+    """
+    from cadmia.agents.calculation_agent import COUNTERPOISE_TERMS
+    stem = Path(adduct).stem
+    for folder in (Path(adduct).parent, Path.cwd()):
+        files = [folder / f"{stem}_cp_{t}.out" for t in COUNTERPOISE_TERMS]
+        if all(f.is_file() for f in files):
+            e = [_parse_output(f)[0].energy_hartree for f in files]
+            if None in e:
+                return None
+            return (e[0] - e[1]) + (e[2] - e[3])
+    return None
 
 
 def _parse_bsse_hartree(path: str | Path) -> Optional[float]:
@@ -139,6 +166,7 @@ class AnalysisResult:
     # Thermochemistry of adsorption (only when all three outputs carry frequencies)
     delta_h_ads_kcal:   Optional[float] = None      # ΔH_ads = H(adduct) − H(cluster) − H(probe)
     delta_g_ads_kcal:   Optional[float] = None      # ΔG_ads = G(adduct) − G(cluster) − G(probe)
+    delta_gq_ads_kcal:  Optional[float] = None      # the same with Grimme's quasi-RRHO entropy
     minus_t_delta_s_kcal: Optional[float] = None    # −TΔS_ads = ΔG_ads − ΔH_ads
     temperature_kelvin: Optional[float] = None
 
@@ -184,6 +212,8 @@ class AnalysisResult:
 
     probe_bonds:        List[ProbeBond] = field(default_factory=list)
     max_elongation_pct: Optional[float] = None
+    probe_angles:       List[dict] = field(default_factory=list)   # label, free/adduct/Δ (deg)
+    max_bend_deg:       Optional[float] = None   # largest bend of an angle that was linear free
     activated:          bool = False
 
     cdft_site_rank:     Optional[int] = None        # rank within the site's own character class
@@ -226,8 +256,10 @@ def _adduct_energy_is_cp_corrected(path) -> bool:
         return False
 
 
-def _unconverged_roles(named_paths, engine: Optional[str]) -> List[str]:
-    """Which of the given (role, path) pairs hold an optimization that did not converge.
+def _unconverged_roles(named_paths) -> List[str]:
+    """Which of the given (role, path, engine) triples hold an optimization that did not
+    converge. Each output is checked with its own engine's markers: a Gaussian cluster next to
+    an ORCA adduct is not read for ORCA's.
 
     A single point has no optimization to converge, so it is never listed: `geometry_converged`
     returns None there and that is not a failure.
@@ -235,7 +267,7 @@ def _unconverged_roles(named_paths, engine: Optional[str]) -> List[str]:
     from cadmia.agents.validation_agent import geometry_converged
 
     failed: List[str] = []
-    for role, path in named_paths:
+    for role, path, engine in named_paths:
         if path is None:
             continue
         try:
@@ -244,6 +276,40 @@ def _unconverged_roles(named_paths, engine: Optional[str]) -> List[str]:
         except Exception:
             continue          # unreadable here means the parser above already complained
     return failed
+
+
+# Ground-state multiplicity of the free probes that are not singlets.
+_PROBE_GROUND_MULTIPLICITY = {("O", "O"): 3}
+
+
+def spin_and_charge_warnings(adduct, cluster, probe) -> List[str]:
+    """Whether the adduct is the cluster plus the probe in charge and in spin.
+
+    E_ads subtracts three energies; if the charges do not add up the adduct is a different
+    system, and a multiplicity the two spins cannot couple to is one too. A probe computed in an
+    excited spin state (singlet O2) shifts E_ads by that excitation without any other sign.
+    """
+    out = []
+    q_sum = int(cluster.charge or 0) + int(probe.charge or 0)
+    if int(adduct.charge or 0) != q_sum:
+        out.append(f"Charge does not add up: the adduct has charge {adduct.charge}, the cluster "
+                   f"plus the probe {q_sum}. E_ads then compares different systems.")
+    s_cl, s_pr = (int(cluster.multiplicity or 1) - 1) / 2, (int(probe.multiplicity or 1) - 1) / 2
+    allowed = [int(2 * s + 1) for s in _spin_range(abs(s_cl - s_pr), s_cl + s_pr)]
+    if int(adduct.multiplicity or 1) not in allowed:
+        out.append(f"Multiplicity does not couple: the adduct is {adduct.multiplicity}, but a "
+                   f"cluster of multiplicity {cluster.multiplicity} and a probe of "
+                   f"{probe.multiplicity} can only give {', '.join(map(str, allowed))}.")
+    ground = _PROBE_GROUND_MULTIPLICITY.get(tuple(sorted(probe.atoms)))
+    if ground and int(probe.multiplicity or 1) != ground:
+        out.append(f"The free probe was computed with multiplicity {probe.multiplicity}; its "
+                   f"ground state is {ground}. E_ads is then referenced to an excited probe.")
+    return out
+
+
+def _spin_range(lo: float, hi: float) -> List[float]:
+    n = int(round(hi - lo))
+    return [lo + k for k in range(n + 1)]
 
 
 def analyze(
@@ -258,12 +324,13 @@ def analyze(
     cdft_json: "str | Path | dict | None" = None,
     config_index: Optional[int] = None,
     cluster_label: str = "",
+    bend_threshold_deg: float = _ACTIVATION_BEND_DEG,
 ) -> AnalysisResult:
     """Compute adsorption energetics and activation for one (cluster, probe, config) triplet."""
     adduct_state, engine = _parse_output(adduct)
-    adduct_source = str(Path(adduct))
-    cluster_state, _ = _parse_output(cluster)
-    probe_state, _ = _parse_output(probe_free)
+    adduct_source = str(Path(adduct).resolve())
+    cluster_state, cluster_engine = _parse_output(cluster)
+    probe_state, probe_engine = _parse_output(probe_free)
 
     ad_atoms = adduct_state.structure.atoms
     ad_pos = np.asarray(adduct_state.structure.positions, dtype=float)
@@ -288,6 +355,8 @@ def analyze(
         {"adduct": adduct, "cluster": cluster, "probe": probe_free})
     if mismatch:
         result.warnings.append(mismatch)
+    result.warnings += spin_and_charge_warnings(
+        adduct_state.structure, cluster_state.structure, probe_state.structure)
 
     # ── Adsorption energy ──
     # An optimization that ran out of cycles still ends "normally" and still prints a last
@@ -295,8 +364,8 @@ def analyze(
     # whatever step the run stopped on, not to a minimum, so subtracting it from another
     # minimum gives a difference of nothing in particular. The check that detects this already
     # existed in validation_agent and was only being used by `rank`.
-    unconverged = _unconverged_roles(
-        (("adduct", adduct), ("cluster", cluster), ("probe", probe_free)), engine)
+    unconverged = _unconverged_roles((("adduct", adduct, engine), ("cluster", cluster, cluster_engine),
+                                      ("probe", probe_free, probe_engine)))
 
     if unconverged:
         result.warnings.append(
@@ -311,9 +380,24 @@ def analyze(
         result.warnings.append("Missing total energy in one of the outputs; E_ads not computed.")
 
     # ── Adsorption thermochemistry (needs frequencies on all three species) ──
-    g = [s.gibbs_free_energy_hartree for s in (adduct_state, cluster_state, probe_state)]
-    h = [s.enthalpy_hartree for s in (adduct_state, cluster_state, probe_state)]
+    # Not from a geometry that is not a minimum, for the same reason as E_ads; and G as
+    # `stability` computes it: corrected to the symmetry number the geometry has, plus Gq.
+    from cadmia.agents.stability_agent import detect_symmetries, energy_in_basis
+    states = (adduct_state, cluster_state, probe_state)
+    detect_symmetries(states)
+    g = [None] * 3 if unconverged else [energy_in_basis(s, "G") for s in states]
+    gq = [None] * 3 if unconverged else [energy_in_basis(s, "Gq") for s in states]
+    h = [None] * 3 if unconverged else [s.enthalpy_hartree for s in states]
+    if None not in gq:
+        result.delta_gq_ads_kcal = (gq[0] - gq[1] - gq[2]) * _HARTREE_TO_KCAL
     if None not in g:
+        resym = [f"{name} {(gi - s.gibbs_free_energy_hartree) * _HARTREE_TO_KCAL:+.2f}"
+                 for name, s, gi in zip(("adduct", "cluster", "probe"), states, g)
+                 if abs(gi - s.gibbs_free_energy_hartree) > 1e-12]
+        if resym:
+            result.warnings.append(
+                "G corrected to the symmetry number of each geometry, RT·ln(σ/σ_engine), in "
+                f"kcal/mol: {', '.join(resym)}.")
         result.delta_g_ads_kcal = (g[0] - g[1] - g[2]) * _HARTREE_TO_KCAL
         result.temperature_kelvin = adduct_state.temperature_kelvin
         temps = [s.temperature_kelvin for s in (adduct_state, cluster_state, probe_state)]
@@ -325,7 +409,7 @@ def analyze(
         result.delta_h_ads_kcal = (h[0] - h[1] - h[2]) * _HARTREE_TO_KCAL
     if result.delta_g_ads_kcal is not None and result.delta_h_ads_kcal is not None:
         result.minus_t_delta_s_kcal = result.delta_g_ads_kcal - result.delta_h_ads_kcal
-    elif result.e_ads_kcal is not None and (None in g or None in h):
+    elif result.e_ads_kcal is not None and not unconverged and (None in g or None in h):
         missing = [name for name, st in (("adduct", adduct_state), ("cluster", cluster_state),
                                          ("probe", probe_state))
                    if st.gibbs_free_energy_hartree is None]
@@ -451,6 +535,26 @@ def analyze(
             result.max_elongation_pct = worst.percent
             result.activated = worst.percent >= _ACTIVATION_PCT
 
+        # Bending is the other signature: CO2 is activated as a bent CO2δ− even when its C–O
+        # bonds barely stretch, so a linear probe that bends counts as well.
+        neighbours: dict = {}
+        for i, j, _ in free_bonds:
+            neighbours.setdefault(i, []).append(j)
+            neighbours.setdefault(j, []).append(i)
+        for c, ends in sorted(neighbours.items()):
+            for k, i in enumerate(ends):
+                for j in ends[k + 1:]:
+                    free_deg, ad_deg = _angle(pr_pos, i, c, j), _angle(probe_block, i, c, j)
+                    result.probe_angles.append({
+                        "label": f"{pr_atoms[i]}-{pr_atoms[c]}-{pr_atoms[j]}",
+                        "free_deg": round(free_deg, 2), "adduct_deg": round(ad_deg, 2),
+                        "delta_deg": round(ad_deg - free_deg, 2)})
+                    if free_deg >= _LINEAR_DEG:
+                        bend = round(free_deg - ad_deg, 2)
+                        result.max_bend_deg = max(bend, result.max_bend_deg or bend)
+        if result.max_bend_deg is not None and result.max_bend_deg >= bend_threshold_deg:
+            result.activated = True
+
         # ── Charge transfer on adsorption ──
         q_ad = adduct_state.charges
         q_cl = cluster_state.charges
@@ -479,8 +583,12 @@ def analyze(
         result.warnings.append("Could not isolate the probe block in the adduct; skipped bond/site analysis.")
 
     # ── BSSE (counterpoise) ──
-    if bsse:
+    # A Gaussian Counterpoise job returns the corrected energy as the adduct energy, so its E_ads
+    # is corrected whether or not --bsse was asked for; calling it "no BSSE" would be wrong.
+    if bsse or _adduct_energy_is_cp_corrected(adduct):
         bsse_ha = _parse_bsse_hartree(adduct)
+        if bsse_ha is None and bsse:
+            bsse_ha = _counterpoise_bsse_hartree(adduct)
         if bsse_ha is not None:
             result.bsse_kcal = bsse_ha * _HARTREE_TO_KCAL
             if result.e_ads_kcal is not None:
@@ -495,8 +603,10 @@ def analyze(
                         "The adduct energy is the counterpoise-corrected one, so E_ads already "
                         "includes the BSSE; it was not added a second time."
                     )
-        else:
-            result.warnings.append("--bsse set but no counterpoise BSSE energy found in the adduct output.")
+        elif bsse:
+            result.warnings.append(
+                "--bsse set but no counterpoise BSSE was found: not in the adduct output, and not "
+                "the four `cadmia prepare bsse` outputs (<adduct>_cp_*.out) next to it.")
 
     # ── Deformation / interaction energies ──
     if cluster_deformed is not None and cluster_state.energy_hartree is not None:

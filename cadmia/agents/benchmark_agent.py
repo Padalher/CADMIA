@@ -398,11 +398,13 @@ def generate(
     output_dir    : directory where .gjf and .inp files are written.
     cluster_label : label override (default: stem of xyz_path).
     """
-    from cadmia.agents.geometry_agent import _read_xyz  # reuse xyz reader
+    from cadmia.agents.calculation_agent import _structure_spin
+    from cadmia.io.xyz import parse_xyz
 
     xyz_path = Path(xyz_path)
-    atoms, coords, _ = _read_xyz(xyz_path)
-    positions = np.array([c for c in coords])
+    structure = parse_xyz(xyz_path)
+    params, _ = _structure_spin(structure, params, xyz_path.name)   # the mult= it carries
+    atoms, positions = structure.atoms, structure.positions
 
     label = cluster_label or xyz_path.stem
     out_dir = Path(output_dir)

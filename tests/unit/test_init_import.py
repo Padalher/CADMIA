@@ -22,7 +22,7 @@ _HAS_ORCA = _ORCA.exists()
 def test_init_creates_layout(tmp_path):
     summary = init_project(tmp_path / "proj", name="demo")
     root = Path(summary["root"])
-    for sub in ("scf", "configs", "adsorption", "reports"):
+    for sub in ("configs", "results", "reports"):
         assert (root / sub).is_dir()
     assert (root / "cadmia_project.yaml").exists()
     assert (root / ".cadmia" / "cadmia.db").exists()
@@ -52,7 +52,7 @@ def test_init_is_idempotent(tmp_path):
     init_project(tmp_path / "p", name="x")
     summary = init_project(tmp_path / "p", name="x")        # second run keeps existing
     assert "cadmia_project.yaml" in summary["skipped"]
-    assert "scf/" in summary["skipped"]
+    assert "configs/" in summary["skipped"]
 
 
 def test_init_name_defaults_to_dirname(tmp_path):

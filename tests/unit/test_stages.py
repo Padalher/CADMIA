@@ -29,9 +29,9 @@ def _header(inp_path: Path) -> str:
 
 # --- unit: apply_stage -------------------------------------------------------
 
-def test_stage_tokens_are_the_seven_expected():
+def test_stage_tokens_are_the_eight_expected():
     assert set(STAGES) == {"screen-opt", "screen-freq", "opt", "freq",
-                           "opt+freq", "char", "cdft"}
+                           "opt+freq", "char", "cdft", "bsse"}
 
 
 def test_apply_stage_screen_opt_is_bare_opt_in_svp():

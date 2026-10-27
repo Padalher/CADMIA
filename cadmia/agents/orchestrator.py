@@ -226,6 +226,7 @@ def _stage_run(state: PipelineState, ctx: dict) -> StageState:
         result = calculation_agent.run_local(
             configs_dir, ctx["params"], engine=eng, output_dir=ads_dir,
             engine_path=ctx["engine_path"], timeout_s=ctx["timeout_s"],
+            overwrite=ctx.get("regenerate_inputs", False),
         )
     except ValueError as exc:
         st.status, st.note = FAILED, str(exc)
@@ -241,7 +242,7 @@ def _stage_run(state: PipelineState, ctx: dict) -> StageState:
                if j.status == "done" and j.output_path}
     st.outputs = {"adsorption_dir": str(ads_dir), "outputs": outputs,
                   "n_done": result.n_done, "n_failed": result.n_failed,
-                  "n_failed_validation": len(rejected)}
+                  "n_failed_validation": len(rejected), "warnings": result.warnings}
     if result.n_done == 0:
         st.status, st.note = FAILED, "no adsorption job completed"
     elif len(rejected) == result.n_done:
@@ -254,6 +255,10 @@ def _stage_run(state: PipelineState, ctx: dict) -> StageState:
         if rejected:
             st.note += (f"; {len(rejected)} failed validation and are analyzed anyway: "
                         + ", ".join(sorted(rejected)[:6]) + (" …" if len(rejected) > 6 else ""))
+    if result.warnings:
+        # the spin and charge each input got, among others: lost here, nobody would see them
+        st.note += f"; {len(result.warnings)} warning(s): " + " | ".join(result.warnings[:3]) + (
+            " …" if len(result.warnings) > 3 else "")
     return st
 
 
@@ -347,6 +352,17 @@ _STAGE_FUNCS: Dict[str, Callable[[PipelineState, dict], StageState]] = {
 # Driver
 # ─────────────────────────────────────────────
 
+def _params_record(params) -> dict:
+    """The calculation parameters as the manifest stores them (JSON round-trip, so that a
+    saved record and a fresh one compare equal)."""
+    from dataclasses import asdict
+    return json.loads(json.dumps(asdict(params)))
+
+
+# resources, not level of theory: changing them on resume is fine
+_RESOURCE_PARAMS = ("nprocs", "mem_gaussian_gb", "mem_orca_mb_core")
+
+
 def plan(state: PipelineState, *, until: Optional[str], resume: bool) -> List[str]:
     """Return the stages that would execute, given resume/until (no side effects)."""
     limit = STAGES.index(until) if until else len(STAGES) - 1
@@ -380,6 +396,7 @@ def run_pipeline(
     resume: bool = False,
     dry_run: bool = False,
     on_event: Optional[Callable[[str, str], None]] = None,
+    params_explicit: bool = True,
 ) -> PipelineState:
     """Execute (or plan) the full CADMIA pipeline, resuming from a saved manifest.
 
@@ -387,6 +404,11 @@ def run_pipeline(
     completed stages are skipped. ``until`` stops after the named stage. ``dry_run``
     reports the plan without executing. A ``blocked`` or ``failed`` stage stops the
     run; the manifest is saved after every stage so progress is never lost.
+
+    The level of theory is saved in the manifest. On resume it is the saved one unless
+    *params_explicit*; a different one is accepted only while no calculation has run, and
+    then the inputs are written again. Once outputs exist it is refused, because the study
+    would mix two levels of theory.
     """
     from cadmia.calculators.params import CalcParams
 
@@ -396,8 +418,33 @@ def run_pipeline(
     work = Path(workdir)
     manifest_path = work / _MANIFEST_NAME
 
+    regenerate_inputs = False
+    wanted = _params_record(params or CalcParams())
+    has_calcs = (work / "adsorption" / "cadmia_jobs.json").exists()
+    if not resume and (has_calcs or manifest_path.exists() and
+                       PipelineState.load(manifest_path).stages["run"].status in (DONE, FAILED)):
+        raise ValueError(f"{work} already holds the calculations of a pipeline: continue it with "
+                         f"--resume, or start a new one in another --workdir.")
     if resume and manifest_path.exists():
         state = PipelineState.load(manifest_path)
+        saved = state.inputs.get("params")
+        has_calcs = has_calcs or state.stages["run"].status in (DONE, FAILED)
+        if saved and not params_explicit:
+            known = {f.name for f in fields(CalcParams)}
+            params = CalcParams(**{k: v for k, v in saved.items() if k in known})
+        elif saved and wanted != saved:
+            changed = ", ".join(f"{k} {saved.get(k)!r} → {wanted.get(k)!r}"
+                                for k in sorted(set(saved) | set(wanted))
+                                if saved.get(k) != wanted.get(k) and k not in _RESOURCE_PARAMS)
+            if changed and has_calcs:
+                raise ValueError(
+                    f"The level of theory differs from the one this pipeline started with "
+                    f"({changed}), and calculations at that level already exist. Resume without "
+                    f"the level options to keep it, or start a new pipeline in another --workdir.")
+            regenerate_inputs = bool(changed)
+        if params_explicit or not (saved or has_calcs):
+            # a manifest from 0.3.0 holds no level: with outputs present, defaults are no record
+            state.inputs["params"] = wanted
         # Optional inputs may only become available at resume time (the isolated probe
         # optimized later, or the stability references). When one arrives, re-open the
         # stage that was skipped for lack of it — and the report that consumes it —
@@ -420,6 +467,7 @@ def run_pipeline(
             "n": str(n), "np1": str(np1), "nm1": str(nm1),
             "refs": [str(r) for r in (refs or [])],
             "probe_free": str(probe_free) if probe_free else None,
+            "params": wanted,
         }
 
     ctx = {
@@ -429,7 +477,7 @@ def run_pipeline(
         "workdir": work, "engine": engine or detect_engine(state.inputs["n"]),
         "engine_path": engine_path,
         "params": params or CalcParams(), "bsse": bsse, "latex": latex,
-        "timeout_s": timeout_s,
+        "timeout_s": timeout_s, "regenerate_inputs": regenerate_inputs,
     }
 
     todo = plan(state, until=until, resume=resume)

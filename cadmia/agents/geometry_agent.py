@@ -41,6 +41,7 @@ class _ProbeGeom:
     binding_atom: str
     coords:       Tuple[Tuple[str, float, float, float], ...]
     orientation:  str
+    multiplicity: int = 1          # ground state of the free probe (O2 is a triplet)
 
 
 def _h2_eta1() -> _ProbeGeom:
@@ -163,13 +164,13 @@ def _n2_eta2() -> _ProbeGeom:
 
 def _o2_eta1() -> _ProbeGeom:
     """O2 end-on (η¹): binding O at origin, second O at +z (triplet)."""
-    return _ProbeGeom("O2", "O", (("O", 0.0, 0.0, 0.0), ("O", 0.0, 0.0, _O2_BOND)), "eta1")
+    return _ProbeGeom("O2", "O", (("O", 0.0, 0.0, 0.0), ("O", 0.0, 0.0, _O2_BOND)), "eta1", 3)
 
 
 def _o2_eta2() -> _ProbeGeom:
     """O2 side-on (η²): O–O midpoint at origin, bond along x (triplet)."""
     half = _O2_BOND / 2
-    return _ProbeGeom("O2", "O", (("O", -half, 0.0, 0.0), ("O", half, 0.0, 0.0)), "eta2")
+    return _ProbeGeom("O2", "O", (("O", -half, 0.0, 0.0), ("O", half, 0.0, 0.0)), "eta2", 3)
 
 
 def _h2o_geom(z_sign: float, orientation: str) -> _ProbeGeom:
@@ -236,7 +237,8 @@ def _probe_from_spec(name: str, spec: dict) -> List[_ProbeGeom]:
         coords = tuple((str(a[0]), float(a[1]), float(a[2]), float(a[3])) for a in atoms)
         binding = mode.get("binding_atom") or spec.get("binding_atom") or coords[0][0]
         orientation = str(mode.get("orientation", f"mode{i}"))
-        out.append(_ProbeGeom(name, str(binding), coords, orientation))
+        multiplicity = int(mode.get("multiplicity", spec.get("multiplicity", 1)))
+        out.append(_ProbeGeom(name, str(binding), coords, orientation, multiplicity))
     return out
 
 
@@ -664,6 +666,13 @@ def run(
     from cadmia.io import structure_from_file
     cluster_path = Path(cluster_xyz)
     struct = structure_from_file(cluster_path)
+    # The probes are neutral. Spins couple high: a closed-shell cluster with triplet O2 starts as
+    # a triplet, the spin-conserving state; the singlet is another calculation, asked for on purpose.
+    adduct_charge = int(struct.charge or 0)
+
+    def adduct_mult(pg: _ProbeGeom) -> int:
+        return (int(struct.multiplicity or 1) - 1) + (pg.multiplicity - 1) + 1
+
     cl_symbols = list(struct.atoms)
     cl_coords = [np.asarray(row, dtype=float) for row in struct.positions]
     label = cluster_label or cluster_path.stem
@@ -773,6 +782,7 @@ def run(
                         f"site={site_sym}({site_idx}) orient={pg.orientation} "
                         f"polar={polar:.0f} azimuth={azimuth:.0f} dist={used_dist:.3f}A"
                         + (f" pushed=+{pushed:.2f}A" if pushed else "")
+                        + f" charge={adduct_charge} mult={adduct_mult(pg)}"
                     )
 
                     xyz_path: Optional[Path] = None

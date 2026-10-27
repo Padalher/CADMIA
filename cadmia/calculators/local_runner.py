@@ -27,7 +27,13 @@ def _kill_process_tree(proc: "subprocess.Popen") -> None:
     consuming the workstation's CPU/RAM after a timeout. Because the child is started in a
     new session (`start_new_session=True`), it leads its own group, so one `killpg` reaches
     every descendant. Falls back to killing the direct child if the group is already gone.
+    Windows has no process groups of that kind: there `taskkill /T` ends the whole tree.
     """
+    if not hasattr(os, "killpg"):
+        done = subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+        if done.returncode != 0 and proc.poll() is None:
+            proc.kill()
+        return
     try:
         os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
     except (ProcessLookupError, PermissionError):

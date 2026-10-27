@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import math
+import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -89,11 +90,15 @@ def _dedup_analyses(analyses: List[dict]) -> Tuple[List[dict], Dict[Any, List[An
 
     Two configs share a minimum when their total adduct energies agree within
     ``_DEDUP_E_KCAL`` AND they bind the same site atom. Returns the unique analyses
-    (the lowest-energy representative of each group) and a map kept_index → [absorbed
-    config indices] so the report can state how many duplicates were removed.
+    (the lowest-energy representative of each group) and a map kept id → [absorbed
+    ids] so the report can state how many duplicates were removed.
     """
     unique: List[dict] = []
     duplicates: Dict[Any, List[Any]] = {}
+    def key(a):
+        # config_index restarts at 0 on every `analyze` run; the saved result's id does not
+        return a.get("config_id") or a.get("adduct_path") or id(a)
+
     for a in sorted(analyses, key=lambda d: (d.get("e_adduct_hartree") is None,
                                              d.get("e_adduct_hartree") or 0.0)):
         e, site = a.get("e_adduct_hartree"), a.get("site_atom_index")
@@ -107,9 +112,9 @@ def _dedup_analyses(analyses: List[dict]) -> Tuple[List[dict], Dict[Any, List[An
                     break
         if match is None:
             unique.append(a)
-            duplicates.setdefault(a.get("config_index"), [])
+            duplicates.setdefault(key(a), [])
         else:
-            duplicates[match.get("config_index")].append(a.get("config_index"))
+            duplicates[key(match)].append(key(a))
     unique.sort(key=lambda d: (d.get("config_index") is None, d.get("config_index")))
     return unique, duplicates
 
@@ -230,10 +235,15 @@ _STAGE_SCOPE = {
 _BOX_WIDTH = 72
 
 
+# Fixed, so a module keeps its number whatever else the report holds. Reserved: 0 calculation and
+# preparation (from an .xyz and an input), 5 characterization (DOS, PDOS, IR, MEP).
+MODULE_NUMBER = {"structure": 1, "cdft": 2, "analysis": 3, "stability": 4}
+
+
 def _stage_open(number: int, stage: str) -> List[str]:
     """A framed title, so a reader paging through the report sees where each stage starts."""
     inner = _BOX_WIDTH - 2
-    title = f"  STAGE {number}  ·  {_STAGE_NAMES[stage].upper()}"
+    title = f"  MODULE {number}  ·  {_STAGE_NAMES[stage].upper()}"
     return ["```", "╔" + "═" * inner + "╗", f"║{title:<{inner}}║",
             f"║{'  ' + _STAGE_SCOPE[stage]:<{inner}}║", "╚" + "═" * inner + "╝", "```", ""]
 
@@ -269,11 +279,15 @@ def _header_block(title: str, meta: dict) -> List[str]:
     ]
 
 
-def _engine_keywords(cdft_d: Optional[dict], analysis_ds: List[dict]) -> list:
+def _engine_keywords(cdft_d: Optional[dict], analysis_ds: List[dict],
+                     stab_d: Optional[dict] = None, structures: List[dict] = ()) -> list:
     """(stage, output, keywords) for each stage whose output can still be read."""
     from cadmia.io.electronic import engine_keywords
     sources = [("CDFT", ((cdft_d or {}).get("sources") or {}).get("N"))]
+    sources += [("Structure", (st.get("structure") or {}).get("source_file")) for st in structures]
     sources += [("Adsorption", d.get("adduct_path")) for d in analysis_ds]
+    stab_src = (stab_d or {}).get("sources") or {}
+    sources += [("Stability", f) for f in [stab_src.get("mixed"), *(stab_src.get("references") or [])]]
     found, seen = [], set()
     for stage, src in sources:
         if src and src not in seen and Path(src).is_file():
@@ -301,7 +315,7 @@ def _run_info_block(meta: dict, contributions: List[str]) -> List[str]:
     files = meta.get("files") or []
     if files:
         lines.append("- **Inputs:** " + ", ".join(f"`{Path(f).name}`" for f in files))
-    lines += ["", "## Workflow stages", ""]
+    lines += ["", "## Workflow modules", ""]
     all_stages = [
         ("structure", "Structure: coordination, polyhedra, rings"),
         ("cdft",      "Reactivity (CDFT): global descriptors + site ranking"),
@@ -326,7 +340,7 @@ def _footer_block(contributions: List[str], n_warnings: int) -> List[str]:
     stages = ", ".join(_STAGE_NAMES[c] for c in contributions) or "none"
     from cadmia.citation import quote_block
     return ["---", "",
-            f"Stages reported: {stages} · warnings: {n_warnings}  ",
+            f"Modules reported: {stages} · warnings: {n_warnings}  ",
             f"{software_version()} · Python {platform.python_version()} · {platform.system()}",
             "", "```", quote_block(), "```", "",
             f"Normal termination of CADMIA {__version__} — {_now_iso()}", ""]
@@ -426,7 +440,7 @@ def build_report(
     md.append(f"**System:** {cluster}")
     md.append("")
 
-    stage_no = {name: i for i, name in enumerate(contributions, 1)}
+    stage_no = MODULE_NUMBER
 
     def opens(stage: str) -> List[str]:
         return _stage_open(stage_no[stage], stage) if full else []
@@ -552,7 +566,7 @@ def build_report(
                 md += ["  Fewer than 8 distinct Δf values: not conclusive, whatever r says."]
         if reported_any:
             md += [""]
-        if not reported_any:
+        if not reported_any and not by_probe:
             warnings.append(
                 "Δf vs E_ads correlation needs ≥2 unique adsorption minima at distinct CDFT "
                 f"sites; only {len(analysis_ds)} unique minimum(a) available."
@@ -753,3 +767,142 @@ def build_report(
     return Report(title=title, markdown="\n".join(md).rstrip() + "\n",
                   latex="\n\n".join(tex) + "\n" if tex else "",
                   correlations=correlations, warnings=warnings)
+
+
+# ─────────────────────────────────────────────
+# The output: every stage's full report, in one fixed-width text file
+# ─────────────────────────────────────────────
+
+_NOT_STORED = (" This module's JSON holds no full report: it was written outside a CADMIA 0.3.1 run of\n"
+               " the module (an older version, or by hand). Run the module again to include it.")
+
+
+def _stage_text(stage: str, d: dict) -> str:
+    if d.get("report_text"):
+        return d["report_text"].rstrip()
+    from cadmia.agents.text_report import analysis_report_text, stability_report_text
+    if stage == "analysis":
+        return analysis_report_text(d)
+    if stage == "stability":
+        return stability_report_text(d)
+    return _NOT_STORED
+
+
+def _box(lines: List[str]) -> List[str]:
+    inner = _BOX_WIDTH - 2
+    return (["╔" + "═" * inner + "╗"] + [f"║{line:<{inner}}║" for line in lines]
+            + ["╚" + "═" * inner + "╝"])
+
+
+def cluster_mismatches(stages: dict) -> Tuple[List[str], List[str]]:
+    """Saved results that are not about the same cluster, by chemical formula.
+
+    Returns ``(conflicts, others)``: CDFT, adsorption and stability results whose cluster
+    differs from the first one's (they cannot share one output), and structure results of
+    other formulas (a series or the references, worth a mention but not wrong). Two isomers
+    with the same formula are not told apart.
+    """
+    from cadmia.core.elements import hill_formula
+    found = []
+    for stage, items in stages.items():
+        for d in items:
+            if stage == "cdft":
+                formula = (d.get("structure") or {}).get("formula")
+            elif stage == "analysis":
+                formula = hill_formula(d["cluster_atoms"]) if d.get("cluster_atoms") else None
+            elif stage == "stability":
+                formula = d.get("formula")
+            else:
+                continue
+            if formula:
+                found.append((formula, d.get("_file") or stage))
+    cluster = found[0][0] if found else None
+    conflicts = [f"{name}: {formula}, not {cluster}" for formula, name in found if formula != cluster]
+    others = [f"{d.get('_file') or 'structure'}: {(d.get('structure') or {}).get('formula')}"
+              for d in stages.get("structure", [])
+              if cluster and (d.get("structure") or {}).get("formula") not in (None, cluster)]
+    return conflicts, others
+
+
+def build_output(
+    stages: Dict[str, List[dict]],
+    *,
+    meta: Optional[dict] = None,
+    summary: Optional[Report] = None,
+) -> str:
+    """The CADMIA output: header, every stage's full text report under its own frame, the
+    cross-stage results (correlations, warnings) and the closing block.
+
+    *stages* maps a stage name to its result dicts, as `cadmia.io.results.load_stage_results`
+    returns them. *summary* is the Markdown report of the same data, whose correlations and
+    warnings are the cross-stage part.
+    """
+    from cadmia import __version__
+    from cadmia.citation import cite_block, quote_block
+    meta = dict(meta or {})
+    present = [st for st in ("structure", "cdft", "analysis", "stability") if stages.get(st)]
+
+    out = [_BANNER, "", cite_block(), "",
+           f" CADMIA output — {meta.get('title') or 'CADMIA report'}",
+           " Computational Agent-Driven Molecular Intelligence Architecture",
+           f" Version {__version__} · Pablo Daniel Álvarez Hernández (UJAT/CICTAT)",
+           f" Generated: {meta.get('generated') or _now_iso()}", ""]
+
+    out += [" Run information", " " + "=" * (_BOX_WIDTH - 1)]
+    lot = _level_of_theory(meta)
+    keywords = _engine_keywords((stages.get("cdft") or [None])[0], stages.get("analysis") or [],
+                                (stages.get("stability") or [None])[0], stages.get("structure") or [])
+    if lot:
+        out.append(f" Level of theory : {lot}")
+    elif keywords:
+        out.append(" Level of theory (keywords echoed by the engine):")
+        for stage, src, kw in keywords:
+            out += [f"   {stage:<11}{Path(src).name}", f"              {kw}"]
+    if meta.get("command"):
+        out.append(f" Command         : {meta['command']}")
+    from cadmia.io.results import PATHS_NOTE, report_paths_mode
+    mode = report_paths_mode()
+    if meta.get("root"):
+        root = meta["root"] if mode == "absolute" else Path(meta["root"]).name
+        out.append(f" Project         : {root}")
+    out += textwrap.wrap(f"Paths           : {PATHS_NOTE[mode]}", _BOX_WIDTH,
+                         initial_indent=" ", subsequent_indent=" " * 19)
+    out += ["", " Modules reported:"]
+    out += [f"   [x] {i}. {_STAGE_SCOPE[st]}" for i, st in enumerate(present, 1)]
+    out.append("")
+
+    for stage in present:
+        items = stages[stage]
+        out += _box([f"  MODULE {MODULE_NUMBER[stage]}  ·  {_STAGE_NAMES[stage].upper()}", f"  {_STAGE_SCOPE[stage]}"])
+        for j, d in enumerate(items, 1):
+            if len(items) > 1:
+                label = Path(d.get("_file") or d.get("adduct_path") or f"item {j}").stem
+                out += ["", f" ── {_STAGE_NAMES[stage]} {j} of {len(items)}: {label} ".ljust(_BOX_WIDTH, "─")]
+            out += [_stage_text(stage, d), ""]
+        out.append("")
+
+    warnings = list(summary.warnings) if summary else []
+    correlations = summary.correlations if summary else []
+    if correlations or warnings:
+        out += _box(["  ACROSS MODULES", "  Correlations and checks that combine several modules"])
+        for c in correlations:
+            r = f"{c.pearson_r:.3f}" if c.pearson_r is not None else "n/a"
+            out.append(f" Correlation {c.name}: Pearson r = {r} ({len(c.x)} points)")
+        for w in warnings:
+            out += textwrap.wrap(w, _BOX_WIDTH - 4, initial_indent=" ! ", subsequent_indent="   ")
+        out.append("")
+    if meta.get("narration"):
+        out += _box(["  DISCUSSION", "  AI-drafted, experimental: verify every statement"]) \
+            + [meta["narration"].strip(), ""]
+
+    n_warn = len(warnings) + sum(len(d.get("warnings") or []) for st in present for d in stages[st])
+    import platform
+    from cadmia.core.provenance import software_version
+    out += [" " + "-" * (_BOX_WIDTH - 1),
+            f" Modules reported: {', '.join(_STAGE_NAMES[s] for s in present) or 'none'}"
+            f" · warnings: {n_warn}",
+            f" {software_version()} · Python {platform.python_version()} · {platform.system()}",
+            "", quote_block(), "",
+            f" Normal termination of CADMIA {__version__} — {_now_iso()}"]
+    from cadmia.io.results import fit_width
+    return fit_width("\n".join(out)) + "\n"

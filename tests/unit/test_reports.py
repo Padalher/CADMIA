@@ -49,7 +49,7 @@ def test_write_text_report(config, tmp_path):
     assert "d_av" in content
     assert "MeanAux" in content
     assert "ECN_1d" in content
-    assert "ECN_act=" in content
+    assert "ECN_act" in content
     assert "\033[" not in content
     assert "(" in content
     assert "Ti-O" in content
@@ -140,7 +140,7 @@ def test_neighborhood_and_rings_with_no_metal_one_metal_and_two_fragments():
 def test_report_declares_the_point_group_detected_from_the_geometry(tmp_path):
     result = analyze_structure(parse_xyz(N1_XYZ))
     content = write_report(result, tmp_path / "report.txt").read_text(encoding="utf-8")
-    assert "Point group (from the geometry, tolerance 0.01 A): Cs, rotational symmetry number 1, achiral" in content
+    assert "Point group: Cs from the geometry (tolerance 0.01 A); symmetry number 1; achiral" in content
     payload = json.loads(write_report(result, tmp_path / "report.json").read_text(encoding="utf-8"))
     assert payload["symmetry"]["point_group"] == "Cs"
 

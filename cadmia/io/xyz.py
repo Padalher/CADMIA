@@ -37,7 +37,7 @@ def get_chemical_formula(atoms: list[str]) -> str:
 
 
 def _structure_id(path: Path, comment: str, index: Optional[int] = None) -> str:
-    tokens = [token for token in re.split(r"\s+", comment.strip()) if token]
+    tokens = [token for token in re.split(r"\s+", _SPIN_TOKEN_RE.sub("", comment).strip()) if token]
     candidate = tokens[-1] if tokens else path.stem
     candidate = re.sub(r"[^A-Za-z0-9_.-]+", "_", candidate).strip("_")
     if not candidate:
@@ -91,15 +91,35 @@ def _parse_xyz_block(
         positions.append([x, y, z])
 
     source = str(path.resolve())
+    spin = _spin_tokens(comment)
     structure = Structure(
         atoms=atoms,
         positions=np.array(positions, dtype=float),
         labels=get_atom_labels(atoms),
         structure_id=_structure_id(path, comment, block_index),
         source_file=source,
-        metadata={"comment": comment},
+        metadata={"comment": comment, **({"spin_given": True} if "multiplicity" in spin else {})},
+        **spin,
     )
     return structure, atom_end
+
+
+_SPIN_TOKEN_RE = re.compile(r"(?<!\S)(charge|mult)=(-?\d+)(?!\S)")
+
+
+def _spin_tokens(comment: str) -> dict:
+    """``charge=`` and ``mult=`` written in the comment line (by `cadmia geometry`, or by hand).
+
+    An XYZ file has no other place for them, and an adduct with O2 is a triplet that the
+    electron-count parity would turn into a singlet.
+    """
+    found = dict(_SPIN_TOKEN_RE.findall(comment))
+    spin = {}
+    if "charge" in found:
+        spin["charge"] = int(found["charge"])
+    if "mult" in found and int(found["mult"]) >= 1:
+        spin["multiplicity"] = int(found["mult"])
+    return spin
 
 
 def parse_xyz(filepath: str | Path) -> Structure:

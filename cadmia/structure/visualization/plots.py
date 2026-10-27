@@ -13,7 +13,7 @@ from cadmia.structure.structural.analyzer import StructuralResult
 def _save_if_requested(fig, output_html: Optional[str]):
     if output_html is not None:
         Path(output_html).parent.mkdir(parents=True, exist_ok=True)
-        fig.write_html(output_html, include_plotlyjs=True, full_html=True)
+        fig.write_html(output_html, include_plotlyjs="cdn", full_html=True)
     return fig
 
 

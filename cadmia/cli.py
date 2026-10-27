@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import re
 from pathlib import Path
 
@@ -13,7 +14,6 @@ from cadmia.cli_help_es import EsGroup
 from cadmia.core.provenance import command_line
 from cadmia.agents.orchestrator import STAGES as _PIPELINE_STAGES
 from cadmia.calculators.stages import STAGES as _WORKFLOW_STAGES
-from cadmia.structure.cli import ISO_PRESETS as _ISO_PRESETS, RESOLUTION_PRESETS as _RES_PRESETS
 
 _STAGE_TOKENS = tuple(_WORKFLOW_STAGES)
 
@@ -229,11 +229,11 @@ def _attach_nuclear_fukui(result, path_np1, path_nm1, path_n, top: int,
 
 
 @main.command("cdft")
-@click.option("--n",   "path_n",   required=True, type=click.Path(exists=True),
+@click.option("--n",   "path_n",   default=None, type=click.Path(exists=True),
               help="SCF output file with N electrons.")
-@click.option("--np1", "path_np1", required=True, type=click.Path(exists=True),
+@click.option("--np1", "path_np1", default=None, type=click.Path(exists=True),
               help="SCF output file with N+1 electrons (anion).")
-@click.option("--nm1", "path_nm1", required=True, type=click.Path(exists=True),
+@click.option("--nm1", "path_nm1", default=None, type=click.Path(exists=True),
               help="SCF output file with N-1 electrons (cation).")
 @click.option("--cluster", default="", show_default=False,
               help="Cluster label for the report and the database. Defaults to the parent directory name.")
@@ -242,8 +242,8 @@ def _attach_nuclear_fukui(result, path_np1, path_nm1, path_n, top: int,
 @click.option("--output", "-o", default=None, type=click.Path(),
               help="Write JSON output to this file (with --no-table and no -o, the JSON "
                    "goes to stdout).")
-@click.option("--report", "report_path", default=None, type=click.Path(),
-              help="Also write the full Multiwfn-style CDFT report (global + condensed "
+@click.option("--report", "-r", "report_path", default=None, type=click.Path(),
+              help="Also write the full CDFT report (global + condensed "
                    "per-atom Fukui, local electrophilicity/nucleophilicity, softnesses) here.")
 @click.option("--report-format", type=click.Choice(["txt", "json"]), default="txt",
               show_default=True, help="Format for --report.")
@@ -279,12 +279,32 @@ def cdft_command(
 ) -> None:
     """Compute CDFT descriptors and rank reactive sites.
 
-    With --report it also writes the full Multiwfn-style report (global + condensed per-atom
+    With --report it also writes the full report (global + condensed per-atom
     Fukui, local electrophilicity/nucleophilicity, softnesses), so the complete CDFT analysis
-    is available under `cadmia`.
+    is available under `cadmia`. Inside a project the result is saved to results/cdft.json,
+    and `cadmia cdft --report FILE` alone writes the report from it without recomputing.
     """
     from cadmia.agents import cdft_agent
     from cadmia.display import print_cdft_table
+    from cadmia.io.results import save_stage_result, stage_result_path
+
+    if not (path_n and path_np1 and path_nm1):
+        saved = stage_result_path("cdft")
+        if path_n or path_np1 or path_nm1 or not report_path:
+            raise click.UsageError("--n, --np1 and --nm1 are required (inside a project, "
+                                   "--report alone writes the report from results/cdft.json).")
+        if saved is None or not saved.is_file():
+            raise click.ClickException("No results/cdft.json in this project: run cadmia cdft "
+                                       "with --n, --np1 and --nm1 first.")
+        if report_format == "txt":
+            _write_saved_report("cdft", report_path)
+            return
+        data = json.loads(saved.read_text(encoding="utf-8"))
+        content = json.dumps({k: v for k, v in data.items() if k != "report_text"},
+                             indent=2, ensure_ascii=False)
+        Path(report_path).write_text(content, encoding="utf-8")
+        click.echo(f"Full CDFT report written to: {report_path} (from {saved})")
+        return
 
     result = cdft_agent.run(
         path_n=path_n,
@@ -300,28 +320,43 @@ def cdft_command(
     if not no_table:
         print_cdft_table(result, top=top)
 
-    json_str = result.to_json()
+    # One file holds everything: the ranking geometry and analyze read, and the full report's
+    # data and text, which `cadmia report` and correlate read. Their keys do not overlap.
+    from cadmia.cdft.report import cdft_report_payload, cdft_report_text, write_cdft_report
+    from cadmia.cdft.workflow import run_workflow_from_files
+    data, text, wf = result.to_dict(), "", None
+    try:
+        wf, q_n, q_np1, q_nm1 = run_workflow_from_files(
+            path_n, path_np1, path_nm1, homo_tce_ev=tce_homo,
+        )
+    except ValueError as exc:
+        if report_path:
+            raise click.ClickException(f"--report failed: {exc}")
+        click.echo(f"  ⚠  Full CDFT report unavailable: {exc}", err=True)
+        text = f" Full CDFT report unavailable: {exc}"
+    if wf is not None:
+        nuclear = result.nuclear.get("sites") if result.nuclear else None
+        data.update(cdft_report_payload(wf, q_n, q_np1, q_nm1, nuclear))
+        text = cdft_report_text(wf, q_n, q_np1, q_nm1)
+
+    from cadmia.io.results import json_safe
+    json_str = json.dumps(json_safe({**data, "report_text": text}), indent=2, ensure_ascii=False)
     if output:
-        Path(output).write_text(json_str)
+        Path(output).write_text(json_str, encoding="utf-8")
         click.echo(f"JSON written to: {output}")
     elif no_table and not report_path:
         click.echo(json_str)
 
     if report_path:
-        from cadmia.cdft.workflow import run_workflow_from_files
-        from cadmia.cdft.report import write_cdft_report
-        try:
-            wf, q_n, q_np1, q_nm1 = run_workflow_from_files(
-                path_n, path_np1, path_nm1, homo_tce_ev=tce_homo,
-            )
-        except ValueError as exc:
-            raise click.ClickException(f"--report failed: {exc}")
         write_cdft_report(
             wf, report_path, charges_n=q_n, charges_np1=q_np1, charges_nm1=q_nm1,
-            nuclear=result.nuclear.get("sites") if result.nuclear else None,
-            fmt=report_format,
+            nuclear=nuclear, fmt=report_format,
         )
         click.echo(f"Full CDFT report written to: {report_path}")
+
+    saved = save_stage_result("cdft", data, text)
+    if saved:
+        click.echo(f"Module result: {saved}")
 
     if use_db:
         from cadmia.db.session import init_db, resolve_db_path
@@ -428,7 +463,7 @@ def validate_command(files, engine, bsse, output, no_table, use_db, db_path) -> 
 @click.option("--polar", "polar_angles", multiple=True, type=float, default=(),
               help="Polar approach angles in degrees (repeatable). Default: 0 20 40 60.")
 @click.option("--output", "-o", default=None, type=click.Path(),
-              help="Output directory for .xyz files.")
+              help="Output directory for .xyz files (inside a project: configs/<PROBE>/).")
 @click.option("--no-table", "no_table", is_flag=True,
               help="Skip rich table; emit JSON only.")
 @click.option("--cluster", "cluster_label", default="",
@@ -455,6 +490,11 @@ def geometry_command(
             f"(add more in ~/.cadmia/probes.yaml).",
             param_hint="--probe",
         )
+
+    if output is None:
+        from cadmia.io.results import find_project_root
+        root = find_project_root()
+        output = str(root / "configs" / probe.upper()) if root else None
 
     result = geometry_agent.run(
         cdft_json=cdft_json,
@@ -544,7 +584,9 @@ def _persist_screening(db_path, stage: str, agent: str, rows, *, link_by_xyz: bo
 @main.command("prescreen")
 @click.argument("configs", nargs=-1, required=True, type=click.Path(exists=True))
 @click.option("--charge", default=0, show_default=True, help="Total charge of the adduct.")
-@click.option("--mult", "multiplicity", default=1, show_default=True, help="Spin multiplicity (2S+1).")
+@click.option("--mult", "multiplicity", default="auto", show_default=True,
+              help="Spin multiplicity (2S+1), or auto: the mult= that geometry writes in each "
+                   "config's comment line, else the lowest spin for its electron count.")
 @click.option("--gfn", default=2, type=click.IntRange(0, 2), show_default=True,
               help="GFN parameterization (2 = GFN2-xTB, includes D4).")
 @click.option("--top", "top_n", default=0, show_default=True,
@@ -557,8 +599,9 @@ def _persist_screening(db_path, stage: str, agent: str, rows, *, link_by_xyz: bo
 @click.option("--min-keep", "min_keep", default=2, show_default=True,
               help="Guarantee at least N distinct survivors even if the next-lowest minima "
                    "fall outside the window, so DFT gets ≥N candidates to compare (0 = window only).")
-@click.option("--output", "-o", default="./prescreened", show_default=True, type=click.Path(),
-              help="Directory for the survivors' optimized .xyz (ready for prepare/run).")
+@click.option("--output", "-o", default=None, type=click.Path(),
+              help="Directory for the survivors' optimized .xyz (ready for prepare/run). "
+                   "Default: ./prescreened, or prescreened/ next to the configs inside a project.")
 @click.option("--xtb-path", "xtb_path", default="xtb", show_default=True,
               help="xtb executable name or absolute path.")
 @click.option("--jobs", "-j", default=0, show_default=True,
@@ -575,6 +618,11 @@ def _persist_screening(db_path, stage: str, agent: str, rows, *, link_by_xyz: bo
                    "configs by the skeleton their cluster relaxed to and ranks each group "
                    "on its own zero, so a more stable cluster isomer cannot discard the "
                    "adducts that kept the reference skeleton.")
+@click.option("--freeze", is_flag=True,
+              help="Hold the cluster rigid in xTB, so only the probe relaxes (needs --cluster, "
+                   "whose atoms must open every config). Default: everything relaxes, since "
+                   "frozen screens drop sites that bind only by relaxing the cluster. DFT is "
+                   "never constrained.")
 @click.option("--db/--no-db", "use_db", default=True, show_default=True,
               help="Persist each configuration's fate at this stage to the database, "
                    "linked to the starting configuration `geometry` recorded.")
@@ -583,7 +631,7 @@ def _persist_screening(db_path, stage: str, agent: str, rows, *, link_by_xyz: bo
                    "working directory is inside one, else ~/.cadmia/cadmia.db).")
 def prescreen_command(configs, charge, multiplicity, gfn, top_n, window_kcal,
                       dedup_rmsd, min_keep, output, xtb_path, jobs, threads, no_sanity,
-                      cluster_ref, use_db, db_path) -> None:
+                      cluster_ref, freeze, use_db, db_path) -> None:
     """Pre-screen adsorption configs with GFN2-xTB before DFT (rank + dedup; Prescreen Agent).
 
     Cheaply optimizes each starting geometry with xTB, removes duplicates that relax to the
@@ -592,6 +640,12 @@ def prescreen_command(configs, charge, multiplicity, gfn, top_n, window_kcal,
     """
     from cadmia.agents import prescreen_agent
     from cadmia.calculators.xtb_runner import xtb_available
+    from cadmia.io.results import find_project_root
+
+    if output is None:
+        first = Path(configs[0]) if configs else Path(".")
+        output = str((first if first.is_dir() else first.parent) / "prescreened"
+                     if find_project_root() else "./prescreened")
 
     if not xtb_available() and xtb_path == "xtb":
         raise click.ClickException(
@@ -609,11 +663,14 @@ def prescreen_command(configs, charge, multiplicity, gfn, top_n, window_kcal,
         else:
             click.echo(f"  [{done}/{total}] {name}  E = {energy:.6f} Eh")
 
+    if freeze and cluster_ref is None:
+        raise click.UsageError("--freeze needs --cluster: its atoms are the ones held fixed.")
+    mult_value, mult_auto = _parse_mult(multiplicity)
     result = prescreen_agent.prescreen(
-        source, charge=charge, multiplicity=multiplicity, gfn=gfn, top_n=top_n,
+        source, charge=charge, multiplicity=None if mult_auto else mult_value, gfn=gfn, top_n=top_n,
         energy_window_kcal=window_kcal, dedup_rmsd=dedup_rmsd, min_keep=min_keep,
         output_dir=output, xtb_path=xtb_path, jobs=jobs, threads=threads, sanity=not no_sanity,
-        cluster_ref=cluster_ref, on_progress=progress,
+        cluster_ref=cluster_ref, freeze=freeze, on_progress=progress,
     )
 
     click.echo(f"Pre-screen: {result.n_kept}/{result.n_input} kept "
@@ -798,52 +855,6 @@ def molden_command(gbw_files, orca_2mkl_path, output) -> None:
     except OrcaToMoldenError as exc:
         raise click.ClickException(str(exc))
     click.echo("Molden export done. NPA: `janpa` / NBO7 · AIM: Multiwfn — feed them these .molden.")
-
-
-@main.command("view")
-@click.argument("structure", type=click.Path(exists=True))
-@click.option("--cdft", "cdft_json", default=None, type=click.Path(exists=True),
-              help="CDFTResult JSON: highlight its top reactive sites automatically.")
-@click.option("--n-sites", default=3, show_default=True,
-              help="How many top CDFT sites to highlight when --cdft is given.")
-@click.option("--highlight", "highlight", multiple=True, type=int,
-              help="Extra atom indices to highlight (1-based, repeatable).")
-@click.option("--cube", default=None, type=click.Path(exists=True),
-              help="Overlay a .cube isosurface (HOMO/LUMO/Fukui/dual/MEP/Δρ).")
-@click.option("--isovalue", default=None, type=float, help="Isosurface value for --cube.")
-@click.option("--output", "-o", default=None, type=click.Path(),
-              help="HTML output (default: <structure>_view.html).")
-def view_command(structure, cdft_json, n_sites, highlight, cube, isovalue, output) -> None:
-    """Interactive 3D viewer: rotate/zoom, highlight sites, and export the orientation.
-
-    Opens a self-contained HTML (3Dmol.js). Rotate to expose the relevant sites/atoms, press
-    "Export orientation" to save a .json, then render in that exact pose:
-    `cadmia structure render STRUCTURE --orientation <file>.json`.
-    """
-    import json
-    from cadmia.structure.visualization.viewer import write_structure_viewer
-
-    highlights: list[int] = []
-    labels: list[str] = []
-    if cdft_json:
-        data = json.loads(Path(cdft_json).read_text(encoding="utf-8"))
-        sites = sorted(data.get("sites", []), key=lambda s: s.get("rank", 1e9))[:n_sites]
-        for s in sites:
-            idx = s.get("atom_index")
-            if idx is not None:
-                highlights.append(idx - 1)   # CDFT atom_index is 1-based
-                labels.append(f"{s.get('atom_symbol')}{idx} (#{s.get('rank')})")
-    for h in highlight:
-        highlights.append(h - 1)
-        labels.append(str(h))
-
-    out = Path(output) if output else Path(structure).with_name(Path(structure).stem + "_view.html")
-    written = write_structure_viewer(
-        structure, out, highlight=highlights or None,
-        highlight_labels=labels or None, cube=cube, isovalue=isovalue,
-    )
-    click.echo(f"Interactive viewer: {written}")
-    click.echo("Open it, frame the structure, and export the orientation to render that pose.")
 
 
 @main.command("submit")
@@ -1063,6 +1074,12 @@ def run_command(jobs_source, engine, engine_path, task, functional, basis, dispe
 @click.option("--preset", default=None,
               type=click.Choice(["none", "cdft", "analysis", "accurate"]),
               help="Analysis output requests to embed (overrides the stage's output).")
+@click.option("--cluster", "cp_cluster", default=None, type=click.Path(exists=True),
+              help="[stage bsse] Output of the isolated cluster: its atom count splits the "
+                   "adduct, and its charge and multiplicity are the fragment's.")
+@click.option("--probe-free", "cp_probe", default=None, type=click.Path(exists=True),
+              help="[stage bsse] Output of the free probe, for the probe fragment's charge "
+                   "and multiplicity.")
 @click.option("--overwrite", is_flag=True,
               help="Regenerate inputs even if the target file already exists.")
 @click.option("--output", "-o", default=".", type=click.Path(),
@@ -1071,7 +1088,7 @@ def prepare_command(stage, geometries, engine, functional, basis,
                     dispersion, charge, multiplicity, mult_anion, mult_cation,
                     nprocs, mem_gaussian_gb, mem_orca_mb_core, extra_orca,
                     extra_gaussian, scf_maxiter, geom_maxiter, chelpg_fine, preset,
-                    overwrite,
+                    cp_cluster, cp_probe, overwrite,
                     output) -> None:
     """Generate DFT input files for a workflow STAGE, WITHOUT running them.
 
@@ -1133,6 +1150,32 @@ def prepare_command(stage, geometries, engine, functional, basis,
                                     set_basis=not basis_explicit)
     if preset is not None:
         params = apply_preset(params, preset, engine=engine)
+
+    if stage_obj.counterpoise:
+        if engine != "orca":
+            raise click.UsageError("stage bsse writes ORCA ghost-atom inputs. In Gaussian the "
+                                   "adduct job itself does it: Counterpoise=2 in the route and "
+                                   "each atom tagged with its fragment, (Fragment=1) for the "
+                                   "cluster and (Fragment=2) for the probe; analyze reads the result.")
+        if not (cp_cluster and cp_probe):
+            raise click.UsageError("stage bsse needs --cluster and --probe-free (the isolated "
+                                   "outputs) to split each adduct into its fragments.")
+        total = 0
+        for src in sources:
+            try:
+                inputs, warnings = calculation_agent.prepare_counterpoise(
+                    src, cp_cluster, cp_probe, params, output_dir=output, overwrite=overwrite)
+            except ValueError as exc:
+                raise click.UsageError(str(exc))
+            for w in warnings:
+                click.echo(f"  warning: {w}")
+            for inp in inputs:
+                click.echo(f"  {inp}")
+            total += len(inputs)
+        click.echo(f"{total} counterpoise input(s) generated in: {output}. Run them, then "
+                   "`cadmia analyze --bsse` finds the four <adduct>_cp_*.out next to the adduct "
+                   "or in the working directory.")
+        return
 
     if stage_obj.cdft_triplet:
         _prepare_cdft_triplet(sources, params, engine=engine, charge=charge,
@@ -1456,6 +1499,32 @@ def _resolve_adducts(adducts, adduct, adduct_dir) -> list:
     return out
 
 
+def _analysis_stage_json(result, adduct: Path) -> "tuple[str, str]":
+    """The analysis JSON (with its full text report) and that text; inside a project it is
+    also saved to results/analysis/<adduct>.json."""
+    from cadmia.agents.text_report import analysis_report_text
+    from cadmia.io.results import save_stage_result
+    from cadmia.io.results import json_safe
+    data = result.to_dict()
+    text = analysis_report_text(data)
+    saved = save_stage_result("analysis", data, text, item=Path(adduct).stem)
+    if saved:
+        click.echo(f"Module result: {saved}")
+        data["config_id"] = saved.stem
+    return json.dumps(json_safe({**data, "report_text": text}), indent=2, ensure_ascii=False), text
+
+
+def _write_saved_report(stage: str, report_path) -> None:
+    """`cadmia <stage> --report FILE` with no inputs: the report from the project's results/."""
+    from cadmia.io.results import saved_report
+    try:
+        text, where = saved_report(stage)
+    except LookupError as exc:
+        raise click.ClickException(str(exc))
+    Path(report_path).write_text(text, encoding="utf-8")
+    click.echo(f"Full {stage} report written to: {report_path} (from {where})")
+
+
 @main.command("analyze")
 @click.argument("adducts", nargs=-1, type=click.Path(exists=True))
 @click.option("--adduct", default=None, type=click.Path(exists=True),
@@ -1463,14 +1532,15 @@ def _resolve_adducts(adducts, adduct, adduct_dir) -> list:
 @click.option("--adduct-dir", "adduct_dir", default=None, type=click.Path(exists=True),
               help="Directory of adduct output files (batch mode): analyzes every *.out against "
                    "the same --cluster/--probe-free and writes one JSON each into -o (a directory).")
-@click.option("--cluster", required=True, type=click.Path(exists=True),
+@click.option("--cluster", default=None, type=click.Path(exists=True),
               help="Isolated cluster output file.")
-@click.option("--probe-free", required=True, type=click.Path(exists=True),
+@click.option("--probe-free", default=None, type=click.Path(exists=True),
               help="Free (isolated) probe output file.")
 @click.option("--probe", default=None,
               help="Probe label (e.g. CO2, NH3). Inferred from the free-probe formula if omitted.")
 @click.option("--bsse", is_flag=True,
-              help="Parse the counterpoise BSSE energy from the adduct output and correct E_ads.")
+              help="Correct E_ads for BSSE: from the four ORCA single points of `prepare bsse` next "
+                   "to the adduct output, or the BSSE a Gaussian Counterpoise job prints.")
 @click.option("--cluster-deformed", default=None, type=click.Path(exists=True),
               help="Cluster single-point at the adduct geometry (for deformation energy).")
 @click.option("--probe-deformed", default=None, type=click.Path(exists=True),
@@ -1479,8 +1549,14 @@ def _resolve_adducts(adducts, adduct, adduct_dir) -> list:
               help="CDFTResult JSON to cross-reference the binding site against the ranking.")
 @click.option("--config-index", default=None, type=int,
               help="Configuration index for this (cluster, probe) triplet.")
+@click.option("--bend-threshold", "bend_threshold", default=10.0, show_default=True,
+              type=click.FloatRange(min=0, min_open=True),
+              help="Bending (degrees) of a linear probe that counts as activation.")
 @click.option("--label", "cluster_label", default="",
               help="Cluster label override (default: from the cluster output).")
+@click.option("--report", "-r", "report_path", default=None, type=click.Path(),
+              help="Also write the full text report here. Alone, inside a project, it writes "
+                   "it from results/analysis/ without recomputing.")
 @click.option("--output", "-o", default=None, type=click.Path(),
               help="Write AnalysisResult JSON to this file.")
 @click.option("--no-table", "no_table", is_flag=True,
@@ -1493,6 +1569,7 @@ def _resolve_adducts(adducts, adduct, adduct_dir) -> list:
 def analyze_command(
     adducts, adduct, adduct_dir, cluster, probe_free, probe, bsse, cluster_deformed,
     probe_deformed, cdft_json, config_index, cluster_label, output, no_table, use_db, db_path,
+    report_path=None, bend_threshold=10.0,
 ) -> None:
     """Post-calculation adsorption energetics and probe activation (Analysis Agent).
 
@@ -1507,7 +1584,14 @@ def analyze_command(
     from cadmia.agents import analysis_agent
     from cadmia.display import print_analysis_result
 
+    if report_path and not (adducts or adduct or adduct_dir):
+        _write_saved_report("analysis", report_path)
+        return
     paths = _resolve_adducts(adducts, adduct, adduct_dir)
+    if not (cluster and probe_free):
+        raise click.UsageError("--cluster and --probe-free are required (inside a project, "
+                               "--report alone writes the report from results/analysis/).")
+    texts = []
 
     def _persist(result, adduct_path):
         from cadmia.db.session import init_db, resolve_db_path
@@ -1531,32 +1615,60 @@ def analyze_command(
                                    "they cannot be combined with several adducts.")
         out_dir = Path(output) if output else Path(".")
         out_dir.mkdir(parents=True, exist_ok=True)
+        failed = []
         for i, ad in enumerate(paths):
-            result = analysis_agent.analyze(
-                str(ad), cluster, probe_free, probe=probe, bsse=bsse,
-                cdft_json=cdft_json, config_index=i, cluster_label=cluster_label,
-            )
             dst = out_dir / f"analysis_{ad.stem}.json"
-            dst.write_text(result.to_json())
+            try:
+                result = analysis_agent.analyze(
+                    str(ad), cluster, probe_free, probe=probe, bsse=bsse,
+                    cdft_json=cdft_json, config_index=i, cluster_label=cluster_label,
+                    bend_threshold_deg=bend_threshold,
+                )
+                json_str, text = _analysis_stage_json(result, ad)
+                dst.write_text(json_str)
+            except (ValueError, OSError, KeyError, IndexError) as exc:
+                # One unreadable adduct must not cost the analysis of all the others.
+                failed.append(ad.name)
+                click.echo(f"  ✗ {ad.name}: {type(exc).__name__}: {exc}", err=True)
+                continue
+            texts.append(f" ── {ad.name} ".ljust(72, "─") + "\n" + text)
             tag = f"{result.e_ads_kcal:+.2f} kcal/mol" if result.e_ads_kcal is not None else "n/a"
             click.echo(f"  {ad.name} → {dst.name}  (E_ads {tag})")
             if use_db:
                 _persist(result, str(ad))
-        click.echo(f"Analyzed {len(paths)} adduct(s) → {out_dir}/")
+        click.echo(f"Analyzed {len(paths) - len(failed)} of {len(paths)} adduct(s) → {out_dir}/"
+                   if failed else f"Analyzed {len(paths)} adduct(s) → {out_dir}/")
+        if report_path and texts:
+            Path(report_path).write_text("\n\n".join(texts) + "\n", encoding="utf-8")
+            click.echo(f"Full analysis report written to: {report_path}")
+        if failed:
+            click.echo(f"  Failed: {', '.join(failed)}", err=True)
+            if len(failed) == len(paths):
+                raise click.ClickException("No adduct could be analyzed.")
         return
 
     # ── Single mode ──
-    result = analysis_agent.analyze(
-        str(paths[0]), cluster, probe_free,
-        probe=probe, bsse=bsse,
-        cluster_deformed=cluster_deformed, probe_deformed=probe_deformed,
-        cdft_json=cdft_json, config_index=config_index, cluster_label=cluster_label,
-    )
+    try:
+        result = analysis_agent.analyze(
+            str(paths[0]), cluster, probe_free,
+            probe=probe, bsse=bsse,
+            cluster_deformed=cluster_deformed, probe_deformed=probe_deformed,
+            cdft_json=cdft_json, config_index=config_index, cluster_label=cluster_label,
+            bend_threshold_deg=bend_threshold,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
 
     if not no_table:
         print_analysis_result(result)
 
-    json_str = result.to_json()
+    try:
+        json_str, text = _analysis_stage_json(result, paths[0])
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
+    if report_path:
+        Path(report_path).write_text(text + "\n", encoding="utf-8")
+        click.echo(f"Full analysis report written to: {report_path}")
     if output:
         Path(output).write_text(json_str)
         click.echo(f"JSON written to: {output}")
@@ -1569,9 +1681,9 @@ def analyze_command(
 
 
 @main.command("stability")
-@click.option("--mixed", required=True, type=click.Path(exists=True),
+@click.option("--mixed", default=None, type=click.Path(exists=True),
               help="Output file of the mixed oxide whose stability is being measured.")
-@click.option("--ref", "references", required=True, multiple=True, type=click.Path(exists=True),
+@click.option("--ref", "references", multiple=True, type=click.Path(exists=True),
               help="Pure-oxide reference output (repeatable, e.g. --ref TiO2.out --ref Al2O3.out).")
 @click.option("--coeff", "coefficients", multiple=True,
               help="Stoichiometric coefficient per --ref (same order): 1, 0.5 or 1/2. "
@@ -1583,6 +1695,9 @@ def analyze_command(
               help="Energy used in every term: E0 = E + ZPE, E electronic, H enthalpy, "
                    "G Gibbs as printed, Gq Gibbs with Grimme's quasi-RRHO entropy. Falls back "
                    "to E (with a warning) if any output has no frequencies.")
+@click.option("--report", "-r", "report_path", default=None, type=click.Path(),
+              help="Also write the full text report here. Alone, inside a project, it writes "
+                   "it from results/stability.json without recomputing.")
 @click.option("--output", "-o", default=None, type=click.Path(),
               help="Write StabilityResult JSON to this file.")
 @click.option("--no-table", "no_table", is_flag=True,
@@ -1594,10 +1709,18 @@ def analyze_command(
                    "working directory is inside one, else ~/.cadmia/cadmia.db).")
 def stability_command(
     mixed, references, coefficients, mixed_label, energy_basis, output, no_table, use_db, db_path,
+    report_path=None,
 ) -> None:
     """Relative (formation) stability of a mixed oxide vs. pure-oxide references."""
     from cadmia.agents import stability_agent
     from cadmia.display import print_stability_result
+
+    if report_path and not (mixed or references):
+        _write_saved_report("stability", report_path)
+        return
+    if not (mixed and references):
+        raise click.UsageError("--mixed and --ref are required (inside a project, --report "
+                               "alone writes the report from results/stability.json).")
 
     coeffs = list(coefficients) if coefficients else None
     try:
@@ -1611,7 +1734,18 @@ def stability_command(
     if not no_table:
         print_stability_result(result)
 
-    json_str = result.to_json()
+    from cadmia.agents.text_report import stability_report_text
+    from cadmia.io.results import json_safe, save_stage_result
+    data = {**result.to_dict(), "sources": {"mixed": str(Path(mixed).resolve()),
+                                            "references": [str(Path(r).resolve()) for r in references]}}
+    text = stability_report_text(data)
+    json_str = json.dumps(json_safe({**data, "report_text": text}), indent=2, ensure_ascii=False)
+    saved = save_stage_result("stability", data, text)
+    if saved:
+        click.echo(f"Module result: {saved}")
+    if report_path:
+        Path(report_path).write_text(text + "\n", encoding="utf-8")
+        click.echo(f"Full stability report written to: {report_path}")
     if output:
         Path(output).write_text(json_str)
         click.echo(f"JSON written to: {output}")
@@ -1743,6 +1877,9 @@ def bde_command(molecule, fragments, molecule_label, output, no_table) -> None:
 @click.option("--dispersion", type=click.Choice(["d3bj", "d4", "none"]),
               default="d4", show_default=True,
               help="Dispersion correction. d4 depends on the atomic charges, d3bj does not.")
+@click.option("--charge", default=0, show_default=True, type=int,
+              help="Total charge of the cluster; the adducts add the probe's (0 for every "
+                   "built-in probe).")
 @click.option("--nprocs", default=8, show_default=True, help="Cores per adsorption job.")
 @click.option("--mem-o", "mem_orca_mb_core", default=2000, show_default=True,
               help="ORCA memory per core in MB.")
@@ -1767,7 +1904,7 @@ def pipeline_command(
     path_n, path_np1, path_nm1, cluster, probe, references, probe_free,
     engine, engine_path, task, preset, functional, basis, dispersion, nprocs,
     mem_orca_mb_core, bsse, latex, timeout_s, until, resume, dry_run,
-    workdir, use_db, db_path,
+    workdir, use_db, db_path, charge=0,
 ) -> None:
     """Run the full pipeline end to end (Orchestrator Agent): validate → cdft →
     geometry → run → analyze → stability → report.
@@ -1795,7 +1932,7 @@ def pipeline_command(
     from cadmia.calculators.presets import apply_preset
     params = CalcParams(functional=functional, basis=basis, dispersion=dispersion,
                         task=task, nprocs=nprocs, mem_orca_mb_core=mem_orca_mb_core,
-                        auto_multiplicity=True)
+                        charge=charge, auto_multiplicity=True)
     if engine is None:
         manifest = Path(workdir) / "pipeline.json"
         n_out = path_n or (orchestrator.PipelineState.load(manifest).inputs["n"]
@@ -1806,14 +1943,23 @@ def pipeline_command(
     def on_event(stage: str, msg: str) -> None:
         click.echo(f"  [{stage:<9}] {msg}")
 
+    # On resume the saved level of theory stands unless a level option was given explicitly.
+    level_options = ("task", "preset", "functional", "basis", "dispersion", "charge")
+    cli_ctx = click.get_current_context()
+    explicit = any(cli_ctx.get_parameter_source(o) == click.core.ParameterSource.COMMANDLINE
+                   for o in level_options)
+
     click.echo(f"CADMIA pipeline → {workdir}")
-    state = orchestrator.run_pipeline(
-        n=path_n, np1=path_np1, nm1=path_nm1, cluster=cluster, probe=probe,
-        refs=list(references), probe_free=probe_free, workdir=workdir,
-        engine=engine, engine_path=engine_path, params=params, bsse=bsse,
-        latex=latex, timeout_s=timeout_s, until=until, resume=resume,
-        dry_run=dry_run, on_event=on_event,
-    )
+    try:
+        state = orchestrator.run_pipeline(
+            n=path_n, np1=path_np1, nm1=path_nm1, cluster=cluster, probe=probe,
+            refs=list(references), probe_free=probe_free, workdir=workdir,
+            engine=engine, engine_path=engine_path, params=params, bsse=bsse,
+            latex=latex, timeout_s=timeout_s, until=until, resume=resume,
+            dry_run=dry_run, on_event=on_event, params_explicit=explicit or not resume,
+        )
+    except ValueError as exc:
+        raise click.ClickException(str(exc))
 
     if dry_run:
         return
@@ -1821,6 +1967,11 @@ def pipeline_command(
     blocked = state.blocked_stage
     if blocked:
         click.echo(f"\nStopped at '{blocked}': {state.stages[blocked].note}")
+    elif len(state.completed) < len(orchestrator.STAGES):
+        pending = [n for n in orchestrator.STAGES if n not in state.completed]
+        click.echo(f"\nStopped after '{state.completed[-1] if state.completed else '—'}' "
+                   f"(--until). Still to run: {', '.join(pending)}. Continue with "
+                   f"cadmia pipeline --resume --workdir {workdir}")
     else:
         done = ", ".join(state.completed)
         click.echo(f"\nPipeline complete. Stages: {done}")
@@ -1847,18 +1998,48 @@ def pipeline_command(
         raise SystemExit(1)
 
 
+class _ManyValues(click.Option):
+    """An option that takes every value after it up to the next option, so that
+    `--cdft cdft.json cdft_ejemplo.json` and a shell glob (`--cdft results/cdft*.json`) work.
+    Repeating it (`--cdft a --cdft b`) adds up the same."""
+
+    def add_to_parser(self, parser, ctx):
+        ret = super().add_to_parser(parser, ctx)
+        opts = getattr(parser, "_long_opt", None)
+        opt = next((opts[n] for n in self.opts if opts and n in opts), None)
+        if opt is not None:                     # else: plain repeatable option
+            previous = opt.process
+
+            def process(value, state):
+                values = [value]
+                while state.rargs and not any(state.rargs[0].startswith(p) for p in opt.prefixes):
+                    values.append(state.rargs.pop(0))
+                previous(tuple(values), state)
+            opt.process = process
+        return ret
+
+
+def _module_files(values) -> list:
+    """The flattened values of a _ManyValues option."""
+    return [v for group in values for v in (group if isinstance(group, tuple) else (group,))]
+
+
+_MODULE_HELP = ("JSON file(s) of the {what}, one or more after the option; 'all' takes every "
+                "{what} saved in the project's results/, copies included.")
+
+
 @main.command("report")
-@click.option("--structure", "structure_json", default=None, type=click.Path(exists=True),
-              help="Structural report JSON (cadmia structure report -o structure.json).")
-@click.option("--cdft", "cdft_json", default=None, type=click.Path(exists=True),
-              help="CDFTResult JSON.")
-@click.option("--analysis", "analysis_jsons", multiple=True, type=click.Path(exists=True),
-              help="AnalysisResult JSON (repeatable, one per adsorption config).")
+@click.option("--structure", "structure_json", cls=_ManyValues, multiple=True, type=click.UNPROCESSED,
+              help=_MODULE_HELP.format(what="structural report"))
+@click.option("--cdft", "cdft_json", cls=_ManyValues, multiple=True, type=click.UNPROCESSED,
+              help=_MODULE_HELP.format(what="CDFT result"))
+@click.option("--analysis", "analysis_jsons", cls=_ManyValues, multiple=True, type=click.UNPROCESSED,
+              help=_MODULE_HELP.format(what="adsorption result"))
 @click.option("--analysis-dir", "analysis_dir", default=None, type=click.Path(exists=True),
               help="Directory of AnalysisResult JSONs (adds every *.json in it). Avoids "
                    "listing them one by one with --analysis.")
-@click.option("--stability", "stability_json", default=None, type=click.Path(exists=True),
-              help="StabilityResult JSON.")
+@click.option("--stability", "stability_json", cls=_ManyValues, multiple=True, type=click.UNPROCESSED,
+              help=_MODULE_HELP.format(what="stability result"))
 @click.option("--benchmark", "benchmark_json", default=None, type=click.Path(exists=True),
               help="BenchmarkResult JSON.")
 @click.option("--literature", "literature_json", default=None, type=click.Path(exists=True),
@@ -1868,8 +2049,9 @@ def pipeline_command(
 @click.option("--pdos", "pdos_files", multiple=True, type=click.Path(exists=True),
               help="PDOS file from `cadmia electronic pdos` (repeatable) → linked in the report.")
 @click.option("--title", default="CADMIA report", help="Report title.")
-@click.option("--output", "-o", default="report.md", type=click.Path(),
-              help="Markdown report path (default: report.md).")
+@click.option("--output", "-o", default=None, type=click.Path(),
+              help="Output file. A .md suffix writes the Markdown summary instead of the full "
+                   "text output (default: reports/cadmia.out inside a project, else cadmia.out).")
 @click.option("--latex", is_flag=True, help="Also write LaTeX tables (.tex).")
 @click.option("--figures", is_flag=True,
               help="Also write correlation figures (matplotlib; CSV fallback if absent).")
@@ -1879,7 +2061,7 @@ def pipeline_command(
 @click.option("--basis", default=None, help="Basis set to record in the header (e.g. def2-TZVP).")
 @click.option("--dispersion", default=None, help="Dispersion correction to record (e.g. D3BJ).")
 @click.option("--simple", is_flag=True,
-              help="Lean report: result tables only, without the process header/footer.")
+              help="Lean Markdown summary (-o NAME.md): result tables only, without the process header/footer.")
 @click.option("--narrate", is_flag=True,
               help="Experimental. Append an AI-drafted discussion section (requires LLM "
                    "configuration; see ~/.cadmia/llm.yaml and the provider API key env variable).")
@@ -1888,24 +2070,83 @@ def pipeline_command(
 def report_command(structure_json, cdft_json, analysis_jsons, analysis_dir, stability_json, benchmark_json,
                    literature_json, dos_files, pdos_files, title, output, latex, figures,
                    engine, functional, basis, dispersion, simple, narrate, language) -> None:
-    """Consolidate agent results into a complete CADMIA process report (Report Agent).
+    """Assemble the CADMIA output from the results of every module (Report Agent).
 
-    By default this writes a full process report: header (program, version, author),
-    run information, the stages executed, the result tables/correlations, and a
-    normal-termination footer. Use --simple for the lean tables-only variant.
+    Inside a project, with no module options, it reads what the modules saved to results/
+    (the originals; copies made from other inputs are left out and listed) and writes
+    reports/cadmia.out: the header, each module's full report under its own numbered frame
+    (1 Structure, 2 CDFT, 3 Adsorption, 4 Stability), the correlations across modules and the
+    closing block. A module option takes one or more JSON files, or 'all' for every result of
+    that module in results/, and then only the modules given are reported:
+
+      cadmia report --cdft results/cdft.json results/cdft-2.json --structure all
+
+    With -o NAME.md it writes the Markdown summary (use --simple for its lean variant).
     """
     from cadmia.agents import report_agent
+    from cadmia.io.results import find_project_root, load_stage_results
 
-    analyses = list(analysis_jsons)
+    root = find_project_root()
+    saved = None
+    explicit = {"structure": _module_files(structure_json), "cdft": _module_files(cdft_json),
+                "analysis": _module_files(analysis_jsons), "stability": _module_files(stability_json)}
     if analysis_dir:
         found = sorted(str(p) for p in Path(analysis_dir).glob("*.json"))
         if not found:
             raise click.UsageError(f"--analysis-dir: no *.json files in {analysis_dir}")
-        analyses.extend(found)
+        explicit["analysis"] += found
 
-    if not any([structure_json, cdft_json, analyses, stability_json, benchmark_json]):
-        raise click.UsageError("Provide at least one of --structure/--cdft/--analysis/"
-                               "--analysis-dir/--stability/--benchmark.")
+    if any(explicit.values()) or benchmark_json:
+        stages = {}
+        for name, values in explicit.items():
+            items = []
+            for v in values:
+                if v == "all":
+                    if root is None:
+                        raise click.UsageError(f"--{name} all reads the project's results/; run it "
+                                               "inside a `cadmia init` project.")
+                    saved = saved if saved is not None else load_stage_results(root)
+                    items += saved.get(name, [])
+                elif not Path(v).is_file():
+                    raise click.BadParameter(f"no such file: {v}", param_hint=f"--{name}")
+                else:
+                    items.append({**report_agent._load(v), "_file": v})
+            if items:
+                stages[name] = items
+    elif root is None:
+        raise click.UsageError("Outside a project, provide at least one of --structure/--cdft/"
+                               "--analysis/--analysis-dir/--stability/--benchmark.")
+    else:
+        stages = load_stage_results(root, copies=False)
+        for err in stages.pop("_errors", []):
+            click.echo(f"  ⚠  Skipped {err}", err=True)
+        left_out = stages.pop("_copies", [])
+        if not stages:
+            raise click.ClickException(f"No module results in {root / 'results'} yet: run a "
+                                       "module (structure report, cdft, analyze, stability) first.")
+        if left_out:
+            click.echo(f"  ⓘ  Copies left out ({', '.join(left_out)}); add them with --cdft all, "
+                       "--analysis all…, or by name.", err=True)
+        conflicts, others = report_agent.cluster_mismatches(stages)
+        if conflicts:
+            raise click.ClickException(
+                "results/ mixes clusters, so they cannot share one output:\n  "
+                + "\n  ".join(conflicts) + "\nMove or delete the results that belong to "
+                "another study, or give the module files explicitly (--cdft, --analysis…).")
+        for other in others:
+            click.echo(f"  ⚠  Structure of another formula included: {other}", err=True)
+    analyses = stages.get("analysis", [])
+    if output is None:
+        output = str(root / "reports" / "cadmia.out") if root else "cadmia.out"
+    markdown = Path(output).suffix.lower() == ".md"
+    if simple and not markdown:
+        raise click.UsageError("--simple applies to the Markdown summary (-o NAME.md).")
+    from cadmia.io.results import report_paths_mode
+    if report_paths_mode() == "absolute":
+        click.echo("  ⚠  Paths: absolute — the output shows full paths, with user and "
+                   "folder names; check it before sharing ('cadmia paths relative' hides them).",
+                   err=True)
+    Path(output).parent.mkdir(parents=True, exist_ok=True)
 
     import os
     report_dir = Path(output).parent
@@ -1917,15 +2158,16 @@ def report_command(structure_json, cdft_json, analysis_jsons, analysis_dir, stab
         "basis": basis,
         "dispersion": dispersion,
         "command": command_line(),
-        "files": [f for f in [structure_json, cdft_json, *analyses, stability_json, benchmark_json,
-                              literature_json] if f],
+        "files": [f for f in [*(v for vs in explicit.values() for v in vs if v != "all"),
+                              benchmark_json, literature_json] if isinstance(f, str)],
         "dos_files": [_rel(p) for p in dos_files],
         "pdos_files": [_rel(p) for p in pdos_files],
     }
 
+    first = lambda stage: (stages.get(stage) or [None])[0]
     report = report_agent.build_report(
-        structure=structure_json, cdft=cdft_json, analyses=analyses,
-        stability=stability_json, benchmark=benchmark_json, literature=literature_json,
+        structure=first("structure"), cdft=first("cdft"), analyses=analyses,
+        stability=first("stability"), benchmark=benchmark_json, literature=literature_json,
         title=title, meta=meta, full=not simple,
     )
 
@@ -1936,11 +2178,19 @@ def report_command(structure_json, cdft_json, analysis_jsons, analysis_dir, stab
         except LLMError as exc:
             raise click.ClickException(f"--narrate failed: {exc}")
         report.markdown = report.markdown.rstrip() + "\n" + narration.section
+        meta["narration"] = narration.section
         click.echo(f"Discussion draft: {narration.provider}/{narration.model}")
 
-    written = report.to_files(output, latex=latex, figures=figures)
-
-    click.echo(f"Markdown report: {written['markdown']}")
+    if markdown:
+        written = report.to_files(output, latex=latex, figures=figures)
+        click.echo(f"Markdown report: {written['markdown']}")
+    else:
+        Path(output).write_text(report_agent.build_output(
+            stages, meta={**meta, "title": title, "root": str(root) if root else None},
+            summary=report), encoding="utf-8")
+        click.echo(f"CADMIA output:   {output}")
+        written = (report.to_files(Path(output).with_suffix(".md"), latex=latex, figures=figures)
+                   if latex or figures else {"latex": None, "figures": [], "csv": []})
     if written["latex"]:
         click.echo(f"LaTeX tables:    {written['latex']}")
     for fig in written["figures"]:
@@ -1973,6 +2223,25 @@ def guide_command(lang: str, show: bool) -> None:
     else:
         click.echo(str(path))
         click.echo("Tip: 'cadmia guide --show' prints it; add '-en' for English.")
+
+
+@main.command("paths")
+@click.argument("mode", required=False, type=click.Choice(["relative", "absolute"]))
+def paths_command(mode: str | None) -> None:
+    """How text reports (.txt, cadmia.out) print file paths: relative (default) or absolute.
+
+    Without MODE, shows the current setting. JSON results and the database always keep
+    the absolute path and the file hash. Examples: `cadmia paths`, `cadmia paths absolute`.
+    """
+    from cadmia.io import results
+    if mode is None:
+        click.echo(f"report paths: {results.report_paths_mode()}")
+        return
+    path = results.set_report_paths_mode(mode)
+    click.echo(f"report paths: {mode}  ({path})")
+    if mode == "absolute":
+        click.echo("  ⚠  Text reports will show full paths, with user and folder names; check them "
+                   "before sharing. 'cadmia paths relative' goes back.", err=True)
 
 
 @main.command("literature")
@@ -2270,10 +2539,9 @@ def doctor_command(db_path) -> None:
     click.echo("\nOptional dependencies (features degrade gracefully):")
     optional = {
         "rich": "formatted CLI tables",
-        "matplotlib": "report figures",
-        "plotly": "structure interactive plots",
-        "scipy": "volumetric analysis",
-        "skimage": "isosurface extraction",
+        "matplotlib": "static figures (PNG/SVG/PDF)",
+        "plotly": "interactive 2D plots",
+        "scipy": "convex-hull shape descriptors",
     }
     for mod, feature in optional.items():
         try:
@@ -2300,7 +2568,7 @@ def doctor_command(db_path) -> None:
     click.echo("\nExternal tools (PATH):")
     for tool, feature in (("orca", "ORCA engine"), ("g16", "Gaussian 16 engine"),
                           ("xtb", "GFN2-xTB pre-screening (cadmia prescreen)"),
-                          ("ssh", "HPC submission"), ("povray", "cadmia structure render --render")):
+                          ("ssh", "HPC submission")):
         found = shutil.which(tool)
         if tool == "orca" and found and Path(found).resolve().stat().st_size < 5_000_000:
             # /usr/bin/orca on Linux desktops is usually the GNOME screen reader
@@ -2360,7 +2628,12 @@ def doctor_command(db_path) -> None:
 @click.option("--no-db", "no_db", is_flag=True, help="Do not create the local .cadmia/cadmia.db.")
 @click.option("--overwrite", is_flag=True, help="Overwrite an existing manifest/database.")
 def init_command(directory, name, no_db, overwrite) -> None:
-    """Scaffold a CADMIA project: pipeline folders, manifest, and a local database."""
+    """Scaffold a CADMIA project: pipeline folders, manifest, and a local database.
+
+    Inside the project every stage (structure report, cdft, analyze, stability) saves its
+    result, data and full report in one JSON, to results/, and `cadmia report` assembles them
+    into reports/cadmia.out.
+    """
     from cadmia.project import init_project
 
     summary = init_project(directory, name=name, with_db=not no_db, overwrite=overwrite)
@@ -2610,6 +2883,10 @@ def rank_command(sources, output, window_kcal, top_n, dedup_rmsd, cluster_ref,
 
     for w in result.warnings:
         click.echo(f"  ⚠  {w}", err=True)
+    if result.n_ranked == 0:
+        # A script chaining rank → prepare must not take "nothing ranked" for success.
+        raise click.ClickException(f"None of the {result.n_input} output(s) could be ranked "
+                                   "(see the warnings above).")
 
 
 def _correlate_plot(result, out_dir: Path) -> tuple[list[str], bool]:
@@ -2657,7 +2934,7 @@ def _correlate_plot(result, out_dir: Path) -> tuple[list[str], bool]:
               type=click.Path(), help="Descriptor JSON files, a directory, or a glob "
                    "(cdft/analyze outputs). Repeatable. Merged per system id.")
 @click.option("--cdft", "cdft", default=None, type=click.Path(exists=True),
-              help="A cluster CDFT report (--report-format json) to broadcast over every config, "
+              help="The cluster CDFT JSON (cdft -o, or results/cdft.json) to broadcast over every config, "
                    "so atom-resolved descriptors like dual@site resolve at each binding site.")
 @click.option("--x", "x", default="all",
               help="Descriptor alias (mu, eta, omega, omega_minus, omega_plus, N, ip, ea, gap, "
@@ -2761,10 +3038,14 @@ def _dispatch_legacy(handler, **kwargs) -> None:
     subcommand gains --help / --ayuda through EsGroup), with no logic duplicated.
     """
     from types import SimpleNamespace
-    raise SystemExit(handler(SimpleNamespace(**kwargs)) or 0)
+    try:
+        code = handler(SimpleNamespace(**kwargs))
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        raise click.ClickException(str(exc))
+    raise SystemExit(code or 0)
 
 
-# ── electronic (native click group: dos | pdos | cube | vmd) ──────────────────
+# ── electronic (native click group: dos | pdos | ir | mep) ──────────────────
 @main.group("electronic")
 def electronic_group() -> None:
     """Electronic properties: density of states, cube viewers and VMD export."""
@@ -2778,13 +3059,17 @@ def electronic_group() -> None:
               help="Number of energy-grid points.")
 @click.option("-o", "--output", default=None, type=click.Path(),
               help="Write the DOS curve (.dat/.csv/.json/.html).")
-@click.option("--format", "fmt", type=click.Choice(["dat", "csv", "json", "html"]),
-              default="dat", show_default=True, help="Output format; html = interactive plot.")
-def electronic_dos(input_file, sigma, points, output, fmt) -> None:
+@click.option("--format", "fmt", type=click.Choice(["dat", "csv", "json", "html", "png", "svg", "pdf"]),
+              default=None,
+              help="Output format; html = interactive plot, png/svg/pdf = static figure (matplotlib). "
+                   "Default: the -o suffix, else dat.")
+@click.option("--width", type=click.Choice(["single", "double"]), default="single", show_default=True,
+              help="Static figure width: single (3.4 in) or double (6.5 in) column.")
+def electronic_dos(input_file, sigma, points, output, fmt, width) -> None:
     """Total DOS from the orbital eigenvalues of a Gaussian/ORCA output."""
     from cadmia.electronic.cli import _cmd_dos
     _dispatch_legacy(_cmd_dos, input_file=input_file, sigma=sigma, points=points,
-                     output=output, format=fmt)
+                     output=output, format=fmt, width=width)
 
 
 @electronic_group.command("pdos")
@@ -2795,13 +3080,17 @@ def electronic_dos(input_file, sigma, points, output, fmt) -> None:
               help="Number of energy-grid points.")
 @click.option("-o", "--output", default=None, type=click.Path(),
               help="Write the PDOS curves (.dat/.csv/.json/.html).")
-@click.option("--format", "fmt", type=click.Choice(["dat", "csv", "json", "html"]),
-              default="dat", show_default=True, help="Output format; html = interactive plot.")
-def electronic_pdos(input_file, sigma, points, output, fmt) -> None:
+@click.option("--format", "fmt", type=click.Choice(["dat", "csv", "json", "html", "png", "svg", "pdf"]),
+              default=None,
+              help="Output format; html = interactive plot, png/svg/pdf = static figure (matplotlib). "
+                   "Default: the -o suffix, else dat.")
+@click.option("--width", type=click.Choice(["single", "double"]), default="single", show_default=True,
+              help="Static figure width: single (3.4 in) or double (6.5 in) column.")
+def electronic_pdos(input_file, sigma, points, output, fmt, width) -> None:
     """Element-projected DOS from an ORCA output with Print[P_OrbPopMO_L] 1."""
     from cadmia.electronic.cli import _cmd_pdos
     _dispatch_legacy(_cmd_pdos, input_file=input_file, sigma=sigma, points=points,
-                     output=output, format=fmt)
+                     output=output, format=fmt, width=width)
 
 
 @electronic_group.command("ir")
@@ -2816,13 +3105,17 @@ def electronic_pdos(input_file, sigma, points, output, fmt) -> None:
               help="Number of grid points.")
 @click.option("-o", "--output", default=None, type=click.Path(),
               help="Write the spectrum (.dat/.csv/.json/.html).")
-@click.option("--format", "fmt", type=click.Choice(["dat", "csv", "json", "html"]),
-              default="dat", show_default=True, help="Output format; html = interactive plot.")
-def electronic_ir(input_file, scale, fwhm, lineshape, points, output, fmt) -> None:
+@click.option("--format", "fmt", type=click.Choice(["dat", "csv", "json", "html", "png", "svg", "pdf"]),
+              default=None,
+              help="Output format; html = interactive plot, png/svg/pdf = static figure (matplotlib). "
+                   "Default: the -o suffix, else dat.")
+@click.option("--width", type=click.Choice(["single", "double"]), default="single", show_default=True,
+              help="Static figure width: single (3.4 in) or double (6.5 in) column.")
+def electronic_ir(input_file, scale, fwhm, lineshape, points, output, fmt, width) -> None:
     """IR spectrum from the normal-mode IR intensities of an ORCA Freq output."""
     from cadmia.electronic.cli import _cmd_ir
     _dispatch_legacy(_cmd_ir, input_file=input_file, scale=scale, fwhm=fwhm,
-                     lineshape=lineshape, points=points, output=output, format=fmt)
+                     lineshape=lineshape, points=points, output=output, format=fmt, width=width)
 
 
 @electronic_group.command("mep")
@@ -2840,55 +3133,30 @@ def electronic_mep(input_file, density, isovalue, output) -> None:
                      isovalue=isovalue, output=output)
 
 
-@electronic_group.command("cube")
-@click.argument("input_file")
-@click.option("-o", "--output", default=None, type=click.Path(),
-              help="Output HTML file (default: <cube>_view.html).")
-@click.option("--isovalue", type=float, default=None,
-              help="Isosurface value (default: 15% of the field's max |value|).")
-@click.option("--max-points", "max_points", type=int, default=60000, show_default=True,
-              help="Max grid points after downsampling.")
-@click.option("--field-type", "field_type", type=click.Choice(["other", "density", "orbital", "mep"]),
-              default="other", show_default=True, help="Field label used in the title/metadata.")
-def electronic_cube(input_file, output, isovalue, max_points, field_type) -> None:
-    """Interactive HTML viewer for a .cube field (orbital/density/MEP isosurfaces)."""
-    from cadmia.electronic.cli import _cmd_cube
-    _dispatch_legacy(_cmd_cube, input_file=input_file, output=output, isovalue=isovalue,
-                     max_points=max_points, field_type=field_type)
-
-
-@electronic_group.command("vmd")
-@click.argument("input_file")
-@click.option("-o", "--output", default=None, type=click.Path(),
-              help="Output .tcl script (default: <cube>_vmd.tcl).")
-@click.option("--isovalue", type=float, default=None,
-              help="Isosurface value (default: 15% of the field's max |value|).")
-@click.option("--resolution", default="1920x1440", show_default=True,
-              help="Render resolution WxH.")
-@click.option("--material", default="Transparent", show_default=True,
-              help="VMD material for the isosurfaces.")
-@click.option("--render-output", "render_output", default="render.tga", show_default=True,
-              help="Image file the render_hires proc writes.")
-@click.option("--tachyon", default=None,
-              help="External Tachyon executable; omit to use VMD's built-in renderer.")
-def electronic_vmd(input_file, output, isovalue, resolution, material, render_output, tachyon) -> None:
-    """Write a VMD/Tachyon .tcl script to render a .cube (publication-quality figures)."""
-    from cadmia.electronic.cli import _cmd_vmd
-    _dispatch_legacy(_cmd_vmd, input_file=input_file, output=output, isovalue=isovalue,
-                     resolution=resolution, material=material, render_output=render_output,
-                     tachyon=tachyon)
-
-
-# ── structure (native click group: structure | plot | render) ────────────────
-@main.group("structure")
-def structure_group() -> None:
+# ── structure (native click group: structure | report | plot | compare) ────────────────
+@main.group("structure", invoke_without_command=True)
+@click.option("--report", "-r", "report_path", default=None, type=click.Path(),
+              help="Write the full structural report, inside a project, from what the module saved "
+                   "to results/structure/, without recomputing.")
+@click.pass_context
+def structure_group(ctx, report_path) -> None:
     """Structural analysis: ECN/coordination, interactive plots, POV-Ray rendering."""
+    if ctx.invoked_subcommand is not None:
+        if report_path:
+            raise click.UsageError("structure --report reads results/structure/ on its own; "
+                                   "for a report of new inputs use structure report FILE -o NAME.")
+        return
+    if report_path:
+        _write_saved_report("structure", report_path)
+    else:
+        click.echo(ctx.get_help())
 
 
 @structure_group.command("report")
 @click.argument("input_file", nargs=-1, required=True)
 @click.option("-o", "--output", default=None, type=click.Path(),
-              help="Report filename in the analyzed folder (absolute paths honored).")
+              help="Report file, relative to the current folder (default: structural_report.<format> "
+                   "in the analyzed folder).")
 @click.option("--format", "fmt", type=click.Choice(["txt", "csv", "json"]), default=None,
               help="Report format. If omitted, uses the output file suffix.")
 @click.option("--config", default=None, type=click.Path(),
@@ -2911,22 +3179,27 @@ structure_group.add_command(_structure_alias, name="structure")
 @structure_group.command("plot")
 @click.argument("input_file", nargs=-1, required=True)
 @click.option("-o", "--output", default=None, type=click.Path(),
-              help="Output HTML (one plot) or directory (batch). Defaults to current dir.")
-@click.option("--kind", type=click.Choice(["molecule", "ecn", "bonds", "distances",
-              "ecn-trend", "ecn-heatmap"]), default="molecule", show_default=True,
-              help="Plot kind.")
-@click.option("--title", default=None, help="Optional figure title for molecule/ECN plots.")
+              help="Output file (one plot) or directory (batch). Without --format the suffix picks "
+                   "the format: .html interactive, .png/.svg/.pdf static (2D kinds). Defaults to current dir.")
+@click.option("--format", "fmt", type=click.Choice(["html", "png", "svg", "pdf"]), default=None,
+              help="Output format (needed for static figures in a batch). Default: the -o suffix, else html.")
+@click.option("--width", type=click.Choice(["single", "double"]), default="single", show_default=True,
+              help="Static figure width: single (3.4 in) or double (6.5 in) column.")
+@click.option("--kind", type=click.Choice(["bonds", "distances", "ecn-trend", "ecn-heatmap"]),
+              default="bonds", show_default=True, help="Plot kind (2D).")
+@click.option("--title", default=None, help="Optional figure title.")
 @click.option("--config", default=None, type=click.Path(),
               help="Custom YAML (atomic masses, cutoffs, ECN settings).")
 @click.option("--ecn-decimals", "ecn_decimals", type=int, default=1, show_default=True,
               help="Display decimals for rounded ECN labels.")
 @click.option("--ecn-label", "ecn_label", type=click.Choice(["raw", "rounded", "both"]),
               default="both", show_default=True, help="ECN label style.")
-def structure_plot(input_file, output, kind, title, config, ecn_decimals, ecn_label) -> None:
-    """Write interactive Plotly HTML plots for structures (needs the [full] extra)."""
+def structure_plot(input_file, output, kind, title, config, ecn_decimals, ecn_label, fmt, width) -> None:
+    """Interactive HTML plots, or static PNG/SVG/PDF figures of the 2D kinds (needs [full])."""
     from cadmia.structure.cli import _cmd_plot
     _dispatch_legacy(_cmd_plot, input_file=list(input_file), output=output, kind=kind,
-                     title=title, config=config, ecn_decimals=ecn_decimals, ecn_label=ecn_label)
+                     title=title, config=config, ecn_decimals=ecn_decimals, ecn_label=ecn_label,
+                     format=fmt, width=width)
 
 
 @structure_group.command("compare")
@@ -3004,39 +3277,3 @@ def structure_compare(reference, candidates, as_json) -> None:
         if row["borderline_bond"]:
             click.echo("    warning: a contact sits near the bond cutoff, so the skeleton "
                        "verdict is not safe here.")
-
-
-@structure_group.command("render")
-@click.argument("input_file")
-@click.option("-o", "--output", default="outputs/structure_scene", show_default=True, type=click.Path(),
-              help="Output scene path (.pov added when omitted).")
-@click.option("--cube", default=None, type=click.Path(),
-              help="Optional Gaussian cube file used to extract isosurfaces.")
-@click.option("--field-type", "field_type", default="other", show_default=True,
-              help="Field label (homo, lumo, density, fukui, mep…).")
-@click.option("--iso-preset", "iso_preset", type=click.Choice(sorted(_ISO_PRESETS)), default=None,
-              help="Named positive/negative isovalue pair for common fields.")
-@click.option("--iso-pos", "iso_pos", type=float, default=None,
-              help="Positive isovalue (overrides --iso-preset).")
-@click.option("--iso-neg", "iso_neg", type=float, default=None,
-              help="Negative isovalue (overrides --iso-preset).")
-@click.option("--zoom", type=int, default=1, show_default=True,
-              help="Volumetric upsampling factor for cube isosurfaces.")
-@click.option("--sigma", type=float, default=0.0, show_default=True,
-              help="Gaussian smoothing sigma after volumetric upsampling.")
-@click.option("--align-inertia", "align_inertia", is_flag=True,
-              help="Align atoms/isosurfaces to mass-weighted principal inertia axes.")
-@click.option("--orientation", "orientation", default=None, type=click.Path(exists=True),
-              help="Orientation .json exported by `cadmia view` — renders that exact pose.")
-@click.option("--render", "render", is_flag=True,
-              help="Run POV-Ray after writing the scene and create a PNG.")
-@click.option("--resolution", type=click.Choice(sorted(_RES_PRESETS)), default="preview",
-              show_default=True, help="PNG render size preset used with --render.")
-def structure_render(input_file, output, cube, field_type, iso_preset, iso_pos, iso_neg,
-                     zoom, sigma, align_inertia, orientation, render, resolution) -> None:
-    """Write or render POV-Ray scenes, with optional cube isosurfaces."""
-    from cadmia.structure.cli import _cmd_render
-    _dispatch_legacy(_cmd_render, input_file=input_file, output=output, cube=cube,
-                     field_type=field_type, iso_preset=iso_preset, iso_pos=iso_pos,
-                     iso_neg=iso_neg, zoom=zoom, sigma=sigma, align_inertia=align_inertia,
-                     orientation=orientation, render=render, resolution=resolution)

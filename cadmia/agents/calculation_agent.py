@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -282,7 +282,10 @@ def prepare(
                     f"{target.name} already exists; kept (use overwrite to regenerate).")
                 result.inputs.append(target)
                 continue
-            written = _write_input(structure, eng, params, target)
+            own, warning = _structure_spin(structure, params, target.name)
+            if warning:
+                result.warnings.append(warning)
+            written = _write_input(structure, eng, own, target)
             result.inputs.append(written)
             result.generated.append(written)
     return result
@@ -336,6 +339,13 @@ def prepare_cdft(
         ("anion",  charge - 1, mult_anion),
         ("cation", charge + 1, mult_cation),
     ]
+
+    # The spin the geometry carries (an XYZ with mult=, an engine output) sets N under auto, and
+    # the ions one electron away from it: m − 1, which both adding and removing one can reach.
+    if structure.metadata.get("spin_given") and int(structure.charge or 0) == charge:
+        m_n = int(structure.multiplicity)
+        states = [(label, q, m if m is not None else (m_n if label == "N" else max(m_n - 1, 2)))
+                  for label, q, m in states]
 
     inputs:   List[Path] = []
     warnings: List[str]  = []
@@ -555,7 +565,9 @@ def _structures_from_source(f: Path):
         return parse_xyz_database(f)
     if suffix in _OUTPUT_SUFFIXES:
         from cadmia.io import structure_from_file
-        return [structure_from_file(f)]
+        structure = structure_from_file(f)
+        structure.metadata["spin_given"] = True   # the engine's own charge and spin
+        return [structure]
     raise ValueError(
         f"{f.name}: cannot prepare an input from a '{f.suffix}' file. Give a geometry "
         f"(.xyz), an engine output (.out/.log), or a ready engine input (.inp/.gjf)."
@@ -596,6 +608,77 @@ def _input_stems(source: Path, structures: list) -> List[str]:
         used.add(stem)
         stems.append(stem)
     return stems
+
+
+COUNTERPOISE_TERMS = ("cluster_own", "cluster_full", "probe_own", "probe_full")
+
+
+def prepare_counterpoise(
+    adduct: "Path | str",
+    cluster: "Path | str",
+    probe_free: "Path | str",
+    params: Optional[CalcParams] = None,
+    *,
+    output_dir: "Path | str" = ".",
+    overwrite: bool = False,
+) -> Tuple[List[Path], List[str]]:
+    """The four ORCA single points of the Boys–Bernardi counterpoise correction of one adduct.
+
+    Each fragment (the cluster, the probe) at its geometry IN THE ADDUCT, once in its own basis
+    and once in the full basis of the adduct, the partner's atoms as ghosts (``O:`` in ORCA). The
+    adduct holds the cluster's atoms first, as `cadmia geometry` writes it; the fragments' charge
+    and multiplicity are those of the isolated cluster and probe outputs. `cadmia analyze --bsse`
+    reads the four outputs, named ``<adduct>_cp_<term>.out``, next to the adduct or here.
+    Returns ``(input_paths, warnings)``.
+    """
+    from cadmia.io import structure_from_file
+    from cadmia.calculators.orca import write_inp
+
+    params = params or CalcParams()
+    out_dir = Path(output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    ad, cl, pr = (structure_from_file(Path(p)) for p in (adduct, cluster, probe_free))
+    n_cl = len(cl.atoms)
+    if sorted(ad.atoms[:n_cl]) != sorted(cl.atoms) or sorted(ad.atoms[n_cl:]) != sorted(pr.atoms):
+        raise ValueError(f"{Path(adduct).name}: its first {n_cl} atoms are not the cluster and the "
+                         "rest the probe; the counterpoise fragments cannot be told apart.")
+    atoms, pos = list(ad.atoms), ad.positions
+    ghost = [f"{a}:" for a in atoms]
+    terms = {
+        "cluster_own":  (atoms[:n_cl], pos[:n_cl], cl),
+        "cluster_full": (atoms[:n_cl] + ghost[n_cl:], pos, cl),
+        "probe_own":    (atoms[n_cl:], pos[n_cl:], pr),
+        "probe_full":   (ghost[:n_cl] + atoms[n_cl:], pos, pr),
+    }
+    inputs: List[Path] = []
+    warnings: List[str] = []
+    stem = Path(adduct).stem
+    for term in COUNTERPOISE_TERMS:
+        fatoms, fpos, frag = terms[term]
+        sp = replace(params, task="sp", charge=int(frag.charge or 0),
+                     multiplicity=int(frag.multiplicity or 1), auto_multiplicity=False)
+        target = out_dir / f"{stem}_cp_{term}.inp"
+        if target.exists() and not overwrite:
+            warnings.append(f"{target.name} already exists; kept (use overwrite to regenerate).")
+        else:
+            write_inp(fatoms, fpos, sp, target, title=f"{stem} counterpoise {term}")
+        inputs.append(target)
+    return inputs, warnings
+
+
+def _structure_spin(structure, params: CalcParams, name: str) -> "tuple[CalcParams, str]":
+    """Under ``--mult auto``, the multiplicity the structure itself carries (an XYZ comment with
+    ``mult=``, as geometry/prescreen/rank write, or an engine output's own) wins over the
+    electron-count parity, which only knows the lowest spin. Only for the same charge: a spin
+    read for another charge would be an impossible pair. Returns the params and a warning."""
+    if not (params.auto_multiplicity and structure.metadata.get("spin_given")):
+        return params, ""
+    if int(structure.charge or 0) != params.charge:
+        return params, (f"{name}: the geometry carries charge {structure.charge} and multiplicity "
+                        f"{structure.multiplicity}, but the input is written with charge "
+                        f"{params.charge}; the multiplicity comes from the electron count. Pass "
+                        f"--mult to set it.")
+    return replace(params, multiplicity=int(structure.multiplicity), auto_multiplicity=False), ""
 
 
 def _write_input(structure, engine: str, params: CalcParams, target: Path) -> Path:
