@@ -25,7 +25,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   output.
 - `analyze` links its result to the configuration `geometry` recorded when that path was stored
   with Windows separators.
-- Report paths relative to the project use `/` on every system.
+- Report paths relative to the project use `/` on every system, and so do the stage files the
+  report lists and the file names inside the combined digest of the inputs, which is now the
+  same on every system.
 
 ## [0.3.1] — 2026-10-27
 

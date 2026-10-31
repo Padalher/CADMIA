@@ -149,9 +149,9 @@ def artifact_fingerprint(paths: "Iterable[Path | str]") -> Optional[dict]:
         if len(items) > 1 else items[0].resolve().parent
 
     lines, missing = [], []
-    for item in sorted(items, key=str):
+    for item in sorted(items, key=lambda p: Path(p).as_posix()):
         try:
-            name = str(item.resolve().relative_to(base))
+            name = item.resolve().relative_to(base).as_posix()
         except ValueError:
             name = item.name
         digest = _sha256_file(item)

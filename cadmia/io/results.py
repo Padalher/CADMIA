@@ -191,11 +191,11 @@ def load_stage_results(root: "Path | None" = None, copies: bool = True) -> dict:
                 if not isinstance(data, dict):
                     raise ValueError("not a CADMIA module result (no JSON object)")
                 if not copies and data.get("copy_of"):
-                    found.setdefault("_copies", []).append(str(f.relative_to(root)))
+                    found.setdefault("_copies", []).append(f.relative_to(root).as_posix())
                     continue
-                items.append({**data, "_file": str(f.relative_to(root))})
+                items.append({**data, "_file": f.relative_to(root).as_posix()})
             except (OSError, ValueError) as exc:
-                errors.append(f"{f.relative_to(root)}: {exc}")
+                errors.append(f"{f.relative_to(root).as_posix()}: {exc}")
         if items:
             found[stage] = items
     if errors:
