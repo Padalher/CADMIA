@@ -97,7 +97,7 @@ def test_o2_configs_carry_the_triplet_into_the_inputs(tmp_path):
 
     result = calculation_agent.prepare(str(xyz), engine="orca", output_dir=str(tmp_path / "inp"),
                                        params=CalcParams(auto_multiplicity=True))
-    assert "* xyz 0 3" in Path(result.inputs[0]).read_text()
+    assert "* xyz 0 3" in Path(result.inputs[0]).read_text(encoding="utf-8")
 
 
 def test_a_spin_read_for_another_charge_is_not_used(tmp_path):
@@ -106,11 +106,11 @@ def test_a_spin_read_for_another_charge_is_not_used(tmp_path):
 
     result = calculation_agent.prepare(str(D / "1tial_cation.out"), engine="orca",
                                        output_dir=str(tmp_path), params=CalcParams(auto_multiplicity=True))
-    assert "* xyz 0 1" in Path(result.inputs[0]).read_text()
+    assert "* xyz 0 1" in Path(result.inputs[0]).read_text(encoding="utf-8")
     assert any("charge 1" in w for w in result.warnings)
     result = calculation_agent.prepare(str(D / "1tial_cation.out"), engine="orca", overwrite=True,
                                        output_dir=str(tmp_path), params=CalcParams(charge=1, auto_multiplicity=True))
-    assert "* xyz 1 2" in Path(result.inputs[0]).read_text()
+    assert "* xyz 1 2" in Path(result.inputs[0]).read_text(encoding="utf-8")
 
 
 def test_batch_analyze_survives_one_broken_adduct(tmp_path, monkeypatch):
@@ -136,8 +136,8 @@ def test_counterpoise_inputs_and_bsse(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _ok(CliRunner(), ["prepare", "bsse", str(D / "1tial_CO2.out"), "--cluster", str(D / "1tial.out"),
                       "--probe-free", str(D / "co2.out"), "-o", "cp"])
-    full = (tmp_path / "cp" / "1tial_CO2_cp_cluster_full.inp").read_text()
-    own = (tmp_path / "cp" / "1tial_CO2_cp_probe_own.inp").read_text()
+    full = (tmp_path / "cp" / "1tial_CO2_cp_cluster_full.inp").read_text(encoding="utf-8")
+    own = (tmp_path / "cp" / "1tial_CO2_cp_probe_own.inp").read_text(encoding="utf-8")
     assert "C:" in full and "O:" in full and "* xyz 0 1" in full
     assert "\nTi " not in own and own.count("\nO ") == 2
     # four fake outputs: BSSE = (E_cl_own − E_cl_full) + (E_pr_own − E_pr_full)
@@ -191,7 +191,7 @@ def test_same_adduct_name_in_two_folders_is_kept_apart(project, tmp_path):
                      "--probe-free", str(D / "co2.out"), "--no-db"])
     saved = sorted(p.name for p in (root / "results" / "analysis").glob("*.json"))
     assert saved == ["site5-2.json", "site5.json"]
-    assert json.loads((root / "results" / "analysis" / "site5-2.json").read_text())["config_id"] == "site5-2"
+    assert json.loads((root / "results" / "analysis" / "site5-2.json").read_text(encoding="utf-8"))["config_id"] == "site5-2"
 
 
 def test_a_cdft_of_other_files_is_saved_as_a_copy_not_over_the_first(project):
@@ -203,8 +203,8 @@ def test_a_cdft_of_other_files_is_saved_as_a_copy_not_over_the_first(project):
         _ok(runner, ["cdft", "--n", str(G / "N.out"), "--np1", str(G / "N+1.out"),
                      "--nm1", str(G / "N-1.out"), "--no-db"])
     assert sorted(p.name for p in (root / "results").glob("cdft*.json")) == ["cdft-2.json", "cdft.json"]
-    first = json.loads((root / "results" / "cdft.json").read_text())
-    assert first["sources"]["N"].endswith("1tial_d4/1tial_N.out")
+    first = json.loads((root / "results" / "cdft.json").read_text(encoding="utf-8"))
+    assert Path(first["sources"]["N"]).as_posix().endswith("1tial_d4/1tial_N.out")
     stages = load_stage_results(root)
     assert [d["_file"] for d in stages["cdft"]] == ["results/cdft.json", "results/cdft-2.json"]
 
@@ -213,7 +213,7 @@ def test_report_stops_when_results_mix_clusters(project):
     runner, root = project
     _ok(runner, ["stability", "--mixed", str(D / "1tial.out"), "--ref", str(D / "TiO2.out"),
                  "--ref", str(D / "Al2O3.out"), "--no-db"])
-    data = json.loads((root / "results" / "stability.json").read_text())
+    data = json.loads((root / "results" / "stability.json").read_text(encoding="utf-8"))
     _ok(runner, ["cdft", "--n", str(D / "1tial_N.out"), "--np1", str(D / "1tial_anion.out"),
                  "--nm1", str(D / "1tial_cation.out"), "--no-db"])
     (root / "results" / "stability.json").write_text(json.dumps({**data, "formula": "Al4O8Ti2"}))
@@ -276,14 +276,14 @@ def test_text_reports_print_relative_paths_unless_the_user_asks_for_absolute(pro
     from cadmia.agents.text_report import analysis_report_text
     assert f" Adduct  : 1tial_N.out" in analysis_report_text({"adduct_path": str(D / "1tial_N.out")})
     _ok(runner, ["structure", "report", str(inside), "-o", "s.txt"])
-    assert "Source file: outs/1tial_N.out" in (root / "s.txt").read_text()
+    assert "Source file: outs/1tial_N.out" in (root / "s.txt").read_text(encoding="utf-8")
     _ok(runner, ["report"])
     out = (root / "reports" / "cadmia.out").read_text(encoding="utf-8")
     assert f"Project         : {root.name}\n" in out and "relative to the project" in out
     (root / "absolute.yaml").write_text("other_key: 1\n")
     monkeypatch.setattr(results, "CONFIG_PATH", root / "absolute.yaml")
     _ok(runner, ["paths", "absolute"])
-    assert "other_key: 1" in (root / "absolute.yaml").read_text()
+    assert "other_key: 1" in (root / "absolute.yaml").read_text(encoding="utf-8")
     assert "report paths: absolute" in _ok(runner, ["paths"]).output
     assert results.shown_path(inside) == str(inside.resolve())
     _ok(runner, ["report"])

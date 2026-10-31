@@ -135,7 +135,7 @@ def test_local_submit_writes_script_and_parses_jobid(tmp_path):
     assert (work / "mol.inp").exists()        # input staged
     assert (work / "mol.sh").exists()          # SLURM script written
     assert out_path == str(work / "mol.out")
-    script = (work / "mol.sh").read_text()
+    script = (work / "mol.sh").read_text(encoding="utf-8")
     assert "module load" not in script
 
 
@@ -201,7 +201,7 @@ def test_local_download_copies_file(tmp_path, local_profile):
     src.write_text("RESULT")
     dst = tmp_path / "sub" / "dst.out"
     runner.download(str(src), dst)
-    assert dst.read_text() == "RESULT"
+    assert dst.read_text(encoding="utf-8") == "RESULT"
 
 
 def test_local_download_noop_when_same_path(tmp_path, local_profile):
@@ -209,7 +209,7 @@ def test_local_download_noop_when_same_path(tmp_path, local_profile):
     f = tmp_path / "x.out"
     f.write_text("R")
     runner.download(str(f), f)   # must not raise or truncate
-    assert f.read_text() == "R"
+    assert f.read_text(encoding="utf-8") == "R"
 
 
 def test_local_download_missing_raises(tmp_path, local_profile):

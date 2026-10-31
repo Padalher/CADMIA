@@ -86,8 +86,8 @@ def test_level_mismatch_warns_on_e_ads(triplet):
     """A probe at a different basis than cluster/adduct must raise a warning."""
     cluster, h2, adduct = triplet
     for f in (cluster, adduct):
-        f.write_text(f.read_text() + "\n Standard basis: def2TZVP (5D, 7F)\n")
-    h2.write_text(h2.read_text() + "\n Standard basis: def2SVP (5D, 7F)\n")   # smaller basis
+        f.write_text(f.read_text(encoding="utf-8") + "\n Standard basis: def2TZVP (5D, 7F)\n")
+    h2.write_text(h2.read_text(encoding="utf-8") + "\n Standard basis: def2SVP (5D, 7F)\n")   # smaller basis
     r = analyze(adduct, cluster, h2)
     assert any("different levels of theory" in w and "basis" in w for w in r.warnings)
 
@@ -96,7 +96,7 @@ def test_level_match_is_silent(triplet):
     """The common path — all three at the same basis — must not warn (no false alarms)."""
     cluster, h2, adduct = triplet
     for f in (cluster, adduct, h2):
-        f.write_text(f.read_text() + "\n Standard basis: def2TZVP (5D, 7F)\n")
+        f.write_text(f.read_text(encoding="utf-8") + "\n Standard basis: def2TZVP (5D, 7F)\n")
     r = analyze(adduct, cluster, h2)
     assert not any("different levels of theory" in w for w in r.warnings)
 
@@ -733,7 +733,7 @@ def test_counterpoise_energy_is_not_taken_from_the_last_fragment(tmp_path):
     from cadmia.io.electronic import _parse_gaussian_energy
 
     log = _cp_log(tmp_path / "cp.log", complex_e=-100.5, fragment_e=-50.1, corrected=-100.4)
-    lines = log.read_text().splitlines()
+    lines = log.read_text(encoding="utf-8").splitlines()
     assert _parse_gaussian_energy(lines) == pytest.approx(-100.4)   # not -50.1
 
 
@@ -742,7 +742,7 @@ def test_counterpoise_without_a_corrected_line_warns(tmp_path):
     from cadmia.io.electronic import _parse_gaussian_energy
 
     log = _cp_log(tmp_path / "cp2.log", complex_e=-100.5, fragment_e=-50.1, corrected=None)
-    lines = log.read_text().splitlines()
+    lines = log.read_text(encoding="utf-8").splitlines()
     with pytest.warns(RuntimeWarning, match="counterpoise"):
         _parse_gaussian_energy(lines)
 
@@ -758,7 +758,7 @@ def test_a_plain_log_is_untouched_by_the_counterpoise_path(tmp_path):
         " SCF Done:  E(RB3LYP) =  -76.410000000     A.U. after   12 cycles\n",
         encoding="utf-8",
     )
-    lines = log.read_text().splitlines()
+    lines = log.read_text(encoding="utf-8").splitlines()
     assert _parse_gaussian_energy(lines) == pytest.approx(-76.41)   # last one still wins
     assert gaussian_energy_is_counterpoise_corrected(lines) is False
 

@@ -55,11 +55,11 @@ def shown_path(path) -> str:
     if report_paths_mode() == "absolute":
         return str(full)
     if not full.is_absolute():
-        return str(p)
+        return p.as_posix()
     for base in (find_project_root(), Path.cwd().resolve()):
         if base is not None:
             try:
-                return str(full.relative_to(base))
+                return full.relative_to(base).as_posix()
             except ValueError:
                 pass
     return full.name

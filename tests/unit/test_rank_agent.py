@@ -40,7 +40,7 @@ def test_rank_relative_energy_matches_hartree_gap(tmp_path):
 def test_rank_combined_file_blocks_in_energy_order(tmp_path):
     out = tmp_path / "ranked.xyz"
     rank_agent.rank([str(p) for p in GAUSS], output=out)
-    comments = [ln for ln in out.read_text().splitlines() if ln.startswith("rank ")]
+    comments = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
     assert [c.split()[1] for c in comments] == ["1", "2", "3"]
     assert "kcal/mol" in comments[0] and "Eh" in comments[0]
 
@@ -82,7 +82,7 @@ def test_rank_top_n_trims_but_keeps_full_ranking(tmp_path):
     result = rank_agent.rank([str(p) for p in GAUSS], output=out, top_n=1)
     assert result.n_ranked == 3 and result.n_selected == 1        # all ranked, one written
     assert [it.selected for it in result.ranked] == [True, False, False]
-    comments = [ln for ln in out.read_text().splitlines() if ln.startswith("rank ")]
+    comments = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
     assert [c.split()[1] for c in comments] == ["1"]              # only rank 1 in the .xyz
 
 
@@ -107,7 +107,7 @@ def test_rank_sidecar_records_all_with_selected_flag(tmp_path):
     out = tmp_path / "r.xyz"
     rank_agent.rank([str(p) for p in GAUSS], output=out, top_n=1)
     import json as _json
-    data = _json.loads((tmp_path / "r.json").read_text())
+    data = _json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
     assert data["n_selected"] == 1 and data["n_ranked"] == 3
     flags = [it["selected"] for it in sorted(data["items"], key=lambda x: x["rank"])]
     assert flags == [True, False, False]                         # full ordering + the cut
@@ -127,7 +127,7 @@ def test_cli_rank_default_window_trims_outliers(tmp_path):
     out = tmp_path / "r.xyz"
     res = CliRunner().invoke(main, ["rank", *[str(p) for p in GAUSS], str(out)])
     assert res.exit_code == 0 and "kept" in res.output
-    blocks = [ln for ln in out.read_text().splitlines() if ln.startswith("rank ")]
+    blocks = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
     assert len(blocks) == 1
 
 
@@ -136,7 +136,7 @@ def test_cli_rank_window_zero_disables_trim(tmp_path):
     res = CliRunner().invoke(
         main, ["rank", *[str(p) for p in GAUSS], str(out), "--window", "0", "--top", "0"])
     assert res.exit_code == 0
-    blocks = [ln for ln in out.read_text().splitlines() if ln.startswith("rank ")]
+    blocks = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
     assert len(blocks) == 3          # nothing trimmed when both are off
 
 
@@ -237,7 +237,7 @@ def test_rank_xyz_comment_stays_minimal(tmp_path):
     minimum = _orca_out_with_freqs(tmp_path / "min.out", [0.0, 300.0, 1600.0])
     out = tmp_path / "ranked.xyz"
     rank_agent.rank([str(minimum)], output=out)
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     assert "kcal/mol" in text and "E=-76.123457 Eh" in text
     assert "neg_freq" not in text
 
@@ -250,7 +250,7 @@ def test_rank_writes_json_sidecar_next_to_the_xyz(tmp_path):
     sidecar = tmp_path / "ranked.json"
     assert result.output_json == str(sidecar) and sidecar.exists()
     import json as _json
-    data = _json.loads(sidecar.read_text())
+    data = _json.loads(sidecar.read_text(encoding="utf-8"))
     assert data["n_ranked"] == 3
     assert data["output_xyz"] == str(out)
     assert "n_imaginary" in data["items"][0]      # the screening decision travels in the sidecar
@@ -319,8 +319,8 @@ def test_rank_dedup_groups_outputs_that_share_a_minimum(tmp_path):
     result = rank_agent.rank(_three_groups(tmp_path), output=out)
     assert result.n_ranked == 6
     assert result.n_unique == 3                      # six files, three structures
-    assert out.read_text().count("FINAL") == 0
-    assert len([b for b in out.read_text().split("\n") if b.strip() == "3"]) == 3
+    assert out.read_text(encoding="utf-8").count("FINAL") == 0
+    assert len([b for b in out.read_text(encoding="utf-8").split("\n") if b.strip() == "3"]) == 3
 
 
 def test_rank_dedup_representative_is_the_lowest_energy_of_its_group(tmp_path):
@@ -369,7 +369,7 @@ def test_rank_dedup_keeps_distinct_minima_that_happen_to_be_isoenergetic(tmp_pat
 def test_rank_sidecar_keeps_the_duplicates_with_their_representative(tmp_path):
     out = tmp_path / "ranked.xyz"
     rank_agent.rank(_three_groups(tmp_path), output=out)
-    data = json.loads((tmp_path / "ranked.json").read_text())
+    data = json.loads((tmp_path / "ranked.json").read_text(encoding="utf-8"))
     assert data["n_unique"] == 3 and data["n_ranked"] == 6
     assert len(data["items"]) == 6                   # nothing is dropped from the trail
     assert sum(1 for it in data["items"] if it["duplicate_of"]) == 3
@@ -555,9 +555,9 @@ def test_the_skeleton_class_reaches_the_json_and_the_xyz_comment(tmp_path):
     classes = {Path(it.source).name: it.cluster_skeleton for it in result.ranked}
     assert classes["ref_lo.out"] == "reference"
     assert classes["iso_lo.out"] == classes["iso_hi.out"] == "isomer-1"
-    payload = json.loads(Path(result.output_json).read_text())
+    payload = json.loads(Path(result.output_json).read_text(encoding="utf-8"))
     assert {it["cluster_skeleton"] for it in payload["items"]} == {"reference", "isomer-1"}
-    comments = [ln for ln in out.read_text().splitlines() if ln.startswith("rank ")]
+    comments = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
     assert all("[reference]" in c or "[isomer-1]" in c for c in comments)
 
 
@@ -582,7 +582,7 @@ def test_cli_rank_accepts_cluster(tmp_path):
     res = CliRunner().invoke(main, ["rank", *srcs, "--window", "10",
                                     "--cluster", _cluster_ref_xyz(tmp_path), "-o", str(out)])
     assert res.exit_code == 0, res.output
-    assert out.read_text().count("[reference]") == 2
+    assert out.read_text(encoding="utf-8").count("[reference]") == 2
 
 
 def test_rank_cli_fails_when_nothing_could_be_ranked(tmp_path):

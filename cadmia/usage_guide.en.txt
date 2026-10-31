@@ -416,9 +416,10 @@ electrons [3], the hardness η and softness S according to Parr and Pearson [4],
 the electrophilicity index ω according to Parr, Szentpály and Liu [5], the
 atom-condensed Fukui functions according to Yang and Mortier [6], the dual
 descriptor Δf according to Morell, Grand and Toro-Labbé [7] and the
-nucleophilicity index N (TCE reference) according to Domingo et al. [8]. The
-Lewis acid/base reading follows Pearson's hard and soft acids and bases (HSAB)
-principle [9]. Hirshfeld charges [10] are preferred for being weakly basis-set
+nucleophilicity index N (TCE reference) according to Domingo et al. [8].
+
+The Lewis acid/base reading follows Pearson's hard and soft acids and bases
+(HSAB) principle [9]. Hirshfeld charges [10] are preferred for being weakly basis-set
 dependent; the CHELPG charges [11] are fitted to the molecular electrostatic
 potential. The global SCF descriptors are checked against Multiwfn [12].
 
@@ -642,7 +643,9 @@ writes all.
 Before trimming, rank GROUPS the outputs that relaxed to the same minimum. The
 potential energy surface funnels different starting configurations into a single
 minimum, and the earlier semiempirical screening cannot anticipate which: a batch of
-many files commonly hides only a few distinct structures. The criterion is the
+many files commonly hides only a few distinct structures.
+
+The criterion is the
 largest atomic displacement after Kabsch alignment (--dedup-rmsd, default 0.20 Å)
 plus an energy tolerance, the same one prescreen uses. Only the lowest of each group
 is written; the duplicates are marked with "≡" in the table and stay in the JSON with
@@ -931,7 +934,9 @@ in the free molecule (≥ 175°, as in CO2) is BENT by ≥ 10° in the adduct. B
 are classic geometric indicators of CO2 activation [3], and the bending matters
 because CO2 can activate as a bent, negatively charged species while its C–O
 bonds barely stretch. The bending threshold is set with --bend-threshold DEG
-(default 10). The JSON adds probe_angles (label, free, adduct and Δ in degrees,
+(default 10).
+
+The JSON adds probe_angles (label, free, adduct and Δ in degrees,
 for every angle of the probe) and max_bend_deg (the largest bend of a linear
 angle); the report prints them next to the bond elongations. The detection
 holds for any probe with intramolecular bonds (H2, NH3, CO2, etc.). It does NOT
@@ -1192,7 +1197,9 @@ Contents: global descriptors, site ranking, adsorption summary (with BSSE and
 (Parr–Pearson: ΔN, stabilization ΔE and donor→acceptor direction, to be compared with
 the observed Δq of the populations), binding-site coordination cluster→adduct (CN/ECN +
 ΔCN/ΔECN), stability, bibliography (--literature), and CORRELATIONS (site Δf vs
-E_ads, Pearson r). Configurations that relaxed to the SAME DFT minimum are
+E_ads, Pearson r).
+
+Configurations that relaxed to the SAME DFT minimum are
 deduplicated before the summary and the correlation. --figures uses matplotlib if
 present; otherwise it writes the (x, y) data to CSV.
 
@@ -1212,7 +1219,9 @@ cadmia cdft and cadmia analyze, merged per system identifier.
    cadmia correlate -e experimental.csv -d study/ --y mayr_N --x all -o corr/ranking.txt
 
 The experimental table is a CSV with a 'system' column and one or more observable
-columns (log k, Mayr N/E, TOF, ΔH_ads…). Descriptors are chosen by alias: mu, eta,
+columns (log k, Mayr N/E, TOF, ΔH_ads…).
+
+Descriptors are chosen by alias: mu, eta,
 omega, omega_minus, omega_plus, N, ip, ea, gap, e_ads, dG_ads, dH_ads, delta_n,
 e_stab, delta_gap, dq_probe, dq_site, plus atom-resolved ones such as f_plus@site or
 dual@N. With --x all every available descriptor is scanned and ranked by |r|. --abs-x
@@ -1241,7 +1250,9 @@ Gaussian broadening of the eigenvalues (--sigma, def. 0.1 eV, must be positive;
 --points, def. 2000, a minimum: the grid keeps a step of sigma/4). The DOS is in
 states/eV and adds BOTH spins: in a closed shell each spatial orbital counts 2, so
 the integral of the curve is the number of orbitals times 2 (in an open shell the
-alpha and beta channels, each with 1 state per orbital, are added). The DOS of a
+alpha and beta channels, each with 1 state per orbital, are added).
+
+The DOS of a
 closed shell is therefore twice what a one-state-per-orbital convention gives, such
 as Multiwfn's (function 10), which weighs each spatial orbital 1 in a closed shell
 too. Compared with Multiwfn, the level positions and the shape of the curve agree;
@@ -1412,17 +1423,23 @@ misses the large rings of a dense cluster.
 
 ECN WITHOUT A DISTANCE CUTOFF. ECN and its d_av run over ALL atom
 pairs, as in Da Silva [6, 7]: the Hoppe weight already damps distant atoms and a
-cutoff only adds a parameter the result depends on. Hoppe's ECN depends only on
+cutoff only adds a parameter the result depends on.
+
+Hoppe's ECN depends only on
 the ratios d/d_av and has no absolute scale: cation-anion (M-O) it is a robust
 effective coordination; metal-metal it describes the nearest shell of that
 element wherever it lies, so a Ti with no Ti within bridging distance still has
-a nonzero Ti-Ti ECN. Read the M-M ECN together with its d_av, as an effective
+a nonzero Ti-Ti ECN.
+
+Read the M-M ECN together with its d_av, as an effective
 cation separation, and take M-M coordination from the CATION NEIGHBORHOOD
 section: two metals are neighbours when one ligand is bonded to both (M-L
 cutoffs), averaged over ALL centres of the element (an isolated one counts
 zero), with the isolated count, the shortest M-M distance, per-centre values and
 the mu of every shared ligand (a mu6 and a mu2 oxygen both count as a bridge;
-mu tells them apart). CSV rows cation_neighbors, cation_neighbor_center and
+mu tells them apart).
+
+CSV rows cation_neighbors, cation_neighbor_center and
 cation_bridge; JSON block "cation_neighbors".
 
 `cadmia structure compare ref.xyz candidates/*.xyz` answers two questions a bare
@@ -1440,6 +1457,7 @@ skeleton. Atoms are paired by element, not by position in the file.
 
 It computes bonds by pair cutoffs, coordination numbers CN, self-consistent Hoppe
 ECN [1, 2], average distances d_av, per-pair statistics and coordination polyhedra.
+
 The "Coordination Polyhedra (angles and distortion)" section lists, per metal centre
 with CN≥3: type (triangle/tetrahedron/octahedron…), mean distance, mean bond ANGLE,
 angular distortion (standard deviation of the ligand-centre-ligand angles), polyhedron
@@ -1447,9 +1465,13 @@ volume (Å³, convex hull of the ligands), Robinson's quadratic elongation ⟨λ
 for the ideal polyhedron; normalised by the EQUAL-VOLUME ideal, so it complements Baur's
 bond-length distortion, which normalises by the observed mean), and the relative
 off-centering of the metal (disp_r = displacement from the ligand centroid ÷ mean bond
-length). Volume and ⟨λ⟩ are NaN for flat polyhedra, and ⟨λ⟩ also for types with no
+length).
+
+Volume and ⟨λ⟩ are NaN for flat polyhedra, and ⟨λ⟩ also for types with no
 regular counterpart (seesaw): never 0 or 1, which would claim the ideal value. In JSON it
-goes under the "polyhedra" key; in CSV as record_type=polyhedron rows. In TXT it reports
+goes under the "polyhedra" key; in CSV as record_type=polyhedron rows.
+
+In TXT it reports
 the raw ECN and the presentation column ECN_1d (one decimal, Decimal ROUND_HALF_UP:
 2.985 → 3.0). Missing values in ECN tables are kept as NaN, never as zero.
 

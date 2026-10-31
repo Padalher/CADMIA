@@ -159,7 +159,7 @@ def test_bonds_cli_output_json_by_extension(tmp_path):
     res = CliRunner().invoke(main, ["bonds", str(out), "--top", "2", "-o", str(jpath)])
 
     assert res.exit_code == 0, res.output
-    data = json.loads(jpath.read_text())
+    data = json.loads(jpath.read_text(encoding="utf-8"))
     assert len(data["bonds"]) == 3        # --top caps the screen table, never the data
     assert "JSON → " in res.output
 
@@ -175,5 +175,5 @@ def test_bonds_cli_output_text_by_extension(tmp_path):
     res = CliRunner().invoke(main, ["bonds", str(out), "-o", str(tpath)])
 
     assert res.exit_code == 0, res.output
-    text = tpath.read_text()
+    text = tpath.read_text(encoding="utf-8")
     assert "Mayer bond orders" in text and "3 bonds, 3 atoms." in text

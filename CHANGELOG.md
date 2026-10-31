@@ -14,6 +14,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The help of `structure plot`, `structure` and `doctor` no longer mentions removed features
   (3D plot kinds, POV-Ray rendering, scikit-image); the guides call the parts of `cadmia.out`
   modules and list every main command.
+- `tools/guide_to_latex.py` keeps the structure of the text guide in the PDF: headings in
+  capitals, bulleted and numbered lists, and column-aligned tables no longer run into one
+  paragraph; paragraphs are separated in the LaTeX, and a CLI option keeps its two hyphens.
+  The longest paragraphs of the text guides are split at a sentence end (no wording changed).
+- The CDFT report labels the condensed local softness in e/Hartree (it said Hartree·e); the
+  values were already correct.
+- Every JSON and report file is written as UTF-8, and the xTB output is read as UTF-8: on a
+  system whose default encoding is not UTF-8 (Windows), `analyze` failed on the `Δ` of its
+  output.
+- `analyze` links its result to the configuration `geometry` recorded when that path was stored
+  with Windows separators.
+- Report paths relative to the project use `/` on every system.
 
 ## [0.3.1] — 2026-10-27
 

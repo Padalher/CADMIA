@@ -70,6 +70,8 @@ def test_every_code_glyph_is_covered_by_the_literate_table(path, lang):
     doc = _doc(path, lang)
     used = {c for b in doc.blocks if b.kind == "code"
             for line in b.lines for c in line if ord(c) > 127}
+    used |= {c for b in doc.blocks if b.kind == "list" for _, _, code in b.items
+             for line in code for c in line if ord(c) > 127}
     missing = used - set(g2l.LISTINGS_LITERATE)
     assert not missing, f"add to LISTINGS_LITERATE: {sorted(missing)}"
 
@@ -80,8 +82,8 @@ def test_prose_carries_no_unmapped_non_ascii(path, lang):
     doc = _doc(path, lang)
     rendered = "".join(
         g2l.render_inline(b.text) for b in doc.blocks
-        if b.kind in ("para", "section", "subsection", "refs")
-    )
+        if b.kind in ("para", "section", "subsection", "minor", "refs")
+    ) + "".join(g2l.render_inline(t) for b in doc.blocks if b.kind == "list" for _, t, _ in b.items)
     stray = {c for c in rendered if ord(c) > 0xFF}
     assert not stray, f"add to UNICODE_TEXT: {sorted(stray)}"
 
@@ -92,8 +94,12 @@ def test_conversion_loses_no_prose(path, lang):
     doc = _doc(path, lang)
     captured = []
     for b in doc.blocks:
-        if b.kind in ("para", "section", "subsection"):
+        if b.kind in ("para", "section", "subsection", "minor"):
             captured.append(b.text)
+        elif b.kind == "list":
+            for _, text, code in b.items:
+                captured.append(text)
+                captured.extend(code)
         elif b.kind == "code":
             captured.extend(b.lines)
         elif b.kind == "refs":
@@ -160,3 +166,24 @@ def test_output_compiles_with_pdflatex(path, lang, tmp_path):
     )
     assert proc.returncode == 0, proc.stdout[-3000:]
     assert (tmp_path / f"guide_{lang}.pdf").exists()
+
+
+@pytest.mark.parametrize("path,lang", GUIDES)
+def test_capital_headings_lists_and_tables_keep_their_structure(path, lang):
+    """A line in capitals heads its block, "- x" and "1. x" are list items, and a line
+    aligned in columns keeps its layout, instead of everything running into one paragraph."""
+    doc = _doc(path, lang)
+    kinds = collections.Counter(b.kind for b in doc.blocks)
+    assert kinds["minor"] >= 40 and kinds["list"] >= 40
+    longest = max(len(b.text) for b in doc.blocks if b.kind == "para")
+    assert longest < 2500
+
+
+@pytest.mark.parametrize("path,lang", GUIDES)
+def test_paragraphs_stay_apart_in_latex(path, lang):
+    """One newline between two paragraphs makes LaTeX typeset them as one."""
+    doc = _doc(path, lang)
+    tex = g2l.render_latex(doc, lang, path.name)
+    paras = [g2l.render_inline(b.text) for b in doc.blocks if b.kind == "para"]
+    first, second = paras[10], paras[11]
+    assert first + "\n\n" in tex and second in tex

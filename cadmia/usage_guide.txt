@@ -415,7 +415,9 @@ electrones [3], la dureza η y la blandura S según Parr y Pearson [4], el índi
 de electrofilia ω según Parr, Szentpály y Liu [5], las funciones de Fukui
 condensadas por átomo según Yang y Mortier [6], el descriptor dual Δf según
 Morell, Grand y Toro-Labbé [7] y el índice de nucleofilia N (referencia TCE)
-según Domingo et al. [8]. La lectura ácido/base de Lewis sigue el principio de
+según Domingo et al. [8].
+
+La lectura ácido/base de Lewis sigue el principio de
 ácidos y bases duros y blandos (HSAB) de Pearson [9]. Las cargas Hirshfeld [10]
 son preferentes por ser poco dependientes de la base; las CHELPG [11] se ajustan
 al potencial electrostático molecular. Los descriptores globales SCF se
@@ -628,7 +630,9 @@ Criterio de supervivencia, paso a paso:
 Cúmulo libre o congelado (--freeze). Por defecto xTB relaja todo, sonda y
 cúmulo. Con --freeze el cúmulo se mantiene rígido (una restricción $constrain de
 xTB sobre sus átomos, que da --cluster) y solo se relaja la sonda; el DFT nunca
-va restringido. Se dejó como opción y no como defecto porque, medido en el
+va restringido.
+
+Se dejó como opción y no como defecto porque, medido en el
 ejemplo Al2TiO5 + CO2 con 60 configuraciones, el cribado congelado ordena casi
 igual (Spearman 0.83) pero no manda a DFT ningún sitio de Al: esos aductos solo
 se forman si el cúmulo se acomoda, y congelado quedan 5–36 kcal/mol más arriba.
@@ -668,7 +672,9 @@ producción); el corte fino va al final, sobre el ΔG de producción. Con --wind
 Antes de recortar, rank AGRUPA las salidas que relajaron al mismo mínimo. La
 superficie de energía potencial embudona configuraciones de partida distintas hacia
 un solo mínimo, y el cribado semiempírico previo no puede anticipar cuáles: es normal
-que un lote de muchos archivos esconda pocas estructuras distintas. El criterio es el mayor
+que un lote de muchos archivos esconda pocas estructuras distintas.
+
+El criterio es el mayor
 desplazamiento atómico tras alineación de Kabsch (--dedup-rmsd, por defecto 0.20 Å)
 más una tolerancia de energía, el mismo que usa prescreen. Del grupo se escribe solo el de menor energía; los duplicados se
 marcan con "≡" en la tabla y quedan en el JSON con el campo duplicate_of apuntando al
@@ -963,7 +969,9 @@ CUALQUIERA de sus enlaces se ALARGA ≥ 5% respecto a la molécula libre, o si u
 10° en el aducto. Ambos son indicadores geométricos clásicos de la activación
 del CO2 [3]; la flexión importa porque el CO2 puede activarse como especie
 doblada con carga negativa aunque sus enlaces C–O apenas se alarguen. El umbral
-de flexión se fija con --bend-threshold GRADOS (def. 10). El JSON añade
+de flexión se fija con --bend-threshold GRADOS (def. 10).
+
+El JSON añade
 probe_angles (etiqueta, libre, aducto y Δ en grados, de cada ángulo de la
 sonda) y max_bend_deg (la mayor flexión de un ángulo lineal); el reporte los
 imprime junto a las elongaciones. Vale para cualquier sonda con enlaces
@@ -1106,7 +1114,9 @@ Como en stability, E es E0 por defecto y --energy elige otra base.
 E_b y E_b,fam responden preguntas distintas y no deben mezclarse. E_b,fam sirve
 para cualquier familia: pasar (TiO2)n o (Al2O3)n como --cluster da sus propios
 E_b,fam, E_f y Δ²E. El número de unidades n se infiere de la estequiometría de
-cada cúmulo (gcd de los conteos atómicos). Cada descriptor se emite solo donde
+cada cúmulo (gcd de los conteos atómicos).
+
+Cada descriptor se emite solo donde
 existen sus entradas (E_f y E_b,fam no se definen para n=1; Δ²E solo para n con
 ambos vecinos). Salida en kcal/mol (y eV en el JSON). E_b, ΔE_mix < 0 = mixto más
 estable que los óxidos puros; E_b,fam > 0 = ligado frente a su monómero; E_f > 0
@@ -1130,7 +1140,9 @@ los descriptores; la tabla dice cuál es.
 POBLACIONES (--pop, apagado por defecto). Se dan en dos bases, lado a lado: P_i = g_i·exp(−ΔG_i/RT)/Σ, con G corregida por σ (Gq si esa es la
 base), y P_i = g_i·exp(−ΔE0_i/RT)/Σ, sin σ. En ambas, g = 2 si la geometría es
 quiral y T es la de las salidas (298.15 K en Gaussian por defecto). Solo entran isómeros con
-frecuencias; los demás se nombran. La población vale solo para el conjunto de
+frecuencias; los demás se nombran.
+
+La población vale solo para el conjunto de
 isómeros que se pasa, y es indicativa: un error de 1 kcal/mol en ΔG la cambia
 mucho. Con --pop sale además una tabla de descriptores con
 E_avg(n) = Σ P_i·E_i (pesos de G), rotulada «promedio ponderado»: no es la energía libre del
@@ -1230,7 +1242,9 @@ cúmulo→aducto (HOMO/LUMO/gap/μ/η/ω/ω-/ω+ + Δgap), transferencia de carg
 cúmulo↔sonda (Parr-Pearson: ΔN, ΔE de estabilización y dirección donante→aceptor,
 a contrastar con la Δq de poblaciones observada), coordinación del sitio de enlace
 cúmulo→aducto (CN/ECN + ΔCN/ΔECN), estabilidad, bibliografía (--literature),
-y CORRELACIONES (Δf del sitio vs E_ads, r de Pearson). Las configuraciones que
+y CORRELACIONES (Δf del sitio vs E_ads, r de Pearson).
+
+Las configuraciones que
 relajaron al MISMO mínimo DFT se deduplican antes del resumen y la correlación.
 --figures usa matplotlib si está; si no, escribe los datos (x, y) en CSV.
 
@@ -1251,7 +1265,9 @@ cadmia cdft y cadmia analyze, fusionados por identificador de sistema.
    cadmia correlate -e experimental.csv -d study/ --y mayr_N --x all -o corr/ranking.txt
 
 La tabla experimental es un CSV con una columna 'system' y una o más columnas de
-observables (log k, N/E de Mayr, TOF, ΔH_ads…). Los descriptores se eligen por alias:
+observables (log k, N/E de Mayr, TOF, ΔH_ads…).
+
+Los descriptores se eligen por alias:
 mu, eta, omega, omega_minus, omega_plus, N, ip, ea, gap, e_ads, dG_ads, dH_ads, delta_n,
 e_stab, delta_gap, dq_probe, dq_site, y átomo-resueltos como f_plus@site o dual@N. Con
 --x all se escanean todos los disponibles y se ordenan por |r|. --abs-x correlaciona |x|
@@ -1280,7 +1296,9 @@ positivo; --points, def. 2000, es un mínimo: la rejilla conserva un paso de
 sigma/4). El DOS está en estados/eV y suma AMBOS espines: en capa cerrada cada
 orbital espacial cuenta 2, de modo que la integral de la curva es el número de
 orbitales por 2 (en capa abierta se suman los canales alfa y beta, cada uno con 1
-estado por orbital). El DOS de capa cerrada es por tanto el doble de lo que da una
+estado por orbital).
+
+El DOS de capa cerrada es por tanto el doble de lo que da una
 convención de un estado por orbital, como la de Multiwfn (función 10), que da peso 1
 a cada orbital espacial también en capa cerrada. Al comparar con Multiwfn coinciden
 las posiciones de los niveles y la forma de la curva; las amplitudes de capa cerrada
@@ -1441,7 +1459,9 @@ ECN SIN CORTE DE DISTANCIA. El ECN y su d_av se calculan sobre TODOS
 los pares de átomos, como en Da Silva [6, 7]: el peso de Hoppe ya apaga a los
 lejanos, y un radio de corte solo añade un parámetro del que depende el
 resultado. El ECN de Hoppe depende solo de los cocientes d/d_av, así que no tiene
-escala absoluta. Entre catión y anión (M-O) es una coordinación efectiva robusta.
+escala absoluta.
+
+Entre catión y anión (M-O) es una coordinación efectiva robusta.
 Entre metales (M-M) describe la capa más cercana de ese elemento, esté donde
 esté: un Ti sin ningún otro Ti a distancia de puente sigue teniendo un ECN Ti-Ti
 distinto de cero. Por eso el ECN M-M se lee junto con su d_av, como separación
@@ -1451,11 +1471,15 @@ VECINDAD CATIÓNICA ("Cation Neighborhood (via shared ligand)"). Dos metales son
 vecinos si un mismo ligando está enlazado a ambos, según los cortes M-L. Para
 cada par se da el promedio de vecinos sobre TODOS los centros del elemento (un
 centro aislado cuenta cero), cuántos están aislados y la distancia M-M más
-corta. Después vienen los valores por centro y la lista de puentes, con el μ de
+corta.
+
+Después vienen los valores por centro y la lista de puentes, con el μ de
 cada ligando compartido (número de metales enlazados a él). Un O μ6 que reparte
 su valencia entre seis metales y un O μ2 cuentan los dos como puente; el μ
 permite distinguirlos. En CSV van las filas cation_neighbors,
-cation_neighbor_center y cation_bridge; en JSON, el bloque "cation_neighbors". La sección "Coordination Polyhedra (angles and
+cation_neighbor_center y cation_bridge; en JSON, el bloque "cation_neighbors".
+
+La sección "Coordination Polyhedra (angles and
 distortion)" lista, por centro metálico con CN≥3: tipo (triángulo/tetraedro/
 octaedro…), distancia media, ÁNGULO medio de enlace, distorsión angular
 (desviación estándar de los ángulos ligando-centro-ligando), volumen del
@@ -1463,10 +1487,12 @@ poliedro (Å³, casco convexo de los ligandos), elongación cuadrática ⟨λ⟩
 Robinson [4] (1.0 en el poliedro ideal; se normaliza por el ideal de IGUAL
 VOLUMEN, así que complementa la distorsión de longitudes de Baur, que normaliza
 por la media observada) y el descentrado relativo del metal (disp_r =
-descentrado respecto al centroide de ligandos ÷ longitud de enlace media). El
-volumen y ⟨λ⟩ son NaN en poliedros planos, y ⟨λ⟩ también en tipos sin contraparte
-regular (seesaw): nunca 0 ni 1, que afirmarían el valor ideal. En JSON va bajo la
+descentrado respecto al centroide de ligandos ÷ longitud de enlace media).
+
+El volumen y ⟨λ⟩ son NaN en poliedros planos, y ⟨λ⟩ también en tipos sin
+contraparte regular (seesaw): nunca 0 ni 1, que afirmarían el valor ideal. En JSON va bajo la
 clave "polyhedra"; en CSV como filas record_type=polyhedron.
+
 En TXT se reporta el ECN crudo y la columna de presentación ECN_1d (un
 decimal, Decimal ROUND_HALF_UP: 2.985 → 3.0). Los valores ausentes en tablas
 ECN se mantienen como NaN, nunca como cero.
@@ -1478,7 +1504,9 @@ Ti unido a 4 O y 2 Al tiene CN = 6 y CN_L = 4.
 
 MEDIDA DE FORMA CONTINUA (columnas "shape" y "CShM"). Los índices anteriores
 comparan cada centro contra el ideal de su propio tipo, y para eso necesitan un
-ángulo de referencia tabulado por tipo. Un cúmulo pequeño rara vez está cerca de
+ángulo de referencia tabulado por tipo.
+
+Un cúmulo pequeño rara vez está cerca de
 un ideal, de modo que la mayoría de los centros cae en tipos sin entrada y el
 índice sale NaN. La medida de forma continua [5] pregunta otra cosa: cuánto se
 aparta el centro de CADA forma candidata, minimizando sobre rotación, escala y
@@ -1515,7 +1543,9 @@ ANILLOS. Se reportan los ciclos relevantes de Vismara [8], es decir, todo ciclo
 que no es suma GF(2) de ciclos estrictamente más cortos, con candidatos de
 Horton [9]. Se buscan sobre el subgrafo METAL-LIGANDO. La restricción no es un
 capricho: sobre el grafo completo un contacto metal-metal cortocircuita el anillo
-metal-oxígeno que cruza, y todos los anillos salen de tamaño 3. El reporte
+metal-oxígeno que cruza, y todos los anillos salen de tamaño 3.
+
+El reporte
 imprime el número ciclomático μ = E − V + C (la dimensión del espacio de
 ciclos), el rango de los anillos encontrados y si la búsqueda es completa
 (rango = μ). Como el subgrafo es bipartito, cada anillo tiene tamaño/2 metales,
@@ -1779,8 +1809,9 @@ La etapa run corre al NIVEL DE PRODUCCIÓN por defecto (--preset accurate y
 que E_ads no mezcla niveles, y con frecuencias para la termoquímica ΔG/ΔH.
 TightOpt NO es el valor por defecto: una sonda débilmente ligada tiene modos de
 rotación casi libres cuyo paso nunca alcanza la tolerancia de desplazamiento, y
-la optimización se agota sin converger. Para
-una corrida más rápida y suelta, --task opt --preset analysis. El nivel de teoría
+la optimización se agota sin converger.
+
+Para una corrida más rápida y suelta, --task opt --preset analysis. El nivel de teoría
 es --functional/--basis/--dispersion (por defecto PBE0/def2-TZVP/D4). Nota: el
 Orchestrator NO incluye el embudo de cribado (prescreen/rank) ni engancha
 electrónica/estructura; para eso, la versión por pasos (16.1).

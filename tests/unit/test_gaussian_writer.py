@@ -8,7 +8,7 @@ def _route(tmp_path, **kw) -> str:
                     task="opt_tight+freq")
     defaults.update(kw)
     out = write_gjf(["O"], [[0.0, 0.0, 0.0]], CalcParams(**defaults), tmp_path / "j.gjf")
-    return next(l for l in out.read_text().splitlines() if l.startswith("#"))
+    return next(l for l in out.read_text(encoding="utf-8").splitlines() if l.startswith("#"))
 
 
 def test_route_card_has_a_space_after_the_hash(tmp_path):

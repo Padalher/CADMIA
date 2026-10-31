@@ -38,7 +38,7 @@ def test_init_db_is_the_one_commands_find(tmp_path):
 
 def test_init_manifest_imposes_no_level_of_theory(tmp_path):
     init_project(tmp_path / "p", name="x")
-    text = (tmp_path / "p" / "cadmia_project.yaml").read_text()
+    text = (tmp_path / "p" / "cadmia_project.yaml").read_text(encoding="utf-8")
     assert "name: x" in text and "PBE0" not in text and "probe" not in text
 
 

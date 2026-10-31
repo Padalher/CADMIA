@@ -431,7 +431,7 @@ def validate_command(files, engine, bsse, output, no_table, use_db, db_path) -> 
     if output:
         import json
         data = [r.to_dict() for r in reports] if len(reports) > 1 else reports[0].to_dict()
-        Path(output).write_text(json.dumps(data, indent=2))
+        Path(output).write_text(json.dumps(data, indent=2), encoding="utf-8")
         click.echo(f"JSON written to: {output}")
     elif no_table:
         import json
@@ -1451,13 +1451,13 @@ def benchmark_compare(gaussian_out, orca_out, cluster_label, output, md_out, no_
         print_benchmark_result(result)
 
     if output:
-        Path(output).write_text(result.to_json())
+        Path(output).write_text(result.to_json(), encoding="utf-8")
         click.echo(f"JSON written to: {output}")
     elif no_table:
         click.echo(result.to_json())
 
     if md_out:
-        Path(md_out).write_text(result.to_markdown())
+        Path(md_out).write_text(result.to_markdown(), encoding="utf-8")
         click.echo(f"Markdown written to: {md_out}")
 
     if use_db:
@@ -1625,7 +1625,7 @@ def analyze_command(
                     bend_threshold_deg=bend_threshold,
                 )
                 json_str, text = _analysis_stage_json(result, ad)
-                dst.write_text(json_str)
+                dst.write_text(json_str, encoding="utf-8")
             except (ValueError, OSError, KeyError, IndexError) as exc:
                 # One unreadable adduct must not cost the analysis of all the others.
                 failed.append(ad.name)
@@ -1670,7 +1670,7 @@ def analyze_command(
         Path(report_path).write_text(text + "\n", encoding="utf-8")
         click.echo(f"Full analysis report written to: {report_path}")
     if output:
-        Path(output).write_text(json_str)
+        Path(output).write_text(json_str, encoding="utf-8")
         click.echo(f"JSON written to: {output}")
     elif no_table:
         click.echo(json_str)
@@ -1747,7 +1747,7 @@ def stability_command(
         Path(report_path).write_text(text + "\n", encoding="utf-8")
         click.echo(f"Full stability report written to: {report_path}")
     if output:
-        Path(output).write_text(json_str)
+        Path(output).write_text(json_str, encoding="utf-8")
         click.echo(f"JSON written to: {output}")
     elif no_table:
         click.echo(json_str)
@@ -1803,7 +1803,7 @@ def stability_series_command(clusters, references, energy_basis, populations, ou
         print_series_stability(result)
     json_str = result.to_json()
     if output:
-        Path(output).write_text(json_str)
+        Path(output).write_text(json_str, encoding="utf-8")
         click.echo(f"JSON written to: {output}")
     elif no_table:
         click.echo(json_str)
@@ -1830,7 +1830,7 @@ def bde_command(molecule, fragments, molecule_label, output, no_table) -> None:
         print_bde_result(result)
     json_str = result.to_json()
     if output:
-        Path(output).write_text(json_str)
+        Path(output).write_text(json_str, encoding="utf-8")
         click.echo(f"JSON written to: {output}")
     elif no_table:
         click.echo(json_str)
@@ -2358,7 +2358,8 @@ def diagnose_command(output_files, engine, no_llm, language, output) -> None:
 
     if output:
         Path(output).write_text(diags[0].to_json() if len(diags) == 1
-                                else json.dumps([d.to_dict() for d in diags], indent=2))
+                                else json.dumps([d.to_dict() for d in diags], indent=2),
+                                encoding="utf-8")
         click.echo(f"JSON written to: {output}")
 
     if len(diags) > 1:

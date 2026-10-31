@@ -133,7 +133,7 @@ def run_xtb_opt(
     env.setdefault("OMP_STACKSIZE", "4G")
     try:
         proc = subprocess.run(cmd, cwd=tmp, capture_output=True, text=True,
-                              timeout=timeout_s, env=env)
+                              encoding="utf-8", errors="replace", timeout=timeout_s, env=env)
     except subprocess.TimeoutExpired as exc:
         raise XTBError(f"xtb timed out after {timeout_s}s on {src.name}") from exc
 

@@ -48,9 +48,9 @@ def test_writers_honour_auto_multiplicity(tmp_path):
     # cation (charge +1) → 9 electrons → doublet, even though multiplicity field is 1
     params = CalcParams(task="sp", charge=1, auto_multiplicity=True, dispersion="d3bj")
     inp = write_inp(atoms, pos, params, tmp_path / "c.inp")
-    assert "* xyz 1 2" in inp.read_text()
+    assert "* xyz 1 2" in inp.read_text(encoding="utf-8")
     gjf = write_gjf(atoms, pos, params, tmp_path / "c.gjf")
-    assert "1 2" in gjf.read_text()
+    assert "1 2" in gjf.read_text(encoding="utf-8")
 
 
 def test_writers_manual_multiplicity_unchanged(tmp_path):
@@ -58,16 +58,16 @@ def test_writers_manual_multiplicity_unchanged(tmp_path):
     pos = np.zeros((3, 3))
     params = CalcParams(task="sp", charge=0, multiplicity=1)   # default: not auto
     inp = write_inp(atoms, pos, params, tmp_path / "c.inp")
-    assert "* xyz 0 1" in inp.read_text()
+    assert "* xyz 0 1" in inp.read_text(encoding="utf-8")
 
 
 def test_scf_maxiter_emitted_when_set(tmp_path):
     atoms = ["O", "H", "H"]
     pos = np.zeros((3, 3))
     params = CalcParams(task="sp", scf_maxiter=512, dispersion="d3bj")
-    inp = write_inp(atoms, pos, params, tmp_path / "c.inp").read_text()
+    inp = write_inp(atoms, pos, params, tmp_path / "c.inp").read_text(encoding="utf-8")
     assert "%scf" in inp and "MaxIter 512" in inp
-    gjf = write_gjf(atoms, pos, params, tmp_path / "c.gjf").read_text()
+    gjf = write_gjf(atoms, pos, params, tmp_path / "c.gjf").read_text(encoding="utf-8")
     assert "SCF=(MaxCycle=512)" in gjf
 
 
@@ -75,8 +75,8 @@ def test_scf_maxiter_absent_by_default(tmp_path):
     atoms = ["O", "H", "H"]
     pos = np.zeros((3, 3))
     params = CalcParams(task="sp", dispersion="d3bj")   # scf_maxiter defaults to 0
-    assert "%scf" not in write_inp(atoms, pos, params, tmp_path / "c.inp").read_text()
-    assert "MaxCycle" not in write_gjf(atoms, pos, params, tmp_path / "c.gjf").read_text()
+    assert "%scf" not in write_inp(atoms, pos, params, tmp_path / "c.inp").read_text(encoding="utf-8")
+    assert "MaxCycle" not in write_gjf(atoms, pos, params, tmp_path / "c.gjf").read_text(encoding="utf-8")
 
 
 def test_geom_maxiter_emitted_only_for_optimizations(tmp_path):
@@ -84,7 +84,7 @@ def test_geom_maxiter_emitted_only_for_optimizations(tmp_path):
     pos = np.zeros((3, 3))
     for task, expected in (("opt", True), ("opt+freq", True), ("freq", False), ("sp", False)):
         params = CalcParams(task=task, geom_maxiter=200, dispersion="d3bj")
-        inp = write_inp(atoms, pos, params, tmp_path / "c.inp").read_text()
+        inp = write_inp(atoms, pos, params, tmp_path / "c.inp").read_text(encoding="utf-8")
         assert ("%geom" in inp and "MaxIter 200" in inp) is expected, task
 
 
@@ -95,7 +95,7 @@ def test_geom_maxiter_goes_inside_gaussians_opt_keyword(tmp_path):
     pos = np.zeros((3, 3))
     def route(task):
         params = CalcParams(task=task, geom_maxiter=200, dispersion="d3bj")
-        return write_gjf(atoms, pos, params, tmp_path / "c.gjf").read_text()
+        return write_gjf(atoms, pos, params, tmp_path / "c.gjf").read_text(encoding="utf-8")
     assert "Opt=(MaxCycles=200)" in route("opt")
     assert "Opt=(Tight,MaxCycles=200) Freq" in route("opt_tight+freq")
     assert "Opt" not in route("sp")
@@ -105,8 +105,8 @@ def test_geom_maxiter_absent_by_default(tmp_path):
     atoms = ["O", "H", "H"]
     pos = np.zeros((3, 3))
     params = CalcParams(task="opt", dispersion="d3bj")   # geom_maxiter defaults to 0
-    assert "%geom" not in write_inp(atoms, pos, params, tmp_path / "c.inp").read_text()
-    assert "MaxCycles" not in write_gjf(atoms, pos, params, tmp_path / "c.gjf").read_text()
+    assert "%geom" not in write_inp(atoms, pos, params, tmp_path / "c.inp").read_text(encoding="utf-8")
+    assert "MaxCycles" not in write_gjf(atoms, pos, params, tmp_path / "c.gjf").read_text(encoding="utf-8")
 
 
 def test_chelpg_fine_block_only_with_chelpg_keyword(tmp_path):
@@ -114,8 +114,8 @@ def test_chelpg_fine_block_only_with_chelpg_keyword(tmp_path):
     pos = np.zeros((3, 3))
     # requested → block appears
     p_yes = CalcParams(task="sp", extra_orca="CHELPG", chelpg_fine=True)
-    inp = write_inp(atoms, pos, p_yes, tmp_path / "y.inp").read_text()
+    inp = write_inp(atoms, pos, p_yes, tmp_path / "y.inp").read_text(encoding="utf-8")
     assert "%chelpg" in inp and "GRID 0.20" in inp and "VDWRADII COSMO" in inp
     # flag on but no CHELPG keyword → no block
     p_no = CalcParams(task="sp", chelpg_fine=True)
-    assert "%chelpg" not in write_inp(atoms, pos, p_no, tmp_path / "n.inp").read_text()
+    assert "%chelpg" not in write_inp(atoms, pos, p_no, tmp_path / "n.inp").read_text(encoding="utf-8")

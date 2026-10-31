@@ -201,7 +201,7 @@ def test_cli_diagnose_no_llm(diverging, tmp_path):
     assert result.exit_code == 0, result.output
     assert "scf_not_converged" in result.output
     assert "negative_gap" in result.output
-    assert json.loads(out_json.read_text())["engine"] == "orca"
+    assert json.loads(out_json.read_text(encoding="utf-8"))["engine"] == "orca"
 
 def test_cli_diagnose_healthy_skips_llm(healthy):
     from click.testing import CliRunner
@@ -306,7 +306,7 @@ def test_cli_diagnose_batch_reports_each_and_skips_the_llm(diverging, healthy, t
     assert "2 output(s) diagnosed, 1 with symptoms." in result.output
     assert "Suggested strategies" not in result.output
 
-    payload = json.loads(out.read_text())
+    payload = json.loads(out.read_text(encoding="utf-8"))
     assert isinstance(payload, list) and len(payload) == 2
     assert {d["healthy"] for d in payload} == {True, False}
 
@@ -318,7 +318,7 @@ def test_cli_diagnose_single_file_json_stays_an_object(diverging, tmp_path):
     out = tmp_path / "one.json"
     result = CliRunner().invoke(main, ["diagnose", str(diverging), "--no-llm", "-o", str(out)])
     assert result.exit_code == 0, result.output
-    assert isinstance(json.loads(out.read_text()), dict)
+    assert isinstance(json.loads(out.read_text(encoding="utf-8")), dict)
 
 
 # ─────────────────────────────────────────────

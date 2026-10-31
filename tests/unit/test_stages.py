@@ -24,7 +24,7 @@ def water_xyz(tmp_path) -> Path:
 
 
 def _header(inp_path: Path) -> str:
-    return inp_path.read_text().splitlines()[0]
+    return inp_path.read_text(encoding="utf-8").splitlines()[0]
 
 
 # --- unit: apply_stage -------------------------------------------------------
@@ -113,7 +113,7 @@ def test_cli_prepare_stage_screen_opt(water_xyz, tmp_path):
     assert res.exit_code == 0, res.output
     header = _header(out / "mol.inp")
     assert "Opt" in header and "RIJCOSX" in header and "def2-SVP" in header
-    assert "TightOpt" not in header and "Print[" not in (out / "mol.inp").read_text()
+    assert "TightOpt" not in header and "Print[" not in (out / "mol.inp").read_text(encoding="utf-8")
 
 
 def test_cli_prepare_stage_optfreq(water_xyz, tmp_path):
@@ -168,7 +168,7 @@ def test_cli_prepare_stage_char_has_output_block(water_xyz, tmp_path):
     out = tmp_path / "char"
     res = CliRunner().invoke(main, ["prepare", "char", str(water_xyz), "-o", str(out)])
     assert res.exit_code == 0, res.output
-    text = (out / "mol.inp").read_text()
+    text = (out / "mol.inp").read_text(encoding="utf-8")
     assert "SP" in _header(out / "mol.inp")
     for flag in ("P_Hirshfeld", "P_Mayer", "P_OrbPopMO_L"):
         assert flag in text
@@ -196,7 +196,7 @@ def test_cli_prepare_explicit_preset_overrides_stage(water_xyz, tmp_path):
     res = CliRunner().invoke(main, ["prepare", "screen-opt", str(water_xyz),
                                     "-o", str(out), "--preset", "analysis"])
     assert res.exit_code == 0, res.output
-    assert "P_Mayer" in (out / "mol.inp").read_text()
+    assert "P_Mayer" in (out / "mol.inp").read_text(encoding="utf-8")
 
 
 def test_cli_prepare_multiple_geometries(water_xyz, tmp_path):

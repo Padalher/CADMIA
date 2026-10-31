@@ -100,7 +100,7 @@ def test_freeze_holds_the_cluster_with_constrain_not_fix(tmp_path, monkeypatch):
     xyz = _write_xyz(tmp_path / "m.xyz", [("H", 0, 0, 0), ("H", 0, 0, 0.74)])
     _fake_xtb_run(monkeypatch, _CONVERGED_TAIL)
     run_xtb_opt(xyz, workdir=tmp_path / "scratch", fix_atoms=8)
-    control = (tmp_path / "scratch" / "xcontrol").read_text()
+    control = (tmp_path / "scratch" / "xcontrol").read_text(encoding="utf-8")
     assert control.startswith("$constrain") and "atoms: 1-8" in control
 
 
@@ -406,7 +406,7 @@ def test_prescreen_pool_has_all_good_minima_in_energy_order(spread, mock_xtb_spr
     pool = Path(result.candidates_xyz)
     assert pool.name == "candidates_by_energy.xyz"
     assert pool.parent.name == "pool" and pool.exists()
-    text = pool.read_text()
+    text = pool.read_text(encoding="utf-8")
     # three 2-atom H2 blocks → 3 × (1 + 1 + 2) = 12 lines
     assert len(text.splitlines()) == 12
     comments = [ln for ln in text.splitlines() if ln.startswith("rank ")]
@@ -424,7 +424,7 @@ def test_prescreen_pool_keeps_reserves_out_of_glob(spread, mock_xtb_spread, tmp_
     )
     assert result.n_kept == 1 and result.n_reserve == 2
     # the pool file still lists ALL three good minima, tagged.
-    text = Path(result.candidates_xyz).read_text()
+    text = Path(result.candidates_xyz).read_text(encoding="utf-8")
     comments = [ln for ln in text.splitlines() if ln.startswith("rank ")]
     assert sum("[to-DFT]" in c for c in comments) == 1
     assert sum("reserve" in c for c in comments) == 2
@@ -459,7 +459,7 @@ def test_prescreen_writes_json_sidecar_in_output_dir(configs, mock_xtb, tmp_path
 
     sidecar = out / "prescreen.json"
     assert result.output_json == str(sidecar) and sidecar.exists()
-    data = json.loads(sidecar.read_text())
+    data = json.loads(sidecar.read_text(encoding="utf-8"))
     assert data["n_input"] == 4 and data["n_kept"] == result.n_kept
     dropped = [it for it in data["items"] if not it["kept"]]
     assert any("duplicate" in it["reason"] for it in dropped)
@@ -711,5 +711,5 @@ def test_the_skeleton_class_reaches_the_json(tmp_path, monkeypatch):
     _fake_by_name(monkeypatch, energies)
     out = tmp_path / "out"
     prescreen_agent.prescreen(d, output_dir=out, min_keep=0, cluster_ref=ref)
-    items = json.loads((out / "prescreen.json").read_text())["items"]
+    items = json.loads((out / "prescreen.json").read_text(encoding="utf-8"))["items"]
     assert {it["cluster_skeleton"] for it in items if it["kept"]} == {"reference", "isomer-1"}

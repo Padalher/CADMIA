@@ -88,14 +88,14 @@ def test_write_gjf_creates_file(tmp_path, simple_atoms, simple_positions, simple
 def test_write_gjf_nprocs_mem(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.gjf"
     write_gjf(simple_atoms, simple_positions, simple_params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert "%nprocshared=4" in content
     assert "%mem=8GB" in content
 
 def test_write_gjf_route_card(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.gjf"
     write_gjf(simple_atoms, simple_positions, simple_params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     # Gaussian's own spelling: PBE0 is PBE1PBE and the def2 family loses the hyphen.
     assert "# PBE1PBE/Def2TZVP" in content
     assert "Opt" in content
@@ -104,27 +104,27 @@ def test_write_gjf_route_card(tmp_path, simple_atoms, simple_positions, simple_p
 def test_write_gjf_charge_mult(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.gjf"
     write_gjf(simple_atoms, simple_positions, simple_params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert "0 1" in content
 
 def test_write_gjf_coordinates(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.gjf"
     write_gjf(simple_atoms, simple_positions, simple_params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert "Ti" in content
     assert "1.95000000" in content
 
 def test_write_gjf_ends_with_blank_lines(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.gjf"
     write_gjf(simple_atoms, simple_positions, simple_params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert content.endswith("\n\n")
 
 def test_write_gjf_no_dispersion(tmp_path, simple_atoms, simple_positions):
     params = CalcParams(dispersion="none")
     out = tmp_path / "test.gjf"
     write_gjf(simple_atoms, simple_positions, params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert "EmpiricalDispersion" not in content
 
 def test_write_gjf_refuses_d4(tmp_path, simple_atoms, simple_positions):
@@ -141,27 +141,27 @@ def test_write_gjf_refuses_d4(tmp_path, simple_atoms, simple_positions):
 def test_write_gjf_d3bj_is_emitted(tmp_path, simple_atoms, simple_positions):
     params = CalcParams(task="sp", dispersion="d3bj")
     out = write_gjf(simple_atoms, simple_positions, params, tmp_path / "d3bj.gjf")
-    assert "EmpiricalDispersion=GD3BJ" in out.read_text()
+    assert "EmpiricalDispersion=GD3BJ" in out.read_text(encoding="utf-8")
 
 
 def test_write_gjf_no_dispersion_emits_none(tmp_path, simple_atoms, simple_positions):
     params = CalcParams(task="sp", dispersion="none")
     out = write_gjf(simple_atoms, simple_positions, params, tmp_path / "no.gjf")
-    assert "EmpiricalDispersion" not in out.read_text()
+    assert "EmpiricalDispersion" not in out.read_text(encoding="utf-8")
 
 
 def test_write_inp_still_takes_d4(tmp_path, simple_atoms, simple_positions):
     """The refusal is Gaussian-only: D4 is valid in ORCA and stays the default there."""
     from cadmia.calculators.orca import write_inp
     out = write_inp(simple_atoms, simple_positions, CalcParams(task="sp"), tmp_path / "o.inp")
-    assert " D4 " in out.read_text().splitlines()[0]
+    assert " D4 " in out.read_text(encoding="utf-8").splitlines()[0]
 
 
 def test_write_gjf_freq_task(tmp_path, simple_atoms, simple_positions):
     params = CalcParams(task="opt+freq", dispersion="d3bj")   # G16 has no native D4
     out = tmp_path / "test.gjf"
     write_gjf(simple_atoms, simple_positions, params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert "Opt" in content and "Freq" in content
 
 
@@ -177,7 +177,7 @@ def test_write_inp_creates_file(tmp_path, simple_atoms, simple_positions, simple
 def test_write_inp_simple_input_line(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.inp"
     write_inp(simple_atoms, simple_positions, simple_params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     first_line = content.splitlines()[0]
     assert first_line.startswith("!")
     assert "PBE0" in first_line
@@ -188,21 +188,21 @@ def test_write_inp_simple_input_line(tmp_path, simple_atoms, simple_positions, s
 def test_write_inp_parallel_block(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.inp"
     write_inp(simple_atoms, simple_positions, simple_params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert "%pal nprocs 4 end" in content
     assert "%maxcore 1000" in content
 
 def test_write_inp_xyz_block(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.inp"
     write_inp(simple_atoms, simple_positions, simple_params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert "* xyz 0 1" in content
     assert content.rstrip().endswith("*")
 
 def test_write_inp_coordinates(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.inp"
     write_inp(simple_atoms, simple_positions, simple_params, out)
-    content = out.read_text()
+    content = out.read_text(encoding="utf-8")
     assert "Ti" in content
     assert "1.95000000" in content
 
@@ -210,7 +210,7 @@ def test_write_inp_no_dispersion(tmp_path, simple_atoms, simple_positions):
     params = CalcParams(dispersion="none")
     out = tmp_path / "test.inp"
     write_inp(simple_atoms, simple_positions, params, out)
-    simple_line = out.read_text().splitlines()[0]
+    simple_line = out.read_text(encoding="utf-8").splitlines()[0]
     assert "D3BJ" not in simple_line
     assert "D4" not in simple_line
 
@@ -218,7 +218,7 @@ def test_write_inp_sp_task(tmp_path, simple_atoms, simple_positions):
     params = CalcParams(task="sp")
     out = tmp_path / "test.inp"
     write_inp(simple_atoms, simple_positions, params, out)
-    assert "SP" in out.read_text().splitlines()[0]
+    assert "SP" in out.read_text(encoding="utf-8").splitlines()[0]
 
 
 # ─────────────────────────────────────────────
@@ -365,13 +365,13 @@ def test_generate_creates_both_files(tmp_path, simple_xyz, simple_params):
 
 def test_generate_gjf_has_coordinates(tmp_path, simple_xyz, simple_params):
     result = generate(simple_xyz, simple_params, tmp_path / "inputs")
-    content = result.gaussian_input.read_text()
+    content = result.gaussian_input.read_text(encoding="utf-8")
     assert "Ti" in content and "1.95" in content
 
 
 def test_generate_inp_has_coordinates(tmp_path, simple_xyz, simple_params):
     result = generate(simple_xyz, simple_params, tmp_path / "inputs")
-    content = result.orca_input.read_text()
+    content = result.orca_input.read_text(encoding="utf-8")
     assert "Ti" in content and "1.95" in content
 
 

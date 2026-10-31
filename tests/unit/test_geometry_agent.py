@@ -408,7 +408,7 @@ def test_run_no_output_dir_no_files(simple_cluster_xyz, simple_cdft_json):
 
 
 def test_run_from_dict(simple_cluster_xyz, simple_cdft_json):
-    data = json.loads(simple_cdft_json.read_text())
+    data = json.loads(simple_cdft_json.read_text(encoding="utf-8"))
     result = run(data, simple_cluster_xyz, "CO2", n_sites=1, n_configs=1, polar_angles=[0.0])
     # CO2 has 4 built-in modes → 1 config per mode at polar=0
     assert len(result.configs) == len(_BUILTIN_PROBES["CO2"])
@@ -884,7 +884,7 @@ def test_no_sites_limit_means_every_site(simple_cluster_xyz, simple_cdft_json):
     narrowed = run(simple_cdft_json, simple_cluster_xyz, "H2", n_sites=1, n_configs=1,
                    polar_angles=[45.0])
 
-    n_available = len(json.loads(Path(simple_cdft_json).read_text())["sites"])
+    n_available = len(json.loads(Path(simple_cdft_json).read_text(encoding="utf-8"))["sites"])
     assert len({c.site_atom_idx for c in everything.configs}) == n_available
     assert len({c.site_atom_idx for c in narrowed.configs}) == 1
 

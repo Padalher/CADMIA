@@ -153,7 +153,7 @@ def test_cli_correlate_json_output(tmp_path, study):
     r = CliRunner().invoke(main, ["correlate", "-e", str(exp), "-d", str(d),
                                   "--x", "all", "--y", "logk", "--format", "json", "-o", str(out)])
     assert r.exit_code == 0 and out.exists()
-    payload = json.loads(out.read_text())
+    payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["n_systems_matched"] == 4 and payload["pairs"]
 
 

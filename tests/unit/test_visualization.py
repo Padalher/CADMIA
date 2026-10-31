@@ -74,7 +74,7 @@ def test_static_figures_are_vector_in_svg_and_pdf(tmp_path):
     from cadmia.structure.cli import main
     report = _ecn_report(tmp_path)
     assert main(["plot", str(report), "--kind", "ecn-trend", "-o", str(tmp_path / "t.svg")]) == 0
-    assert "Average ECN" in (tmp_path / "t.svg").read_text()
+    assert "Average ECN" in (tmp_path / "t.svg").read_text(encoding="utf-8")
     assert main(["plot", str(report), "--kind", "ecn-heatmap", "-o", str(tmp_path / "h.pdf")]) == 0
     assert (tmp_path / "h.pdf").read_bytes().startswith(b"%PDF")
 

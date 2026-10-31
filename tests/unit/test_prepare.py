@@ -35,7 +35,7 @@ def test_prepare_xyz_to_orca_inp(tmp_path, params):
     assert len(inputs) == 1
     inp = inputs[0]
     assert inp.name == "mol.inp"
-    text = inp.read_text()
+    text = inp.read_text(encoding="utf-8")
     assert "! PBE0 def2-SVP" in text
     assert "%pal nprocs 4 end" in text
     assert "* xyz 0 1" in text
@@ -52,7 +52,7 @@ def test_prepare_xyz_to_gaussian_input(tmp_path, params):
     # bought nothing. The engine is recovered from the content, not from the name.
     assert inputs[0].name == "mol.inp"
     assert inputs[0].exists()
-    assert "%chk" in inputs[0].read_text()
+    assert "%chk" in inputs[0].read_text(encoding="utf-8")
 
 
 def test_prepare_default_engine_is_orca(tmp_path, params):
@@ -65,7 +65,7 @@ def test_prepare_charge_mult_applied(tmp_path):
     xyz = _write_xyz(tmp_path / "ion.xyz")
     params = CalcParams(charge=-1, multiplicity=2)
     inputs, _ = prepare(xyz, params, engine="orca", output_dir=tmp_path / "o")
-    assert "* xyz -1 2" in inputs[0].read_text()
+    assert "* xyz -1 2" in inputs[0].read_text(encoding="utf-8")
 
 
 def test_prepare_passes_through_existing_input(tmp_path, params):
@@ -83,7 +83,7 @@ def test_prepare_skips_existing_target(tmp_path, params):
     target = out / "mol.inp"
     target.write_text("HAND-EDITED")
     inputs, warnings = prepare(xyz, params, engine="orca", output_dir=out)
-    assert target.read_text() == "HAND-EDITED"
+    assert target.read_text(encoding="utf-8") == "HAND-EDITED"
     assert any("already exists" in w for w in warnings)
     assert inputs == [target]
 
@@ -96,7 +96,7 @@ def test_prepare_overwrite_regenerates(tmp_path, params):
     target.write_text("STALE")
     inputs, warnings = prepare(xyz, params, engine="orca",
                                output_dir=out, overwrite=True)
-    assert "! PBE0" in target.read_text()
+    assert "! PBE0" in target.read_text(encoding="utf-8")
     assert warnings == []
 
 
@@ -145,7 +145,7 @@ def test_prepare_generates_an_input_from_an_engine_output(tmp_path, params, sour
     # The engine of the source is auto-detected; --engine only picks what we write.
     result = prepare(source, params, engine="orca", output_dir=tmp_path / "o")
     assert [p.name for p in result.generated] == [f"{source.stem}.inp"]
-    body = result.generated[0].read_text()
+    body = result.generated[0].read_text(encoding="utf-8")
     assert "! PBE0" in body
     assert body.count("Ti") == 1 and body.count("\nO ") + body.count("\nAl ") > 0
 
@@ -154,7 +154,7 @@ def test_prepare_from_output_keeps_the_optimized_geometry_and_atom_order(tmp_pat
     from cadmia.io import structure_from_file
 
     result = prepare(ORCA_OUT, params, engine="orca", output_dir=tmp_path / "o")
-    body = result.generated[0].read_text()
+    body = result.generated[0].read_text(encoding="utf-8")
     block = body.split("* xyz")[1].split("\n*")[0].strip().splitlines()[1:]
 
     expected = structure_from_file(ORCA_OUT)
@@ -253,7 +253,7 @@ def test_prepare_cdft_writes_three_inputs(tmp_path, params):
 def test_prepare_cdft_charges_and_mults(tmp_path, params):
     xyz = _write_xyz(tmp_path / "mol.xyz")
     inputs, _ = prepare_cdft(xyz, params, engine="orca", output_dir=tmp_path / "o")
-    n, anion, cation = (p.read_text() for p in inputs)
+    n, anion, cation = (p.read_text(encoding="utf-8") for p in inputs)
     assert "* xyz 0 1" in n          # neutral: charge 0, singlet
     assert "* xyz -1 2" in anion     # anion N+1: charge -1, doublet
     assert "* xyz 1 2" in cation     # cation N-1: charge +1, doublet
@@ -264,7 +264,7 @@ def test_prepare_cdft_custom_charge_and_open_shell(tmp_path):
     params = CalcParams()
     inputs, _ = prepare_cdft(xyz, params, engine="orca", output_dir=tmp_path / "o",
                              charge=1, mult=2, mult_anion=1, mult_cation=1)
-    n, anion, cation = (p.read_text() for p in inputs)
+    n, anion, cation = (p.read_text(encoding="utf-8") for p in inputs)
     assert "* xyz 1 2" in n          # neutral here is the +1 cation, doublet
     assert "* xyz 0 1" in anion      # +1 electron -> charge 0, singlet
     assert "* xyz 2 1" in cation     # -1 electron -> charge +2, singlet
@@ -275,7 +275,7 @@ def test_prepare_cdft_auto_multiplicity(tmp_path, params):
     xyz = _write_xyz(tmp_path / "mol.xyz")
     inputs, warnings = prepare_cdft(xyz, params, engine="orca", output_dir=tmp_path / "o",
                                     mult=None, mult_anion=None, mult_cation=None)
-    n, anion, cation = (p.read_text() for p in inputs)
+    n, anion, cation = (p.read_text(encoding="utf-8") for p in inputs)
     assert "* xyz 0 1" in n
     assert "* xyz -1 2" in anion
     assert "* xyz 1 2" in cation
@@ -296,7 +296,7 @@ def test_prepare_cdft_forces_single_point(tmp_path):
     params = CalcParams(task="opt")   # should be overridden to sp
     inputs, _ = prepare_cdft(xyz, params, engine="orca", output_dir=tmp_path / "o")
     for p in inputs:
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
         assert " Opt" not in text
         assert "SP" in text
 
@@ -306,7 +306,7 @@ def test_prepare_cdft_gaussian(tmp_path, params):
     inputs, _ = prepare_cdft(xyz, replace(params, dispersion="d3bj"),
                              engine="gaussian", output_dir=tmp_path / "o")
     assert [p.name for p in inputs] == ["mol_N.inp", "mol_anion.inp", "mol_cation.inp"]
-    assert "0 1" in inputs[0].read_text()
+    assert "0 1" in inputs[0].read_text(encoding="utf-8")
 
 
 def test_prepare_cdft_rejects_a_ready_input(tmp_path, params):
@@ -327,8 +327,8 @@ def test_prepare_cdft_skips_existing(tmp_path, params):
     prepare_cdft(xyz, params, engine="orca", output_dir=out)
     (out / "mol_N.inp").write_text("HAND")
     inputs, warnings = prepare_cdft(xyz, params, engine="orca", output_dir=out)
-    assert (out / "mol_N.inp").read_text() == "HAND"
+    assert (out / "mol_N.inp").read_text(encoding="utf-8") == "HAND"
     assert any("already exists" in w for w in warnings)
     inputs2, warnings2 = prepare_cdft(xyz, params, engine="orca",
                                       output_dir=out, overwrite=True)
-    assert "! PBE0" in (out / "mol_N.inp").read_text()
+    assert "! PBE0" in (out / "mol_N.inp").read_text(encoding="utf-8")

@@ -41,6 +41,11 @@ APPENDIX_SUB = re.compile(r"^(A\.\d+)\s+(.*)$")
 INDEX_ENTRY = re.compile(r"^\s*(\d+)\.\s+(.+?)\s*$")
 INDEX_APPENDIX_ENTRY = re.compile(r"^\s*(A\.\d+)\s+(.+?)\s*$")
 REFERENCE_ITEM = re.compile(r"^\[([^\]]+)\]\s*(.*)$")
+# A line of its own in capitals ("QUÉ HACE", "ALGORITMO, PASO A PASO") heads a block of prose.
+MINOR_HEAD = re.compile(r"^[A-ZÁÉÍÓÚÜÑ0-9][A-ZÁÉÍÓÚÜÑ0-9 ,;:()/'+&.¿?¡!—–-]{2,70}$")
+LIST_ITEM = re.compile(r"^(\s{0,6})([-•*]|\d{1,2}[.)])\s+(\S.*)$")
+# Three spaces inside a line align columns: such a line is a table and keeps its layout.
+ALIGNED = re.compile(r"\S {3,}\S")
 
 # Words the guide writes in caps that must stay in caps when a heading is
 # converted from ALL CAPS back to sentence case.
@@ -73,6 +78,7 @@ LISTINGS_LITERATE = {
     "∠": r"$\angle$", "≠": r"$\neq$", "≡": r"$\equiv$",
     "≤": r"$\leq$", "≥": r"$\geq$", "≈": r"$\approx$",
     "∫": r"$\int$", "∞": r"$\infty$", "√": r"$\surd$",
+    "¹": r"$^1$", "⁻": r"$^-$", "⟨": r"$\langle$", "⟩": r"$\rangle$",
 }
 
 # Same idea for prose, where inputenc does handle UTF-8 but pdfLaTeX still needs
@@ -144,10 +150,11 @@ LANG = {
 
 @dataclass
 class Block:
-    kind: str                      # cover | section | subsection | para | code | refs
+    kind: str                      # cover | section | subsection | minor | para | code | refs | list
     text: str = ""
     label: str = ""
     lines: List[str] = field(default_factory=list)
+    items: list = field(default_factory=list)   # list: (marker, text, code lines) per item
 
 
 @dataclass
@@ -230,6 +237,7 @@ def parse_guide(text: str, lang: str) -> Document:
     i = first
     para: List[str] = []
     code: List[str] = []
+    lst: list = []               # open list: [marker, text, code lines, indent]
     in_appendix = False
 
     def flush_para():
@@ -244,9 +252,15 @@ def parse_guide(text: str, lang: str) -> Document:
             doc.blocks.append(Block("code", lines=list(code)))
             code.clear()
 
+    def flush_list():
+        if lst:
+            doc.blocks.append(Block("list", items=[(m, t, c) for m, t, c, _ in lst]))
+            lst.clear()
+
     def flush():
         flush_para()
         flush_code()
+        flush_list()
 
     while i < len(lines):
         line = lines[i]
@@ -332,8 +346,49 @@ def parse_guide(text: str, lang: str) -> Document:
             i += 1
             continue
 
-        # ---- code (indented 4+) vs prose -------------------------------------
-        if line.startswith("    ") and stripped:
+        # ---- lists: "- item" / "1. step", with their indented continuation ---
+        item = LIST_ITEM.match(line)
+        indent = len(line) - len(line.lstrip(" "))
+        if item and not code:
+            flush_para()
+            flush_code()
+            lst.append([item.group(2), item.group(3).strip(), [], len(item.group(1))])
+            i += 1
+            continue
+        if lst and stripped and indent > lst[-1][3]:
+            text_col = lst[-1][3] + len(lst[-1][0]) + 1
+            if indent >= text_col + 3 or ALIGNED.search(stripped):
+                lst[-1][2].append(line[text_col:] if len(line) > text_col else stripped)
+            elif lst[-1][2]:
+                lst[-1][2].append(line[text_col:])
+            else:
+                lst[-1][1] += " " + stripped
+            i += 1
+            continue
+        if lst and not stripped:
+            ahead = next((lines[j] for j in range(i + 1, len(lines)) if lines[j].strip()), "")
+            nxt_item = LIST_ITEM.match(ahead)
+            ahead_indent = len(ahead) - len(ahead.lstrip(" "))
+            if not ((nxt_item and len(nxt_item.group(1)) == lst[-1][3])
+                    or ahead_indent > lst[-1][3]):
+                flush_list()
+            i += 1
+            continue
+        if lst:
+            flush_list()
+
+        # ---- a heading line of its own, in capitals -----------------------------
+        if (stripped and not line.startswith(" ") and MINOR_HEAD.match(stripped)
+                and sum(c.isalpha() for c in stripped) >= 4 and not nxt.startswith("    ")
+                or stripped and not line.startswith(" ") and MINOR_HEAD.match(stripped)
+                and sum(c.isalpha() for c in stripped) >= 4 and not para and not code):
+            flush()
+            doc.blocks.append(Block("minor", text=stripped))
+            i += 1
+            continue
+
+        # ---- code (indented 4+, or aligned in columns) vs prose -----------------
+        if stripped and (line.startswith("    ") or (ALIGNED.search(stripped) and not para)):
             flush_para()
             code.append(line[4:] if line.startswith("    ") else line)
             i += 1
@@ -375,8 +430,11 @@ def tex_escape(s: str) -> str:
     pdfLaTeX: what the file contains is what gets typeset.
     """
     out = []
+    s = s.replace("--", "-\x00-")          # a CLI option: two hyphens, not an en dash
     for c in s:
-        if c in _ESCAPES:
+        if c == "\x00":
+            out.append("{}")
+        elif c in _ESCAPES:
             out.append(_ESCAPES[c])
         elif c in UNICODE_TEXT:
             out.append(UNICODE_TEXT[c])
@@ -476,8 +534,21 @@ def render_latex(doc: Document, lang: str, source: str) -> str:
             label = f"{b.label} {b.text}".strip()
             out.append(f"\n\\subsection*{{{render_inline(label)}}}\n"
                        f"\\addcontentsline{{toc}}{{subsection}}{{{render_inline(label)}}}\n")
+        elif b.kind == "minor":
+            out.append(f"\n\\subsubsection*{{{render_inline(sentence_case(b.text))}}}\n")
         elif b.kind == "para":
-            out.append(render_inline(b.text) + "\n")
+            # a blank line ends the paragraph: with a single newline LaTeX runs them all together
+            out.append(render_inline(b.text) + "\n\n")
+        elif b.kind == "list":
+            ordered = b.items and b.items[0][0][0].isdigit()
+            out.append("\\begin{itemize}[leftmargin=2em]\n")
+            for marker, text, code_lines in b.items:
+                label = f"[{marker}]" if ordered else ""
+                out.append(f"  \\item{label} " + render_inline(text) + "\n")
+                if code_lines:
+                    body = "\n".join(code_lines).rstrip()
+                    out.append("\\begin{lstlisting}\n" + body + "\n\\end{lstlisting}\n")
+            out.append("\\end{itemize}\n")
         elif b.kind == "code":
             body = "\n".join(b.lines)
             out.append("\\begin{lstlisting}\n" + body + "\n\\end{lstlisting}\n")

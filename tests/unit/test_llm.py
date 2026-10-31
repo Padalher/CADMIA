@@ -251,7 +251,7 @@ def test_cli_report_narrate_appends_section(tmp_path, monkeypatch):
     result = CliRunner().invoke(main, ["report", "--cdft", str(cdft),
                                        "-o", str(out), "--narrate"])
     assert result.exit_code == 0, result.output
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     assert "borrador generado por IA" in text
     assert "Borrador de discusión." in text
 

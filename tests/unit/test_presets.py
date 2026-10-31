@@ -42,18 +42,18 @@ def test_apply_preset_does_not_duplicate_existing_keyword():
 def test_orca_input_emits_output_block(tmp_path):
     p = apply_preset(CalcParams(task="sp"), "analysis", engine="orca")
     inp = write_inp(["O", "H", "H"], np.zeros((3, 3)), p, tmp_path / "m.inp")
-    text = inp.read_text()
+    text = inp.read_text(encoding="utf-8")
     assert "%output" in text and "Print[P_Mayer] 1" in text and "end" in text
     assert "CHELPG" in text.splitlines()[0]   # simple-input line
 
 
 def test_orca_input_without_flags_has_no_output_block(tmp_path):
     inp = write_inp(["O", "H", "H"], np.zeros((3, 3)), CalcParams(task="sp"), tmp_path / "m.inp")
-    assert "%output" not in inp.read_text()
+    assert "%output" not in inp.read_text(encoding="utf-8")
 
 
 def test_gaussian_preset_folds_into_pop(tmp_path):
     p = apply_preset(CalcParams(task="sp", dispersion="d3bj"), "analysis", engine="gaussian")
     assert "pop=(" in p.extra_gaussian and "Hirshfeld" in p.extra_gaussian
     gjf = write_gjf(["O", "H", "H"], np.zeros((3, 3)), p, tmp_path / "m.gjf")
-    assert "pop=(" in gjf.read_text()
+    assert "pop=(" in gjf.read_text(encoding="utf-8")

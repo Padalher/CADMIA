@@ -67,7 +67,7 @@ def test_write_dos_dat(tmp_path):
     dos = dos_from_output(_ORCA_N)
     out = tmp_path / "dos.dat"
     write_dos(dos, out)
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     assert "# HOMO" in text and "Energy(eV)" in text
 
 
@@ -108,7 +108,7 @@ def test_cli_dos_json(tmp_path, capsys):
     out = tmp_path / "dos.json"
     code = main(["dos", str(_ORCA_N), "--format", "json", "-o", str(out)])
     assert code == 0
-    payload = json.loads(out.read_text())
+    payload = json.loads(out.read_text(encoding="utf-8"))
     assert "dos_total" in payload and payload["gap_ev"] == pytest.approx(4.5675, abs=1e-3)
     assert payload["spin_polarized"] is False
 
@@ -240,7 +240,7 @@ def test_cli_pdos_writes_dat(tmp_path, capsys):
     out = tmp_path / "pdos.dat"
     code = main(["pdos", str(src), "-o", str(out)])
     assert code == 0
-    text = out.read_text()
+    text = out.read_text(encoding="utf-8")
     assert "PDOS_O" in text and "PDOS_Ti" in text and "DOS_total" in text
 
 
@@ -280,7 +280,7 @@ def test_cli_pdos_html(tmp_path, capsys):
     out = tmp_path / "pdos.html"
     code = main(["pdos", str(src), "--format", "html", "-o", str(out)])
     assert code == 0
-    assert "Plotly.newPlot" in out.read_text()
+    assert "Plotly.newPlot" in out.read_text(encoding="utf-8")
 
 
 def test_cli_dos_html_default_name(tmp_path, capsys, monkeypatch):
@@ -294,7 +294,7 @@ def test_cli_dos_html_default_name(tmp_path, capsys, monkeypatch):
     assert code == 0
     produced = tmp_path / (_ORCA_N.stem + "_dos.html")
     assert produced.exists()
-    assert "Plotly.newPlot" in produced.read_text()
+    assert "Plotly.newPlot" in produced.read_text(encoding="utf-8")
 
 
 def test_dos_grid_resolves_valence_peaks_despite_core_orbitals():
@@ -362,9 +362,9 @@ def test_cli_dos_format_follows_the_output_suffix(tmp_path):
     from cadmia.electronic.cli import main
     out = tmp_path / "dos.json"
     assert main(["dos", str(_ORCA_N), "-o", str(out)]) == 0
-    assert "dos_total" in json.loads(out.read_text())
+    assert "dos_total" in json.loads(out.read_text(encoding="utf-8"))
     assert main(["dos", str(_ORCA_N), "-o", str(tmp_path / "d.csv")]) == 0
-    assert (tmp_path / "d.csv").read_text().splitlines()[-1].count(",") == 1
+    assert (tmp_path / "d.csv").read_text(encoding="utf-8").splitlines()[-1].count(",") == 1
 
 
 def _png_width(path):
@@ -390,7 +390,7 @@ def test_static_vector_figures(tmp_path, fmt):
     head = out.read_bytes()[:200]
     assert (b"<?xml" in head) if fmt == "svg" else head.startswith(b"%PDF")
     if fmt == "svg":
-        assert "DOS (states/eV)" in out.read_text()
+        assert "DOS (states/eV)" in out.read_text(encoding="utf-8")
 
 
 def test_static_ir_figure_has_sticks_on_their_own_km_mol_axis(tmp_path, monkeypatch):

@@ -191,7 +191,7 @@ def _section_softness(result: CDFTWorkflowResult) -> str:
     if f.local_softness_plus is None and f.local_softness_minus is None:
         return ""
     lines = [
-        _hdr("Condensed local softnesses (Hartree·e), relative electro-/nucleophilicity"),
+        _hdr("Condensed local softnesses (e/Hartree), relative electro-/nucleophilicity"),
         f" {'Atom':>8}  {'s-':>9}  {'s+':>9}  {'s0':>9}  {'s+/s-':>9}  {'s-/s+':>9}",
     ]
     for i, atom in enumerate(result.structure.atoms):

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import time
 from pathlib import Path
 
@@ -17,6 +18,9 @@ _GAUSSIAN_OK = """\
  SCF Done:  E(RPBE1PBE) =  -100.00000000     A.U. after   10 cycles
  Normal termination of Gaussian 16
 """
+
+# The fake engine is a #!/bin/sh script, which Windows cannot execute.
+_posix_only = pytest.mark.skipif(sys.platform == "win32", reason="fake engine is a POSIX shell script")
 
 
 def _fake_orca(tmp_path, body="echo 'FINAL SINGLE POINT ENERGY -100.0'"):
@@ -58,6 +62,7 @@ def test_find_engine_rejects_screen_reader(tmp_path, monkeypatch):
 # run_job
 # ─────────────────────────────────────────────
 
+@_posix_only
 def test_run_job_orca_writes_output(tmp_path):
     binary = _fake_orca(tmp_path)
     inp = tmp_path / "job.inp"
@@ -65,9 +70,10 @@ def test_run_job_orca_writes_output(tmp_path):
     out = tmp_path / "job.out"
     ok, wall = run_job(inp, "orca", out, engine_path=str(binary))
     assert ok
-    assert "FINAL SINGLE POINT ENERGY" in out.read_text()
+    assert "FINAL SINGLE POINT ENERGY" in out.read_text(encoding="utf-8")
     assert wall >= 0
 
+@_posix_only
 def test_run_job_failure_reports_false(tmp_path):
     binary = _fake_orca(tmp_path, body="exit 1")
     inp = tmp_path / "bad.inp"
@@ -76,6 +82,7 @@ def test_run_job_failure_reports_false(tmp_path):
     assert not ok
 
 
+@_posix_only
 def test_run_job_timeout_kills_process_tree(tmp_path):
     """A timeout must reap the engine's whole process group, not just the direct child.
 
@@ -130,7 +137,7 @@ def test_run_local_generates_inputs_from_xyz(tmp_path, monkeypatch):
     params = CalcParams(task="opt", nprocs=12, mem_orca_mb_core=3000)
     result = run_local(tmp_path, params, output_dir=tmp_path, validate_outputs=False)
     assert result.jobs[0].status == "done"
-    inp_text = seen[0].read_text()
+    inp_text = seen[0].read_text(encoding="utf-8")
     assert "%pal nprocs 12 end" in inp_text
     assert "%maxcore 3000" in inp_text
     assert "PBE0" in inp_text and "def2-TZVP" in inp_text and "D4" in inp_text

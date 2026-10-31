@@ -95,7 +95,7 @@ def test_profile_save_load_roundtrip(tmp_path, sample_profile_clean):
 
 def test_profile_save_is_yaml(tmp_path, sample_profile_clean):
     sample_profile_clean.save(tmp_path)
-    content = (tmp_path / "testcluster.yaml").read_text()
+    content = (tmp_path / "testcluster.yaml").read_text(encoding="utf-8")
     data = yaml.safe_load(content)
     assert data["host"] == "hpc.example.com"
     assert data["partition"] == "compute"

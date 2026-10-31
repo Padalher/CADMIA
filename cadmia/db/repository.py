@@ -566,8 +566,8 @@ def find_adsorption_config_by_stem(conn: sqlite3.Connection, stem: str) -> Optio
         return None
     row = conn.execute(
         "SELECT id FROM adsorption_configs "
-        "WHERE xyz_path IS NOT NULL AND (xyz_path LIKE ? OR xyz_path = ?)",
-        (f"%/{stem}.xyz", f"{stem}.xyz"),
+        "WHERE xyz_path IS NOT NULL AND (xyz_path LIKE ? OR xyz_path LIKE ? OR xyz_path = ?)",
+        (f"%/{stem}.xyz", f"%\\{stem}.xyz", f"{stem}.xyz"),
     ).fetchone()
     return row[0] if row else None
 

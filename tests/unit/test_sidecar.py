@@ -14,14 +14,14 @@ from cadmia.core.sidecar import (artifact_fingerprint, atomic_write_text, check_
 def test_atomic_write_text_roundtrip(tmp_path):
     dest = tmp_path / "sub" / "state.json"
     atomic_write_text(dest, '{"a": 1}')
-    assert dest.read_text() == '{"a": 1}'          # parent dir created
+    assert dest.read_text(encoding="utf-8") == '{"a": 1}'          # parent dir created
 
 
 def test_atomic_write_text_replaces_existing_and_leaves_no_tmp(tmp_path):
     dest = tmp_path / "state.json"
     atomic_write_text(dest, "old")
     atomic_write_text(dest, "new")
-    assert dest.read_text() == "new"
+    assert dest.read_text(encoding="utf-8") == "new"
     # no leftover temp files next to the destination
     assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
 
@@ -44,14 +44,14 @@ def test_read_json_raises_actionable_on_truncated_file(tmp_path):
 def test_write_json_sidecar_appends_newline(tmp_path):
     written, err = write_json_sidecar(tmp_path / "s.json", '{"a": 1}')
     assert err is None
-    text = (tmp_path / "s.json").read_text()
+    text = (tmp_path / "s.json").read_text(encoding="utf-8")
     assert text.endswith("\n")
     assert json.loads(text)["a"] == 1      # provenance is added alongside, not instead
 
 
 def test_file_lock_is_exclusive(tmp_path):
     """A second acquirer of a held lock fails (non-blocking) — no lost updates."""
-    import fcntl
+    fcntl = pytest.importorskip("fcntl")
     import os
     target = tmp_path / "cadmia_jobs.json"
     fd = os.open(tmp_path / "cadmia_jobs.json.lock", os.O_CREAT | os.O_RDWR)
@@ -78,7 +78,7 @@ def test_file_lock_releases_on_exit(tmp_path):
 def test_the_sidecar_records_which_code_wrote_it(tmp_path):
     dest = tmp_path / "prescreen.json"
     write_json_sidecar(dest, json.dumps({"n_kept": 3}))
-    prov = json.loads(dest.read_text())["provenance"]
+    prov = json.loads(dest.read_text(encoding="utf-8"))["provenance"]
     assert prov["software_version"].startswith("cadmia ")
     assert prov["command"] and prov["timestamp"]
 
@@ -86,13 +86,13 @@ def test_the_sidecar_records_which_code_wrote_it(tmp_path):
 def test_a_sidecar_that_is_not_an_object_is_written_untouched(tmp_path):
     dest = tmp_path / "list.json"
     write_json_sidecar(dest, "[1, 2, 3]")
-    assert json.loads(dest.read_text()) == [1, 2, 3]
+    assert json.loads(dest.read_text(encoding="utf-8")) == [1, 2, 3]
 
 
 def test_a_caller_that_stamps_its_own_provenance_wins(tmp_path):
     dest = tmp_path / "s.json"
     write_json_sidecar(dest, json.dumps({"provenance": {"command": "mine"}}))
-    assert json.loads(dest.read_text())["provenance"] == {"command": "mine"}
+    assert json.loads(dest.read_text(encoding="utf-8"))["provenance"] == {"command": "mine"}
 
 
 def test_provenance_survives_a_missing_git(tmp_path, monkeypatch):

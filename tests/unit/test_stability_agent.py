@@ -484,9 +484,9 @@ def test_cli_reference_options_are_ref_only(series):
 
 def test_stability_warns_when_a_calculation_did_not_terminate_normally(oxides):
     mixed, tio2, al2o3 = oxides
-    tio2.write_text(tio2.read_text().replace(" Normal termination of Gaussian 16.",
+    tio2.write_text(tio2.read_text(encoding="utf-8").replace(" Normal termination of Gaussian 16.",
                                              " Error termination via Lnk1e in l508.exe."))
-    al2o3.write_text(al2o3.read_text().replace(" Normal termination of Gaussian 16.\n", ""))
+    al2o3.write_text(al2o3.read_text(encoding="utf-8").replace(" Normal termination of Gaussian 16.\n", ""))
     r = compute_stability(mixed, [tio2, al2o3], reference_labels=["TiO2", "Al2O3"], energy="E")
     w = next(w for w in r.warnings if w.startswith("Did not terminate normally"))
     assert "TiO2 (Error termination)" in w and "Al2O3 (No termination marker found)" in w
