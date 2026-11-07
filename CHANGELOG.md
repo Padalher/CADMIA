@@ -6,6 +6,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+- The README explains the name: what each word of CADMIA stands for in the code.
+
 ### Changed
 - **Author affiliation:** División Académica de Ciencias Básicas, UJAT (DACB-UJAT) in the citation,
   the guides and the headers of the outputs.

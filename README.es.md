@@ -49,6 +49,19 @@ Funciones principales:
 - Ayuda bilingüe (`--help` en inglés, `--ayuda` en español) y un reporte de texto de columnas fijas
   con todos los módulos (`reports/cadmia.out`), con resumen Markdown y tablas LaTeX bajo pedido.
 
+### El nombre
+
+- **Computational:** trabaja sobre las salidas de los programas de química cuántica.
+- **Agent-Driven:** cada paso lo hace un agente, un módulo con una sola responsabilidad que
+  registra la procedencia de lo que lee y escribe (validación, CDFT, geometría, cribado, cálculo,
+  análisis, estabilidad, reporte, diagnóstico…); el orquestador (`cadmia pipeline`) los encadena.
+  Los agentes son deterministas: el modelo de lenguaje opcional solo redacta texto y nunca produce
+  un número.
+- **Molecular:** los cúmulos y las moléculas sonda adsorbidas en ellos.
+- **Intelligence:** cada decisión la guían los datos: las funciones de Fukui eligen los sitios,
+  GFN2-xTB criba las configuraciones antes del DFT y los cálculos fallidos se diagnostican.
+- **Architecture:** una sola suite de módulos sobre un núcleo de datos común.
+
 ## Novedades de 0.3.1
 
 Solo lo principal; el detalle completo está en

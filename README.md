@@ -48,6 +48,19 @@ Main features:
 - Bilingual help (`--help` in English, `--ayuda` in Spanish) and a fixed-width text report of all
   the modules (`reports/cadmia.out`), with a Markdown summary and LaTeX tables on request.
 
+### The name
+
+- **Computational:** it works on the outputs of quantum-chemistry programs.
+- **Agent-Driven:** each step is done by an agent, a module with one responsibility that records
+  the provenance of what it reads and writes (validation, CDFT, geometry, pre-screening,
+  calculation, analysis, stability, report, diagnosis…); the orchestrator (`cadmia pipeline`)
+  chains them. The agents are deterministic: the optional language model only writes text and
+  never produces a number.
+- **Molecular:** clusters and the probe molecules adsorbed on them.
+- **Intelligence:** each decision is guided by the data: the Fukui functions choose the sites,
+  GFN2-xTB screens the configurations before DFT, and failed calculations are diagnosed.
+- **Architecture:** one suite of modules over a common data core.
+
 ## What's new in 0.3.1
 
 Highlights only; the full detail is in
