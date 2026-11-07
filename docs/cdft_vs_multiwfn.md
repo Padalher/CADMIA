@@ -4,7 +4,7 @@ CADMIA computes these descriptors natively; Multiwfn is used only as an external
 
 ## Global descriptors
 
-| descriptor | CADMIA | Multiwfn | |Δ| |
+| descriptor | CADMIA | Multiwfn | \|Δ\| |
 | --- | --- | --- | --- |
 | IP (eV) | 10.3381 | 10.3381 | 0.0000 |
 | EA (eV) | 2.3392 | 2.3392 | 0.0000 |
@@ -14,7 +14,7 @@ CADMIA computes these descriptors natively; Multiwfn is used only as an external
 
 ## Condensed Fukui functions
 
-| descriptor | CADMIA | Multiwfn | |Δ| |
+| descriptor | CADMIA | Multiwfn | \|Δ\| |
 | --- | --- | --- | --- |
 | Ti1 f+ | 0.1048 | 0.1048 | 0.0000 |
 | Ti1 f- | 0.1758 | 0.1758 | 0.0000 |

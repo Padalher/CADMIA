@@ -21,6 +21,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   capitals, bulleted and numbered lists, and column-aligned tables no longer run into one
   paragraph; paragraphs are separated in the LaTeX, and a CLI option keeps its two hyphens.
   The longest paragraphs of the text guides are split at a sentence end (no wording changed).
+- The tables of `docs/cdft_vs_multiwfn.md` (shown by the quickstart notebook) render as tables:
+  the `|Δ|` header broke them into plain text.
 - The CDFT report labels the condensed local softness in e/Hartree (it said Hartree·e); the
   values were already correct.
 - Every JSON and report file is written as UTF-8, and the xTB output is read as UTF-8: on a

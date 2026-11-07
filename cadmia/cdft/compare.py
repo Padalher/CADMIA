@@ -93,7 +93,7 @@ def comparison_markdown(cmp: CDFTComparison, *, title: str = "CADMIA vs Multiwfn
         return "—" if v is None else f"{v:.4f}"
 
     def table(rows):
-        out = ["| descriptor | CADMIA | Multiwfn | |Δ| |", "| --- | --- | --- | --- |"]
+        out = ["| descriptor | CADMIA | Multiwfn | \\|Δ\\| |", "| --- | --- | --- | --- |"]
         for r in rows:
             out.append(f"| {r.name} | {fmt(r.cadmia)} | {fmt(r.multiwfn)} | {fmt(r.abs_diff)} |")
         return "\n".join(out)
