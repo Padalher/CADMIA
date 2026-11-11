@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from cadmia.agents import prescreen_agent
+from cadmia.io.xyz import comment_info
 from cadmia.calculators.xtb_runner import (
     XTBError, XTBResult, _parse_energy, run_xtb_opt, xtb_available as _xtb_available,
 )
@@ -409,9 +410,10 @@ def test_prescreen_pool_has_all_good_minima_in_energy_order(spread, mock_xtb_spr
     text = pool.read_text(encoding="utf-8")
     # three 2-atom H2 blocks → 3 × (1 + 1 + 2) = 12 lines
     assert len(text.splitlines()) == 12
-    comments = [ln for ln in text.splitlines() if ln.startswith("rank ")]
-    assert [c.split()[1] for c in comments] == ["1", "2", "3"]   # ascending energy
-    assert all("[to-DFT]" in c for c in comments)                    # all selected here
+    infos = [comment_info(ln) for ln in text.splitlines() if ln.startswith("format=")]
+    assert [i["rank"] for i in infos] == ["1", "2", "3"]          # ascending energy
+    assert all(i["selection"] == "to-DFT" for i in infos)         # all selected here
+    assert all(i["energy_unit"] == "Eh" and i["energy_kind"] == "xtb" for i in infos)
 
 
 def test_prescreen_pool_keeps_reserves_out_of_glob(spread, mock_xtb_spread, tmp_path):
@@ -425,9 +427,9 @@ def test_prescreen_pool_keeps_reserves_out_of_glob(spread, mock_xtb_spread, tmp_
     assert result.n_kept == 1 and result.n_reserve == 2
     # the pool file still lists ALL three good minima, tagged.
     text = Path(result.candidates_xyz).read_text(encoding="utf-8")
-    comments = [ln for ln in text.splitlines() if ln.startswith("rank ")]
-    assert sum("[to-DFT]" in c for c in comments) == 1
-    assert sum("reserve" in c for c in comments) == 2
+    infos = [comment_info(ln) for ln in text.splitlines() if ln.startswith("format=")]
+    assert [i["selection"] for i in infos].count("to-DFT") == 1
+    assert [i["selection"] for i in infos].count("reserve") == 2
     # main dir has ONLY the one selected *_xtbopt.xyz (safe for prepare's glob).
     loose = sorted(p.name for p in out.glob("*.xyz"))
     assert len(loose) == 1

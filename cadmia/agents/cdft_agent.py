@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Tuple
 
 from cadmia.cdft.acid_base import classify_acid_base, scaled_threshold, summarize as acid_base_summary
 from cadmia.cdft.workflow import CDFTInputState, CDFTWorkflowResult, run_cdft_workflow
+from cadmia.io.xyz import extxyz_block
 
 # |Δf| below this threshold → ambiphilic classification
 _AMPHIPHILIC_THRESHOLD = 0.02
@@ -182,6 +183,43 @@ def _build_sites(result: CDFTWorkflowResult) -> List[SiteDescriptor]:
     for rank, site in enumerate(sites, start=1):
         site.rank = rank
     return sites
+
+
+def sites_extxyz(result: CDFTResult, workflow: CDFTWorkflowResult, charges_n=None) -> str:
+    """The N-state geometry with every per-atom CDFT value as columns (extended XYZ), for the
+    viewers that color a structure by Fukui, dual or charge. Atom order and ``index`` are the
+    output's, so ``index`` 5 is Al(5)."""
+    s, f = workflow.structure, workflow.fukui
+    n = len(s.atoms)
+    by_index = {site.atom_index: site for site in result.sites}
+    sites = [by_index.get(i + 1) for i in range(n)]
+    g = result.global_descriptors
+    state_n = (workflow.states or {}).get("N")
+    energy = getattr(state_n, "energy_hartree", None)
+
+    def col(values):
+        return ("R", list(values) if values else [None] * n)
+
+    columns = {"index": ("I", list(range(1, n + 1)))}
+    if charges_n:
+        columns["q"] = ("R", list(charges_n))
+    columns.update(f_plus=col(f.f_plus), f_minus=col(f.f_minus), f_zero=col(f.f_zero),
+                   dual=col(f.dual))
+    if all(site is not None and site.cn is not None for site in sites):
+        columns["cn"] = ("I", [site.cn for site in sites])
+    columns["ecn"] = ("R", [site.ecn if site else None for site in sites])
+    columns["site_rank"] = ("I", [site.rank if site else 0 for site in sites])
+    columns.update(s_plus=col(f.local_softness_plus), s_minus=col(f.local_softness_minus),
+                   w_plus=col(f.local_electrophilicity))
+    info = {"label": result.cluster or Path(workflow.source_n).stem,
+            "energy": None if energy is None else f"{energy:.8f}",
+            "energy_unit": "Eh" if energy is not None else None,
+            "energy_kind": "E" if energy is not None else None,
+            "source": Path(workflow.source_n).name, "charge": s.charge, "mult": s.multiplicity,
+            "charge_scheme": result.charge_scheme, "fukui_scheme": result.charge_scheme,
+            "mu": g.get("mu_eV"), "eta": g.get("hardness_eV"), "omega": g.get("omega_eV"),
+            "cdft_unit": "eV", "s_unit": "1/Eh", "w_unit": "eV"}
+    return extxyz_block(s.atoms, s.positions, info, columns)
 
 
 def _build_global(result: CDFTWorkflowResult) -> dict:

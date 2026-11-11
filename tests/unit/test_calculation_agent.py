@@ -475,3 +475,10 @@ def test_input_stems_keep_the_origin_through_rank_skeleton_labels():
     assert _input_stems(source, [block(ref), block(iso)]) == ["site3_eta1_p30", "site5_eta2_p0"]
     assert _input_stems(source, [block(ref)]) == ["site3_eta1_p30"]
     assert _input_stems(Path("cluster.xyz"), [block("any comment")]) == ["cluster"]
+
+    from cadmia.io.xyz import extxyz_comment
+    new = extxyz_comment({"label": "site3_eta1_p30", "energy": "-1.0", "rank": 1,
+                          "skeleton": "reference"})
+    geom = extxyz_comment({"label": "renamed_by_hand", "probe": "CO2"})
+    assert _input_stems(source, [block(new)]) == ["site3_eta1_p30"]
+    assert _input_stems(Path("mine.xyz"), [block(geom)]) == ["mine"]    # only rank blocks rename

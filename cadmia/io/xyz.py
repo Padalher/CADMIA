@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import shlex
 from pathlib import Path
 from typing import Iterable, List, Optional, Tuple
 
@@ -36,9 +37,74 @@ def get_chemical_formula(atoms: list[str]) -> str:
     return hill_formula(atoms)
 
 
+EXTXYZ_FORMAT = "extxyz-cadmia-1"
+_BASE_PROPERTIES = "species:S:1:pos:R:3"
+
+
+def comment_info(comment: str) -> dict:
+    """The ``key=value`` pairs of a comment line (extended XYZ, or CADMIA's older lines)."""
+    try:
+        tokens = shlex.split(comment)
+    except ValueError:                      # an unbalanced quote: read it word by word
+        tokens = comment.split()
+    return dict(t.split("=", 1) for t in tokens if "=" in t and not t.startswith("="))
+
+
+def extxyz_columns(info: dict) -> List[Tuple[str, str]]:
+    """The per-atom columns a ``Properties=`` value declares after species and position."""
+    fields = info.get("Properties", "").split(":")
+    cols = [(fields[i], fields[i + 1]) for i in range(0, len(fields) - 2, 3)]
+    return [c for c in cols if c[0] not in ("species", "pos")]
+
+
+def extxyz_comment(info: dict, columns: Iterable[Tuple[str, str]] = ()) -> str:
+    """Comment line of an extended XYZ block, format ``extxyz-cadmia-1``.
+
+    ``energy`` goes first after the format, in Hartree, because readers take the first number
+    called energy. Values with spaces are quoted; ``None`` values are left out. *columns* are
+    the extra per-atom columns as ``(name, type)``, type ``S``, ``R`` or ``I``.
+    """
+    from cadmia import __version__
+    info = {**info, "program": f"CADMIA {__version__}"}
+    keys = ["energy"] + [k for k in info if k != "energy"]
+    parts = [f"format={EXTXYZ_FORMAT}"]
+    for key in keys:
+        value = info.get(key)
+        if value is None:
+            continue
+        text = ("T" if value else "F") if isinstance(value, bool) else str(value)
+        if key == "label":                  # viewers split the line on spaces and skip quotes
+            text = re.sub(r"[\s\"'=]+", "_", text)
+        if not text or any(c.isspace() or c in "\"'=" for c in text):
+            text = '"' + text.replace('"', "'") + '"'
+        parts.append(f"{key}={text}")
+    props = _BASE_PROPERTIES + "".join(f":{name}:{kind}:1" for name, kind in columns)
+    return " ".join(parts + [f"Properties={props}"])
+
+
+def extxyz_block(atoms: Iterable[str], positions, info: dict,
+                 columns: Optional[dict] = None) -> str:
+    """One extended XYZ block. *columns* maps a column name to ``(type, values)``; a missing
+    real value is written ``nan``, never 0."""
+    atoms = list(atoms)
+    columns = columns or {}
+
+    def cell(kind, v):
+        if kind == "R":
+            return "nan" if v is None or v != v else f"{float(v):.6f}"
+        return str(v)
+
+    lines = [str(len(atoms)), extxyz_comment(info, [(n, k) for n, (k, _) in columns.items()])]
+    for i, (sym, pos) in enumerate(zip(atoms, positions)):
+        extra = "".join(f" {cell(k, vals[i])}" for k, vals in columns.values())
+        x, y, z = (float(c) for c in pos)
+        lines.append(f"{sym:<3} {x:14.8f} {y:14.8f} {z:14.8f}{extra}")
+    return "\n".join(lines) + "\n"
+
+
 def _structure_id(path: Path, comment: str, index: Optional[int] = None) -> str:
     tokens = [token for token in re.split(r"\s+", _SPIN_TOKEN_RE.sub("", comment).strip()) if token]
-    candidate = tokens[-1] if tokens else path.stem
+    candidate = comment_info(comment).get("label") or (tokens[-1] if tokens else path.stem)
     candidate = re.sub(r"[^A-Za-z0-9_.-]+", "_", candidate).strip("_")
     if not candidate:
         candidate = path.stem
@@ -98,7 +164,8 @@ def _parse_xyz_block(
         labels=get_atom_labels(atoms),
         structure_id=_structure_id(path, comment, block_index),
         source_file=source,
-        metadata={"comment": comment, **({"spin_given": True} if "multiplicity" in spin else {})},
+        metadata={"comment": comment, "info": comment_info(comment),
+                  **({"spin_given": True} if "multiplicity" in spin else {})},
         **spin,
     )
     return structure, atom_end

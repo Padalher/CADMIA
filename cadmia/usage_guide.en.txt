@@ -437,7 +437,10 @@ electro/nucleophilicity, softnesses):
 
 Inside a project (cadmia init) the result is also saved to results/cdft.json, and
 --n/--np1/--nm1 are optional when you only want the report: `cadmia cdft -r
-cdft_full.txt` writes it from that file without recomputing anything.
+cdft_full.txt` writes it from that file without recomputing anything. Next to it,
+results/cdft_sites.xyz holds the N-state geometry with the per-atom values as
+columns (index, q, f_plus, f_minus, f_zero, dual, cn, ecn, site_rank, s_plus,
+s_minus, w_plus), for viewers that color a structure by them.
 
 Validation: the global SCF descriptors must match Multiwfn EXACTLY.
 
@@ -594,7 +597,8 @@ Survival criterion, step by step:
         consume; that directory is read with the *.xyz glob).
       * pool/candidates_by_energy.xyz: ONE file with ALL the distinct physical minima
         found (not only the selected ones) in ascending energy order; every block's
-        comment carries rank, ΔE, energy and a [DFT] (selected) or "reserve" tag.
+        comment carries rank, energy (Eh), ΔE and selection=to-DFT (selected) or
+        selection=reserve.
       * pool/reserve/*_xtbopt.xyz: the good ones NOT selected, as individual files
         ready to promote. To send one to DFT later just copy it into the -o directory;
         xTB does NOT have to run again.
@@ -1548,8 +1552,17 @@ cluster. It is not part of CADMIA:
     pip install mole-viewer
     mole configs/CO2/prescreened/pool/candidates_by_energy.xyz
 
-MOLE plots the energy it finds in the comment line (E=…). Densities, orbitals
+MOLE plots the energy it finds in the comment line (energy=…). Densities, orbitals
 and cubes go to a wavefunction viewer.
+
+EXTENDED XYZ. Every .xyz that geometry, prescreen, rank and cdft write is an
+extended XYZ (the format ASE and OVITO read): the comment line carries
+format=extxyz-cadmia-1, energy= in Hartree (first, with energy_unit= and
+energy_kind=), label=, charge=, mult= and the stage's own keys (site, rank,
+rel_energy, selection…), and Properties= names the extra per-atom columns after
+the element and the coordinates: group (cluster or probe) in the adducts, the
+CDFT values in cdft_sites.xyz. A plain XYZ reader still reads the first four
+columns; a value that was not computed is written nan, never 0.
 
 REFERENCES (12)
 [1] R. Hoppe. "Effective coordination numbers (ECoN) and mean fictive ionic
@@ -1605,7 +1618,9 @@ REFERENCES (13)
 14. DATABASE AND TRACEABILITY: CADMIA DB
 ====================================================================
 
-SQLite at ~/.cadmia/cadmia.db (or --db-path in each command).
+SQLite: inside a project (cadmia init), the project's database (.cadmia/cadmia.db); outside
+one, ~/.cadmia/cadmia.db. --db-path in each command (--path in db status and db ask)
+picks another.
 
     cadmia db init        # create/migrate the schema
     cadmia db status      # row count per table

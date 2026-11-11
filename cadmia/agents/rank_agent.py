@@ -20,7 +20,7 @@ from cadmia.core.sidecar import atomic_write_text, write_json_sidecar
 from cadmia.core.units import HARTREE_TO_KCAL
 from cadmia.io.electronic import load_electronic
 from cadmia.io.vibrational import parse_orca_vibrational
-from cadmia.io.xyz import parse_xyz
+from cadmia.io.xyz import extxyz_block, parse_xyz
 from cadmia.utils.chemistry import classify_skeletons, skeleton
 from cadmia.utils.geometry import kabsch_max_deviation
 
@@ -293,11 +293,11 @@ def rank(
         # class when there is one — the next stage must not have to recompute it. The
         # imaginary-frequency count is a screening decision shown in the table, not geometry
         # metadata.
-        where = f"  [{label}]" if label else ""
-        comment = (f"rank {rk}  +{item.rel_kcal:.3f} kcal/mol  E={energy:.6f} Eh  "
-                   f"charge={structure.charge} mult={structure.multiplicity}  "
-                   f"{item.engine}  {Path(item.source).stem}{where}")
-        blocks.append(structure.to_xyz(comment=comment))
+        info = {"label": Path(item.source).stem, "energy": f"{energy:.8f}", "energy_unit": "Eh",
+                "energy_kind": "E", "rank": rk, "rel_energy": f"{item.rel_kcal:.3f}",
+                "rel_energy_unit": "kcal/mol", "charge": structure.charge,
+                "mult": structure.multiplicity, "engine": item.engine, "skeleton": label}
+        blocks.append(extxyz_block(structure.atoms, structure.positions, info))
     result.n_ranked = len(parsed)
     result.n_unique = len(reps)
     result.n_selected = len(blocks)

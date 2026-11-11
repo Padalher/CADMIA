@@ -357,6 +357,10 @@ def cdft_command(
     saved = save_stage_result("cdft", data, text)
     if saved:
         click.echo(f"Module result: {saved}")
+        if wf is not None:
+            sites_xyz = saved.with_name(f"{saved.stem}_sites.xyz")
+            sites_xyz.write_text(cdft_agent.sites_extxyz(result, wf, q_n), encoding="utf-8")
+            click.echo(f"Per-atom values for viewers (extended XYZ): {sites_xyz}")
 
     if use_db:
         from cadmia.db.session import init_db, resolve_db_path
@@ -687,7 +691,7 @@ def prescreen_command(configs, charge, multiplicity, gfn, top_n, window_kcal,
         for it in survivors:
             click.echo(f"  {it.rank:>2}  {it.rel_kcal:>13.3f}  {Path(it.source_xyz).stem}")
         if result.candidates_xyz:
-            click.echo(f"\n  all good minima (energy order, tagged [to-DFT]/reserve): "
+            click.echo(f"\n  all good minima (energy order, selection=to-DFT or reserve): "
                        f"{result.candidates_xyz}")
         if result.n_reserve:
             click.echo(f"  + {result.n_reserve} reserve candidate(s) in "
@@ -2398,11 +2402,12 @@ def db_init(path) -> None:
 
 
 @db_group.command("status")
-@click.option("--path", default=None, type=click.Path())
+@click.option("--path", default=None, type=click.Path(),
+              help="Database path (default: the project's database, else ~/.cadmia/cadmia.db).")
 def db_status(path) -> None:
     """Show record counts for each table."""
-    from cadmia.db.session import get_connection, DEFAULT_DB
-    db_path = Path(path) if path else DEFAULT_DB
+    from cadmia.db.session import get_connection, resolve_db_path
+    db_path = resolve_db_path(path)
     if not db_path.exists():
         click.echo(f"No database found at {db_path}. Run: cadmia db init")
         return
@@ -2424,7 +2429,7 @@ def db_status(path) -> None:
 @db_group.command("ask")
 @click.argument("question")
 @click.option("--path", default=None, type=click.Path(),
-              help="Database path (default: ~/.cadmia/cadmia.db).")
+              help="Database path (default: the project's database, else ~/.cadmia/cadmia.db).")
 @click.option("--limit", default=50, show_default=True,
               help="Maximum number of rows to display.")
 @click.option("--sql-only", is_flag=True,
@@ -2436,11 +2441,11 @@ def db_ask(question, path, limit, sql_only) -> None:
     on a read-only connection, so the database cannot be modified. All numbers
     come from the database, never from the model.
     """
-    from cadmia.db.session import DEFAULT_DB
+    from cadmia.db.session import resolve_db_path
     from cadmia.llm import LLMError
     from cadmia.llm.sql import ask_database, database_schema, generate_sql
 
-    db_path = Path(path) if path else DEFAULT_DB
+    db_path = resolve_db_path(path)
     if not db_path.exists():
         raise click.ClickException(f"No database found at {db_path}. Run: cadmia db init")
 

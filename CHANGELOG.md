@@ -8,12 +8,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 - The README explains the name: what each word of CADMIA stands for in the code.
+- **Extended XYZ** (`format=extxyz-cadmia-1`, readable by ASE and OVITO) in every `.xyz` that
+  `geometry`, `prescreen`, `rank` and `cdft` write: `energy` in Hartree first, then `label`,
+  `charge`, `mult` and the stage's keys (site, rank, `rel_energy`, `selection`…), and a `group`
+  column (cluster or probe) in the adducts. Inside a project `cadmia cdft` also writes
+  `results/cdft_sites.xyz`: the N-state geometry with the per-atom index, charge, Fukui
+  functions, dual descriptor, CN, ECN, site rank and local softness/electrophilicity as columns.
 
 ### Changed
+- The comment lines of the `.xyz` files of `geometry`, `prescreen` and `rank` follow the
+  extended XYZ: `[to-DFT]` is now `selection=to-DFT` and `E=… Eh` is `energy=…`; `prepare`
+  still reads the files written by earlier versions.
 - **Author affiliation:** División Académica de Ciencias Básicas, UJAT (DACB-UJAT) in the citation,
   the guides and the headers of the outputs.
 
 ### Fixed
+- `cadmia db status` and `cadmia db ask` read the project's database when run inside a
+  project, like the commands that store results; they read the global one before.
 - The help of `structure plot`, `structure` and `doctor` no longer mentions removed features
   (3D plot kinds, POV-Ray rendering, scikit-image); the guides call the parts of `cadmia.out`
   modules and list every main command.

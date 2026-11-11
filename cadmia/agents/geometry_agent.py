@@ -10,7 +10,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from cadmia.core.sidecar import write_json_sidecar
-from cadmia.io.xyz import parse_xyz
+from cadmia.io.xyz import extxyz_block, parse_xyz
 from cadmia.utils.chemistry import covalent_radius
 
 # ─────────────────────────────────────────────
@@ -360,18 +360,6 @@ def _read_xyz(path: Path) -> Tuple[List[str], List[np.ndarray], str]:
         [np.asarray(row, dtype=float) for row in struct.positions],
         str(struct.metadata.get("comment", "")),
     )
-
-
-def _write_xyz(
-    path: Path,
-    symbols: List[str],
-    coords: List[np.ndarray],
-    comment: str = "",
-) -> None:
-    lines = [str(len(symbols)), comment]
-    for sym, c in zip(symbols, coords):
-        lines.append(f"{sym:<4} {float(c[0]):14.8f} {float(c[1]):14.8f} {float(c[2]):14.8f}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 # ─────────────────────────────────────────────
@@ -777,14 +765,6 @@ def run(
                     all_symbols = list(cl_symbols) + [s for s, _ in placed]
                     all_coords  = list(cl_coords)  + [p for _, p in placed]
 
-                    comment = (
-                        f"cluster={label} probe={probe} "
-                        f"site={site_sym}({site_idx}) orient={pg.orientation} "
-                        f"polar={polar:.0f} azimuth={azimuth:.0f} dist={used_dist:.3f}A"
-                        + (f" pushed=+{pushed:.2f}A" if pushed else "")
-                        + f" charge={adduct_charge} mult={adduct_mult(pg)}"
-                    )
-
                     xyz_path: Optional[Path] = None
                     if out_dir is not None:
                         fname = (
@@ -792,7 +772,19 @@ def run(
                             f"_{pg.orientation}_p{polar:g}_a{azimuth:g}.xyz"
                         )
                         xyz_path = out_dir / fname
-                        _write_xyz(xyz_path, all_symbols, all_coords, comment)
+                        info = {
+                            "label": xyz_path.stem, "cluster": label, "probe": probe,
+                            "site": f"{site_sym}({site_idx})", "orient": pg.orientation,
+                            "polar": f"{polar:.0f}", "azimuth": f"{azimuth:.0f}",
+                            "dist": f"{used_dist:.3f}",
+                            "pushed": f"{pushed:.2f}" if pushed else None,
+                            "charge": adduct_charge, "mult": adduct_mult(pg),
+                            "cluster_atoms": len(cl_symbols),
+                        }
+                        groups = ["cluster"] * len(cl_symbols) + ["probe"] * len(placed)
+                        xyz_path.write_text(
+                            extxyz_block(all_symbols, all_coords, info, {"group": ("S", groups)}),
+                            encoding="utf-8")
 
                     result.configs.append(
                         AdsorptionConfig(

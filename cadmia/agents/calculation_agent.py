@@ -11,6 +11,7 @@ from cadmia.agents.validation_agent import validate_output_summary as _validate_
 from cadmia.calculators.params import CalcParams
 from cadmia.config import HPCProfile
 from cadmia.core.sidecar import atomic_write_text, file_lock, read_json
+from cadmia.io.xyz import EXTXYZ_FORMAT, comment_info
 
 # What `prepare` accepts as a source: inputs an engine can already run, and the files that
 # carry a geometry to build one from.
@@ -577,9 +578,14 @@ def _structures_from_source(f: Path):
 def _stem_from_comment(comment: str) -> str:
     """The origin stem `cadmia rank` records in a block comment, or "" if it is not one.
 
-    rank writes ``rank 1  +0.000 kcal/mol  E=-1.234 Eh  orca  <origin stem>``, followed by
-    ``[<skeleton class>]`` when it grouped the outputs by skeleton.
+    rank and prescreen write it as ``label=`` next to ``rank=`` (extended XYZ); files from
+    before 0.3.2 have ``rank 1  +0.000 kcal/mol  E=-1.234 Eh  orca  <origin stem>``, followed
+    by ``[<skeleton class>]`` when it grouped the outputs by skeleton.
     """
+    info = comment_info(comment)
+    if info.get("format") == EXTXYZ_FORMAT:
+        stem = Path(info.get("label", "")).name if "rank" in info else ""
+        return stem if stem not in (".", "..") else ""
     tokens = [t for t in comment.split() if not (t.startswith("[") and t.endswith("]"))]
     if len(tokens) < 2 or tokens[0] != "rank":
         return ""

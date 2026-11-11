@@ -28,7 +28,8 @@ import numpy as np
 from cadmia.calculators.xtb_runner import XTBError, run_xtb_opt, xtb_available
 from cadmia.core.sidecar import check_input_directory, write_json_sidecar
 from cadmia.core.units import HARTREE_TO_KCAL
-from cadmia.io.xyz import parse_xyz
+from cadmia.io.xyz import (comment_info, extxyz_block, extxyz_columns, extxyz_comment,
+                           parse_xyz)
 from cadmia.utils.chemistry import classify_skeletons, skeleton
 from cadmia.utils.geometry import kabsch_max_deviation
 
@@ -132,6 +133,26 @@ class PrescreenResult:
             },
             indent=2,
         )
+
+
+def _xtbopt_block(source: Path, name: str, structure, energy, charge, mult, n_frozen) -> str:
+    """The xTB-optimized geometry as an extended XYZ block: energy in Eh, the spin, and which
+    atoms are cluster and which probe when `geometry` or --cluster says so."""
+    src = parse_xyz(source).metadata.get("info", {})
+    try:
+        n_cluster = n_frozen or int(src.get("cluster_atoms", 0))
+    except ValueError:
+        n_cluster = 0
+    n = len(structure.atoms)
+    info = {"label": name, "energy": None if energy is None else f"{energy:.8f}",
+            "energy_unit": "Eh", "energy_kind": "xtb", "charge": charge, "mult": mult,
+            **{k: src[k] for k in ("cluster", "probe", "site", "orient") if k in src},
+            "cluster_atoms": n_cluster if 0 < n_cluster < n else None}
+    if info["energy"] is None:
+        info.pop("energy_unit"); info.pop("energy_kind")
+    columns = ({"group": ("S", ["cluster"] * n_cluster + ["probe"] * (n - n_cluster))}
+               if 0 < n_cluster < n else None)
+    return extxyz_block(structure.atoms, structure.positions, info, columns)
 
 
 def _relabel_xyz(xyz_text: str, comment: str) -> str:
@@ -335,9 +356,10 @@ def prescreen(
             relaxed = (
                 np.asarray(opt_struct.positions, dtype=float),
                 tuple(opt_struct.atoms),
-                # keep the optimized geometry in memory (tiny) so we can drop the scratch now
+                # keep the optimized geometry in memory (tiny) so we can drop the scratch now;
                 # the spin goes with the geometry, or the DFT inputs fall back to the parity
-                opt_struct.to_xyz(comment=f"xtbopt {names[str(f)]} charge={charge} mult={mult}"),
+                _xtbopt_block(f, names[str(f)], opt_struct, res.energy_hartree, charge, mult,
+                              len(ref_atoms)),
             )
             if not res.converged:
                 warning = f"{f.name}: xTB optimization did not converge; dropped (not a minimum)."
@@ -556,12 +578,13 @@ def prescreen(
             it = result.items[i]
             if i not in opt_xyz_text:
                 continue
-            tag = "to-DFT" if it.kept else f"reserve +{it.rel_kcal:.2f} kcal/mol beyond window"
-            spin = " ".join(t for t in opt_xyz_text[i].splitlines()[1].split()
-                            if t.startswith(("charge=", "mult=")))
-            comment = (f"rank {rank}  +{it.rel_kcal:.3f} kcal/mol  "
-                       f"E={it.energy_hartree:.6f} Eh  {spin}  [{tag}]  {names[it.source_xyz]}")
-            all_blocks.append(_relabel_xyz(opt_xyz_text[i], comment))
+            info = comment_info(opt_xyz_text[i].splitlines()[1])
+            columns = extxyz_columns(info)
+            for key in ("format", "program", "Properties"):
+                info.pop(key, None)
+            info.update(rank=rank, rel_energy=f"{it.rel_kcal:.3f}", rel_energy_unit="kcal/mol",
+                        selection="to-DFT" if it.kept else "reserve")
+            all_blocks.append(_relabel_xyz(opt_xyz_text[i], extxyz_comment(info, columns)))
             if not it.kept:
                 reserve_dir.mkdir(parents=True, exist_ok=True)
                 dst = reserve_dir / (names[it.source_xyz] + "_xtbopt.xyz")

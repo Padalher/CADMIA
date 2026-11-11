@@ -8,6 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from cadmia.agents import rank_agent
+from cadmia.io.xyz import comment_info
 from cadmia.cli import main
 
 FIX = Path(__file__).resolve().parents[1] / "fixtures"
@@ -40,9 +41,9 @@ def test_rank_relative_energy_matches_hartree_gap(tmp_path):
 def test_rank_combined_file_blocks_in_energy_order(tmp_path):
     out = tmp_path / "ranked.xyz"
     rank_agent.rank([str(p) for p in GAUSS], output=out)
-    comments = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
-    assert [c.split()[1] for c in comments] == ["1", "2", "3"]
-    assert "kcal/mol" in comments[0] and "Eh" in comments[0]
+    comments = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("format=")]
+    assert [comment_info(c)["rank"] for c in comments] == ["1", "2", "3"]
+    assert "rel_energy_unit=kcal/mol" in comments[0] and "energy_unit=Eh" in comments[0]
 
 
 def test_rank_mixed_engines(tmp_path):
@@ -82,8 +83,8 @@ def test_rank_top_n_trims_but_keeps_full_ranking(tmp_path):
     result = rank_agent.rank([str(p) for p in GAUSS], output=out, top_n=1)
     assert result.n_ranked == 3 and result.n_selected == 1        # all ranked, one written
     assert [it.selected for it in result.ranked] == [True, False, False]
-    comments = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
-    assert [c.split()[1] for c in comments] == ["1"]              # only rank 1 in the .xyz
+    comments = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("format=")]
+    assert [comment_info(c)["rank"] for c in comments] == ["1"]              # only rank 1 in the .xyz
 
 
 def test_rank_window_trims_high_energy_tail(tmp_path):
@@ -127,7 +128,7 @@ def test_cli_rank_default_window_trims_outliers(tmp_path):
     out = tmp_path / "r.xyz"
     res = CliRunner().invoke(main, ["rank", *[str(p) for p in GAUSS], str(out)])
     assert res.exit_code == 0 and "kept" in res.output
-    blocks = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
+    blocks = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("format=")]
     assert len(blocks) == 1
 
 
@@ -136,7 +137,7 @@ def test_cli_rank_window_zero_disables_trim(tmp_path):
     res = CliRunner().invoke(
         main, ["rank", *[str(p) for p in GAUSS], str(out), "--window", "0", "--top", "0"])
     assert res.exit_code == 0
-    blocks = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
+    blocks = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("format=")]
     assert len(blocks) == 3          # nothing trimmed when both are off
 
 
@@ -238,7 +239,7 @@ def test_rank_xyz_comment_stays_minimal(tmp_path):
     out = tmp_path / "ranked.xyz"
     rank_agent.rank([str(minimum)], output=out)
     text = out.read_text(encoding="utf-8")
-    assert "kcal/mol" in text and "E=-76.123457 Eh" in text
+    assert "rel_energy_unit=kcal/mol" in text and "energy=-76.12345679 " in text
     assert "neg_freq" not in text
 
 
@@ -557,8 +558,8 @@ def test_the_skeleton_class_reaches_the_json_and_the_xyz_comment(tmp_path):
     assert classes["iso_lo.out"] == classes["iso_hi.out"] == "isomer-1"
     payload = json.loads(Path(result.output_json).read_text(encoding="utf-8"))
     assert {it["cluster_skeleton"] for it in payload["items"]} == {"reference", "isomer-1"}
-    comments = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("rank ")]
-    assert all("[reference]" in c or "[isomer-1]" in c for c in comments)
+    comments = [ln for ln in out.read_text(encoding="utf-8").splitlines() if ln.startswith("format=")]
+    assert {comment_info(c)["skeleton"] for c in comments} == {"reference", "isomer-1"}
 
 
 def test_rank_warns_on_a_reference_with_a_different_element_order(tmp_path):
@@ -582,7 +583,7 @@ def test_cli_rank_accepts_cluster(tmp_path):
     res = CliRunner().invoke(main, ["rank", *srcs, "--window", "10",
                                     "--cluster", _cluster_ref_xyz(tmp_path), "-o", str(out)])
     assert res.exit_code == 0, res.output
-    assert out.read_text(encoding="utf-8").count("[reference]") == 2
+    assert out.read_text(encoding="utf-8").count("skeleton=reference") == 2
 
 
 def test_rank_cli_fails_when_nothing_could_be_ranked(tmp_path):

@@ -438,6 +438,10 @@ electro/nucleofilicidad local, softnesses):
 Dentro de un proyecto (cadmia init) el resultado se guarda además en
 results/cdft.json, y --n/--np1/--nm1 son opcionales si solo quieres el reporte:
 `cadmia cdft -r cdft_full.txt` lo escribe desde ese archivo sin recalcular nada.
+Junto a él, results/cdft_sites.xyz trae la geometría del estado N con los
+valores por átomo como columnas (index, q, f_plus, f_minus, f_zero, dual, cn,
+ecn, site_rank, s_plus, s_minus, w_plus), para los visores que colorean una
+estructura con ellos.
 
 Validación: los descriptores globales SCF deben coincidir EXACTAMENTE con
 Multiwfn.
@@ -617,8 +621,9 @@ Criterio de supervivencia, paso a paso:
         submit consumen; ese directorio se lee con glob *.xyz).
       * pool/candidates_by_energy.xyz: UN solo archivo con TODOS los mínimos
         físicos distintos hallados (no solo los seleccionados) en orden de energía
-        ascendente; el comentario de cada bloque lleva rango, ΔE, energía y una
-        etiqueta [DFT] (seleccionado) o "reserve" (bueno pero fuera de la ventana).
+        ascendente; el comentario de cada bloque lleva rango, energía (Eh), ΔE y
+        selection=to-DFT (seleccionado) o selection=reserve (bueno pero fuera de la
+        ventana).
       * pool/reserve/*_xtbopt.xyz: los buenos NO seleccionados, como archivos
         individuales listos para promover. Para mandar uno a DFT más adelante basta
         copiarlo a la carpeta -o; NO hay que volver a correr xTB.
@@ -1639,8 +1644,17 @@ ssh -Y en un clúster. No forma parte de CADMIA:
     pip install mole-viewer
     mole configs/CO2/prescreened/pool/candidates_by_energy.xyz
 
-MOLE grafica la energía que encuentra en la línea de comentario (E=…). Para
+MOLE grafica la energía que encuentra en la línea de comentario (energy=…). Para
 densidades, orbitales o cubos se usa un visor de función de onda.
+
+XYZ EXTENDIDO. Todo .xyz que escriben geometry, prescreen, rank y cdft es un XYZ
+extendido (el formato que leen ASE y OVITO): la línea de comentario lleva
+format=extxyz-cadmia-1, energy= en Hartree (primero, con energy_unit= y
+energy_kind=), label=, charge=, mult= y las claves propias de cada etapa (site,
+rank, rel_energy, selection…), y Properties= nombra las columnas extra por átomo
+después del elemento y las coordenadas: group (cluster o probe) en los aductos,
+los valores CDFT en cdft_sites.xyz. Un lector de XYZ simple sigue leyendo las
+cuatro primeras columnas; un valor que no se calculó se escribe nan, nunca 0.
 
 REFERENCIAS (12)
 [1] R. Hoppe. "Effective coordination numbers (ECoN) and mean fictive ionic
@@ -1696,7 +1710,9 @@ REFERENCIAS (13)
 14. BASE DE DATOS Y TRAZABILIDAD: CADMIA DB
 ====================================================================
 
-SQLite en ~/.cadmia/cadmia.db (o --db-path en cada comando).
+SQLite: dentro de un proyecto (cadmia init), la base del proyecto (.cadmia/cadmia.db); fuera
+de uno, ~/.cadmia/cadmia.db. --db-path en cada comando (--path en db status y db ask)
+elige otra.
 
     cadmia db init        # crear/migrar el esquema
     cadmia db status      # conteo de filas por tabla

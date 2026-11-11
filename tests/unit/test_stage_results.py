@@ -42,6 +42,16 @@ def test_every_stage_saves_itself_and_report_assembles_the_output(project):
     _ok(runner, ["stability", "--mixed", str(D / "1tial.out"), "--ref", str(D / "TiO2.out"),
                  "--ref", str(D / "Al2O3.out")])
 
+    from cadmia.io.xyz import comment_info, extxyz_columns
+    sites = (root / "results" / "cdft_sites.xyz").read_text(encoding="utf-8").splitlines()
+    info = comment_info(sites[1])
+    assert info["format"] == "extxyz-cadmia-1" and info["energy_unit"] == "Eh"
+    names = [n for n, _ in extxyz_columns(info)]
+    assert names[:6] == ["index", "q", "f_plus", "f_minus", "f_zero", "dual"]
+    al5 = sites[2 + 4].split()                          # index 5 is Al(5)
+    assert al5[0] == "Al" and al5[4] == "5"
+    assert float(al5[4 + names.index("f_plus")]) == pytest.approx(0.3539, abs=1e-4)
+
     stages = load_stage_results(root)
     assert list(stages) == ["structure", "cdft", "analysis", "stability"]
     cdft = stages["cdft"][0]
@@ -308,3 +318,13 @@ def test_structure_report_in_a_project_writes_nothing_beside_the_input(project, 
     _ok(runner, ["structure", "report", str(src / "1tial_N.out")])
     assert sorted(p.name for p in src.iterdir()) == ["1tial_N.out"]
     assert (root / "results" / "structure").is_dir()
+
+
+def test_db_status_reads_the_database_the_resolver_picks(project, monkeypatch):
+    # the resolver (tested in test_db.py) returns the project's database inside a project
+    from cadmia.db import session
+    runner, root = project
+    own = root / ".cadmia" / "cadmia.db"
+    monkeypatch.setattr(session, "resolve_db_path", lambda explicit=None, start=None: own)
+    out = _ok(runner, ["db", "status"]).output.replace("\n", "")
+    assert f"Database: {own}" in out

@@ -29,7 +29,6 @@ from cadmia.agents.geometry_agent import (
     _clash_ratio,
     _place_probe,
     _read_xyz,
-    _write_xyz,
     available_probes,
     run,
 )
@@ -259,15 +258,33 @@ def test_place_probe_eta2_bond_perpendicular_to_approach():
 # ─────────────────────────────────────────────
 
 def test_write_read_xyz_roundtrip(tmp_path):
+    from cadmia.io.xyz import comment_info, extxyz_block, extxyz_columns
     symbols = ["Ti", "O", "O"]
     coords = [np.array([0.0, 0.0, 0.0]), np.array([1.95, 0.0, 0.0]), np.array([-1.95, 0.0, 0.0])]
     p = tmp_path / "test.xyz"
-    _write_xyz(p, symbols, coords, comment="test molecule")
+    p.write_text(extxyz_block(symbols, coords, {"label": "test molecule"},
+                              {"group": ("S", ["cluster", "cluster", "probe"])}), encoding="utf-8")
     s2, c2, comment = _read_xyz(p)
     assert s2 == symbols
     for orig, read in zip(coords, c2):
         assert np.allclose(orig, read, atol=1e-7)
-    assert "test molecule" in comment
+    info = comment_info(comment)
+    assert info["label"] == "test_molecule"                 # viewers split labels on spaces
+    assert extxyz_columns(info) == [("group", "S")]
+    assert p.read_text().splitlines()[-1].split()[-1] == "probe"
+
+
+def test_geometry_writes_extended_xyz_with_groups(simple_cluster_xyz, simple_cdft_json, tmp_path):
+    from cadmia.io.xyz import comment_info, parse_xyz
+    out = tmp_path / "configs"
+    run(simple_cdft_json, simple_cluster_xyz, "NH3", n_sites=1, n_configs=1, output_dir=out)
+    f = sorted(out.glob("*.xyz"))[0]
+    info = comment_info(f.read_text().splitlines()[1])
+    assert info["format"] == "extxyz-cadmia-1" and info["probe"] == "NH3"
+    assert info["label"] == f.stem and info["cluster_atoms"] == "3"
+    groups = [ln.split()[4] for ln in f.read_text().splitlines()[2:]]
+    assert groups[:3] == ["cluster"] * 3 and set(groups[3:]) == {"probe"}
+    assert parse_xyz(f).structure_id == f.stem
 
 
 # ─────────────────────────────────────────────
@@ -980,3 +997,13 @@ def test_a_second_run_into_the_same_directory_reports_the_leftovers(
     listed = {Path(p).name for p in data["artifact_paths"]}
     assert "leftover_from_an_earlier_run.xyz" not in listed
     assert data["provenance"]["artifacts"]["n"] == len(listed)
+
+
+def test_extxyz_comment_puts_energy_first_and_marks_missing_values():
+    from cadmia.io.xyz import comment_info, extxyz_block, extxyz_comment
+    line = extxyz_comment({"label": "a", "rel_energy": "0.000", "energy": "-1.5", "x": None})
+    assert line.split()[:2] == ["format=extxyz-cadmia-1", "energy=-1.5"]   # readers take the first
+    assert "x=" not in line and comment_info(line)["program"].startswith("CADMIA ")
+    assert line.endswith("Properties=species:S:1:pos:R:3")
+    block = extxyz_block(["H"], [[0, 0, 0]], {}, {"q": ("R", [None])})
+    assert block.splitlines()[2].split()[-1] == "nan"                     # never 0
