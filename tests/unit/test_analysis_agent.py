@@ -258,6 +258,30 @@ def test_cdft_discrepancy(tmp_path):
     assert any("character" in w.lower() for w in r.warnings)
 
 
+
+@pytest.mark.filterwarnings(       # synthetic geometry: atoms 3 Å apart, no real polyhedra
+    "ignore:Found .* but no metal-ligand bonds:UserWarning")
+def test_cdft_ambiphilic_site_is_not_an_agreement(tmp_path):
+    # The only ambiphilic site is trivially "#1 of its class": agreement must stay undefined.
+    cluster = tmp_path / "c.out"
+    h2 = tmp_path / "h2.out"
+    adduct = tmp_path / "a.out"
+    cdft = {"sites": [
+        {"atom_index": 1, "atom_symbol": "Ti", "rank": 1, "character": "electrophilic", "delta_f": 0.30},
+        {"atom_index": 2, "atom_symbol": "O", "rank": 2, "character": "nucleophilic", "delta_f": -0.20},
+        {"atom_index": 3, "atom_symbol": "O", "rank": 3, "character": "ambiphilic", "delta_f": -0.01},
+    ]}
+    _gauss(cluster, [("Ti", 0, 0, 0), ("O", 3.0, 0, 0), ("O", 6.0, 0, 0)], -100.0)
+    _gauss(h2, [("H", 0, 0, 0), ("H", 0.74, 0, 0)], -1.17)
+    _gauss(adduct, [("Ti", 0, 0, 0), ("O", 3.0, 0, 0), ("O", 6.0, 0, 0),
+                    ("H", 6.0, 0, 1.0), ("H", 6.0, 0, 1.74)], -101.10)
+    r = analyze(adduct, cluster, h2, cdft_json=cdft)
+    assert r.site_atom_index == 3
+    assert r.cdft_site_character == "ambiphilic"
+    assert r.cdft_site_rank == 3
+    assert r.cdft_agreement is None
+    assert any("ambiphilic" in w and "#3 of 3" in w for w in r.warnings)
+
 def test_to_json_roundtrip(triplet):
     import json
     cluster, h2, adduct = triplet

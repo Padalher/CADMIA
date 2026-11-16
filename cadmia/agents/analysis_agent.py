@@ -636,22 +636,34 @@ def analyze(
             if match is not None:
                 character = match.get("character")
                 result.cdft_site_character = character
-                peers = sorted(
-                    (s for s in sites if s.get("character") == character
-                     and s.get("delta_f") is not None),
-                    key=lambda s: abs(s["delta_f"]), reverse=True,
-                )
-                char_rank = next((r for r, s in enumerate(peers, start=1)
-                                  if s.get("atom_index") == result.site_atom_index), None)
+                if character in ("nucleophilic", "electrophilic"):
+                    peers = sorted(
+                        (s for s in sites if s.get("character") == character
+                         and s.get("delta_f") is not None),
+                        key=lambda s: abs(s["delta_f"]), reverse=True,
+                    )
+                    char_rank = next((r for r, s in enumerate(peers, start=1)
+                                      if s.get("atom_index") == result.site_atom_index), None)
+                else:
+                    char_rank = None
                 role = {"nucleophilic": "donor", "electrophilic": "acceptor"}.get(character, character)
                 if char_rank is None:
-                    # No Δf for this site (or its character): agreement is undefined, not a discrepancy.
+                    # Agreement is undefined, not a discrepancy. An ambiphilic site has no
+                    # donor/acceptor preference, so being the "#1" of that class would say nothing.
                     result.cdft_site_rank = match.get("rank")
                     result.cdft_agreement = None
-                    result.warnings.append(
-                        f"Binding site (atom {result.site_atom_index}) has no Δf in the CDFT "
-                        "ranking; donor/acceptor agreement could not be evaluated."
-                    )
+                    if character == "ambiphilic":
+                        result.warnings.append(
+                            f"Binding site (atom {result.site_atom_index}) is ambiphilic in the "
+                            f"CDFT (|Δf| below the threshold), #{match.get('rank')} of "
+                            f"{len(sites)} sites by |Δf|: no donor/acceptor preference, so "
+                            "agreement is not evaluated."
+                        )
+                    else:
+                        result.warnings.append(
+                            f"Binding site (atom {result.site_atom_index}) has no Δf in the CDFT "
+                            "ranking; donor/acceptor agreement could not be evaluated."
+                        )
                 else:
                     result.cdft_site_rank = char_rank
                     result.cdft_agreement = (char_rank == 1)

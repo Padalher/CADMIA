@@ -94,6 +94,9 @@ Planeado para la próxima versión (puede cambiar):
 
 ## Requisitos
 
+- Linux. CADMIA se desarrolla y se prueba en Linux, el sistema de los clústeres de cómputo; macOS y
+  Windows no tienen soporte (los comandos que analizan salidas ya calculadas pueden funcionar ahí,
+  sin garantía).
 - Python 3.11 o posterior.
 - Salidas de ORCA 6 o de Gaussian 16. ORCA solo hace falta para correr cálculos; el análisis
   funciona en cualquier equipo.

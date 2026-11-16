@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   functions, dual descriptor, CN, ECN, site rank and local softness/electrophilicity as columns.
 
 ### Changed
+- The README states the supported platform: Linux. macOS and Windows are not supported.
 - The comment lines of the `.xyz` files of `geometry`, `prescreen` and `rank` follow the
   extended XYZ: `[to-DFT]` is now `selection=to-DFT` and `E=… Eh` is `energy=…`; `prepare`
   still reads the files written by earlier versions.
@@ -23,6 +24,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   the guides and the headers of the outputs.
 
 ### Fixed
+- `cadmia analyze` no longer reports an ambiphilic binding site as agreeing with the CDFT
+  because it is the strongest of its class: an ambiphilic site has no donor or acceptor
+  preference, so the agreement is left undefined and a warning gives its overall rank.
 - `cadmia db status` and `cadmia db ask` read the project's database when run inside a
   project, like the commands that store results; they read the global one before.
 - The help of `structure plot`, `structure` and `doctor` no longer mentions removed features
