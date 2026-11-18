@@ -39,9 +39,6 @@ def _cmd_ir(args) -> int:
         return 1
 
     if spectrum.n_imaginary:
-        # Imaginary modes carry no IR intensity, so they vanish from the curve on their own and
-        # a saddle point plots like a minimum. The spectrum is still drawn; what it is a
-        # spectrum OF is the thing worth saying.
         print(f"WARNING: {spectrum.n_imaginary} imaginary mode(s) — this geometry is not a "
               "minimum, and they contribute nothing to the curve below.")
 

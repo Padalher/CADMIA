@@ -27,6 +27,7 @@ from cadmia.structure.structural.polyhedra import (Polyhedron, analyze_polyhedra
 TARGET_DIRECTED_PAIRS = ["Ti-Ti", "Ti-Al", "Ti-O", "Al-Al", "Al-Ti", "Al-O"]
 REPORT_RULE_WIDTH = 80
 
+
 def _program_header_lines() -> list[str]:
     import cadmia
     return [
@@ -35,7 +36,7 @@ def _program_header_lines() -> list[str]:
         "# Structural analysis for coordinate files",
         "#",
         "# Author:",
-        "# Pablo Daniel Alvarez Hernandez",
+        "# Pablo Daniel Álvarez Hernández",
         "#",
         "# Institution:",
         "# Division Academica de Ciencias Basicas (DACB)",
@@ -785,8 +786,6 @@ def _text_report_lines(
         stats = ring_statistics(rings)
         by_size = ", ".join(f"{count} of size {size}" for size, count in stats["by_size"].items())
         lines.append(f"{stats['total']} ring(s): {by_size}.")
-        # The subgraph is bipartite (metal-ligand edges only), so every ring alternates and
-        # holds size/2 metals: the n-MR count of zeolite and oxide-cluster nomenclature.
         by_mr = ", ".join(f"{size // 2}-MR: {count}" for size, count in stats["by_size"].items())
         lines.append(f"By metal atoms per ring (n-MR, n = size/2): {by_mr}.")
         composition = ", ".join(f"{name} x{count}"
@@ -844,7 +843,6 @@ def _concept_lines() -> list[str]:
     lines = _header_block("Concepts and Parameter Definitions")
     import textwrap
     for name, definition in PARAMETER_DEFINITIONS:
-        # within the report's 80 columns, the term column kept clear
         lines += textwrap.wrap(f"{name:<15} {definition}", 80, subsequent_indent=" " * 16)
     return lines
 

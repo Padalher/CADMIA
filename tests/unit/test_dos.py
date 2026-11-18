@@ -14,16 +14,11 @@ _HAS_ORCA = _ORCA_N.exists()
 _requires_orca = pytest.mark.skipif(not _HAS_ORCA, reason="ORCA fixture not present")
 
 
-# ─────────────────────────────────────────────
-# compute_dos (pure)
-# ─────────────────────────────────────────────
-
 def test_compute_dos_closed_shell():
     dos = compute_dos([-10.0, -8.0, -2.0], homo_ev=-8.0, lumo_ev=-2.0, sigma=0.2)
     assert dos.dos_beta is None
     assert not dos.is_spin_polarized
     assert dos.gap_ev == pytest.approx(6.0)
-    # peak near each eigenvalue
     assert dos.energy_ev[np.argmax(dos.dos_alpha)] < 0
 
 
@@ -33,25 +28,16 @@ def test_compute_dos_spin_polarized():
     assert np.allclose(dos.dos_total, dos.dos_alpha + dos.dos_beta)
 
 
-# ─────────────────────────────────────────────
-# cadmia.io.electronic ORCA eigenvalue extraction
-# ─────────────────────────────────────────────
-
 @_requires_orca
 def test_orca_eigenvalues_parsed():
     from cadmia.io.orca import parse_orca_geometry
     from cadmia.io.electronic import parse_orca_electronic
     state = parse_orca_electronic(_ORCA_N, parse_orca_geometry(_ORCA_N))
     assert state.alpha_eigenvalues_ev is not None
-    assert len(state.alpha_eigenvalues_ev) > 8          # core + valence + virtual
-    assert state.beta_eigenvalues_ev is None             # neutral = closed shell
-    # HOMO lies within the parsed spectrum
+    assert len(state.alpha_eigenvalues_ev) > 8
+    assert state.beta_eigenvalues_ev is None
     assert min(state.alpha_eigenvalues_ev) < state.homo_ev < max(state.alpha_eigenvalues_ev)
 
-
-# ─────────────────────────────────────────────
-# dos_from_output (real ORCA)
-# ─────────────────────────────────────────────
 
 @_requires_orca
 def test_dos_from_orca_output():
@@ -88,10 +74,6 @@ def test_dos_from_output_without_eigenvalues_raises(tmp_path):
         dos_from_output(bad)
 
 
-# ─────────────────────────────────────────────
-# CLI
-# ─────────────────────────────────────────────
-
 @_requires_orca
 def test_cli_dos_summary(capsys):
     from cadmia.electronic.cli import main
@@ -112,10 +94,6 @@ def test_cli_dos_json(tmp_path, capsys):
     assert "dos_total" in payload and payload["gap_ev"] == pytest.approx(4.5675, abs=1e-3)
     assert payload["spin_polarized"] is False
 
-
-# ─────────────────────────────────────────────
-# PDOS (per-MO Loewdin populations)
-# ─────────────────────────────────────────────
 
 _PDOS_BLOCK = """\
                                  O   R   C   A
@@ -165,7 +143,7 @@ def test_parse_mo_populations_closed_shell(tmp_path):
     assert alpha[0]["occ"] == 2.0
     assert alpha[0]["contributions"][(0, "Ti", "1s")] == 90.0
     assert alpha[2]["contributions"][(1, "O", "2px")] == 80.0
-    assert (0, "Ti", "1s") not in alpha[2]["contributions"]   # zeros dropped
+    assert (0, "Ti", "1s") not in alpha[2]["contributions"]
 
 
 def test_parse_mo_populations_open_shell(tmp_path):
@@ -194,10 +172,8 @@ def test_pdos_from_output_series(tmp_path):
     assert set(pdos.series) == {"Ti", "O"}
     assert pdos.homo_ev == pytest.approx(-0.3 * 27.2114)
     assert pdos.lumo_ev == pytest.approx(0.1 * 27.2114)
-    # at the first MO energy, Ti dominates (90% vs 10%)
     i = int(np.argmin(np.abs(pdos.energy_ev - (-0.5 * 27.2114))))
     assert pdos.series["Ti"][i] > pdos.series["O"][i]
-    # projections sum to ~the total there (no threshold losses in this fixture)
     assert pdos.series["Ti"][i] + pdos.series["O"][i] == pytest.approx(pdos.total[i], rel=1e-6)
 
 
@@ -243,10 +219,6 @@ def test_cli_pdos_writes_dat(tmp_path, capsys):
     text = out.read_text(encoding="utf-8")
     assert "PDOS_O" in text and "PDOS_Ti" in text and "DOS_total" in text
 
-
-# ─────────────────────────────────────────────
-# Interactive HTML plots
-# ─────────────────────────────────────────────
 
 def test_pdos_html_contains_traces_and_frontier(tmp_path):
     from cadmia.electronic.dos import pdos_from_output
@@ -304,13 +276,13 @@ def test_dos_grid_resolves_valence_peaks_despite_core_orbitals():
     assert step <= 0.1 / 4
     peak = dos.dos_total[np.argmin(abs(dos.energy_ev + 8.0))]
     assert abs(peak - 2 / (0.1 * np.sqrt(2 * np.pi))) < 0.05 * peak
-    assert abs(np.trapezoid(dos.dos_total, dos.energy_ev) - 6.0) < 1e-3     # 3 orbitals × 2 spins
+    assert abs(np.trapezoid(dos.dos_total, dos.energy_ev) - 6.0) < 1e-3
 
 
 def test_dos_html_opens_on_the_frontier_window():
     from cadmia.electronic.plot import dos_html
     dos = compute_dos([-4900.0, -8.0, -2.0], homo_ev=-8.0, lumo_ev=-2.0, sigma=0.1)
-    assert '"range": [-28.0, 0.0]' in dos_html(dos)     # LUMO + 10 eV, cut where the curve ends
+    assert '"range": [-28.0, 0.0]' in dos_html(dos)
 
 
 def test_closed_shell_dos_counts_both_spins():
@@ -326,7 +298,7 @@ def test_pdos_closed_shell_counts_both_spins(tmp_path):
     p = tmp_path / "x.out"
     p.write_text(_PDOS_BLOCK)
     pdos = pdos_from_output(p, sigma=0.2, n_points=500)
-    assert abs(np.trapezoid(pdos.total, pdos.energy_ev) - 6.0) < 1e-3                  # 3 orbitals × 2 spins
+    assert abs(np.trapezoid(pdos.total, pdos.energy_ev) - 6.0) < 1e-3
 
 
 @pytest.mark.parametrize("sigma", [0.0, -0.1])

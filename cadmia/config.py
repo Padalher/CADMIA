@@ -66,8 +66,6 @@ class HPCProfile:
             if not self.user:
                 raise ValueError("HPCProfile.user must not be empty.")
 
-    # ── Persistence ────────────────────────────────────
-
     def save(self, directory: Path = DEFAULT_PROFILES_DIR) -> Path:
         """Serialize to YAML and write to *directory*/<name>.yaml."""
         directory = Path(directory)

@@ -43,7 +43,7 @@ def _doc(path: Path, lang: str):
 def test_all_seventeen_sections_plus_appendix(path, lang):
     doc = _doc(path, lang)
     sections = [b for b in doc.blocks if b.kind == "section"]
-    assert len(sections) == 18                      # 17 numbered + the appendix
+    assert len(sections) == 18
     assert [b.label for b in sections[:17]] == [f"{i}." for i in range(1, 18)]
 
 
@@ -114,8 +114,6 @@ def test_conversion_loses_no_prose(path, lang):
     body = body.split("=" * 68, 2)[-1]
     want = collections.Counter(words(body))
     missing = sum(n - got[w] for w, n in want.items() if n > got[w])
-    # A couple of words legitimately differ: section 16's index entry and its
-    # body heading are not worded identically, and the index wins.
     assert missing <= 3, f"{missing} words lost in conversion"
 
 
@@ -162,7 +160,7 @@ def test_output_compiles_with_pdflatex(path, lang, tmp_path):
     proc = subprocess.run(
         ["pdflatex", "-interaction=nonstopmode", "-halt-on-error", src.name],
         cwd=tmp_path, capture_output=True, text=True, timeout=300,
-        errors="replace",                      # TeX logs are not valid UTF-8
+        errors="replace",
     )
     assert proc.returncode == 0, proc.stdout[-3000:]
     assert (tmp_path / f"guide_{lang}.pdf").exists()

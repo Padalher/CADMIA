@@ -131,10 +131,6 @@ def test_parse_multiwfn_cdft_report(tmp_path):
     assert parsed.atoms[0].electrophilicity == pytest.approx(0.26315)
 
 
-# ---------------------------------------------------------------------------
-# Extended FukuiResult descriptors
-# ---------------------------------------------------------------------------
-
 def test_softness_zero_computed():
     gd = compute_global_descriptors(homo_ev=-6.0, lumo_ev=-4.0)
     r = compute_condensed_fukui(
@@ -205,10 +201,6 @@ def test_donicity_and_accepting_capacity():
         assert r.accepting_capacity[i] == pytest.approx(2.5 * r.f_plus[i], abs=1e-9)
 
 
-# ---------------------------------------------------------------------------
-# FiniteDifferenceCDFT with HOMO and nucleophilicity
-# ---------------------------------------------------------------------------
-
 def test_fd_nucleophilicity_index():
     homo_n = -7.8851
     d = compute_finite_difference_descriptors(
@@ -237,10 +229,6 @@ def test_fd_custom_tce_reference():
     assert d.homo_tce_ev == pytest.approx(custom_tce)
 
 
-# ---------------------------------------------------------------------------
-# CDFTWorkflow end-to-end (in-memory states, no real output files)
-# ---------------------------------------------------------------------------
-
 def _make_state(energy, homo, lumo, charges, atoms, positions, labels):
     structure = Structure(
         atoms=atoms,
@@ -262,24 +250,19 @@ def _make_state(energy, homo, lumo, charges, atoms, positions, labels):
 _POSITIONS = [[0.0, 0.0, 0.0], [1.9, 0.0, 0.0]]
 
 def test_run_cdft_workflow_complete():
-    # Charges are the module fixtures: they conserve charge across the triplet (0 / −1 / +1), so
-    # the condensed Fukui functions normalize to 1 as the physics requires.
     sn   = _make_state(-100.0, -7.89, -4.5, Q_N, ATOMS, _POSITIONS, LABELS)
     snp1 = _make_state(-100.1, -0.94, None, Q_Np1, ATOMS, _POSITIONS, LABELS)
     snm1 = _make_state(-99.7,  -11.4, None, Q_Nm1, ATOMS, _POSITIONS, LABELS)
 
     result = run_cdft_workflow(sn, snp1, snm1)
 
-    # Global FD
     assert result.global_fd.ip_ev == pytest.approx(0.3 * 27.2114, abs=1e-3)
     assert result.global_fd.ea_ev == pytest.approx(0.1 * 27.2114, abs=1e-3)
     assert result.nucleophilicity_ev == pytest.approx(-7.89 - HOMO_TCE_EV, abs=1e-4)
 
-    # Koopmans
     assert result.global_koopmans is not None
     assert result.global_koopmans.homo_ev == pytest.approx(-7.89)
 
-    # Local Fukui
     f = result.fukui
     assert f.f_plus is not None
     assert f.f_minus is not None
@@ -290,8 +273,6 @@ def test_run_cdft_workflow_complete():
     assert f.donicity is not None
     assert f.accepting_capacity is not None
 
-
-# --- the three charge states must be comparable atom for atom ---
 
 def _audit_state(atoms, charges, scheme="hirshfeld", energy=-100.0):
     from cadmia.cdft.workflow import CDFTInputState
@@ -312,7 +293,7 @@ def test_states_with_a_different_atom_order_are_refused():
     from cadmia.cdft.workflow import run_cdft_workflow
 
     n = _audit_state(["Ti", "O"], [0.5, -0.5], energy=-100.0)
-    np1 = _audit_state(["O", "Ti"], [-0.6, 0.4], energy=-100.1)      # swapped
+    np1 = _audit_state(["O", "Ti"], [-0.6, 0.4], energy=-100.1)
     nm1 = _audit_state(["Ti", "O"], [0.7, -0.3], energy=-99.6)
 
     with pytest.raises(ValueError, match="atom order"):
@@ -333,18 +314,14 @@ def test_mixing_charge_schemes_is_an_error_not_a_warning():
         run_cdft_workflow(n, np1, nm1)
 
 
-# ─────────────────────────────────────────────
-# Regression tests: CDFT edge cases
-# ─────────────────────────────────────────────
-
 def test_the_ambiphilic_threshold_scales_with_the_system():
     """f sums to 1 over N atoms, so an absolute cut means a different thing at each size."""
     from cadmia.cdft.acid_base import scaled_threshold
 
-    assert scaled_threshold(8) == pytest.approx(0.02)     # the reference size
-    assert scaled_threshold(32) < scaled_threshold(8)     # a 32-atom cluster needs a smaller cut
+    assert scaled_threshold(8) == pytest.approx(0.02)
+    assert scaled_threshold(32) < scaled_threshold(8)
     assert scaled_threshold(32) == pytest.approx(0.005)
-    assert scaled_threshold(None) == pytest.approx(0.02)  # unknown size → the base value
+    assert scaled_threshold(None) == pytest.approx(0.02)
 
 
 def test_a_negative_fukui_cannot_make_an_acid_or_a_base():
@@ -371,7 +348,7 @@ def test_an_unbound_anion_is_reported():
     with pytest.warns(RuntimeWarning, match="NOT bound"):
         r = compute_finite_difference_descriptors(
             energy_n_hartree=-100.0, energy_np1_hartree=-99.9, energy_nm1_hartree=-99.6)
-    assert r.ea_ev < 0 and r.hardness_ev > 0      # the old guard would have let this through
+    assert r.ea_ev < 0 and r.hardness_ev > 0
 
 
 def test_a_weakly_bound_anion_is_flagged_as_basis_sensitive():
@@ -387,12 +364,12 @@ def test_a_broken_symmetry_singlet_is_no_longer_skipped():
     from cadmia.cdft.workflow import _spin_contamination_warnings
 
     class _S:
-        spin_sq = 0.30      # nearest ideal is 0 (singlet), not 0.75
+        spin_sq = 0.30
 
     msgs = _spin_contamination_warnings({"N": _S()})
     assert any("closed-shell" in m for m in msgs)
 
     class _Clean:
-        spin_sq = 0.02      # a genuine closed shell stays quiet
+        spin_sq = 0.02
 
     assert _spin_contamination_warnings({"N": _Clean()}) == []

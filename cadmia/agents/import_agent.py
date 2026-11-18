@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
-# Engine normal-termination markers (stable across versions).
 _TERMINATION = {
     "gaussian": ("Normal termination",),
     "orca": ("****ORCA TERMINATED NORMALLY****", "ORCA TERMINATED NORMALLY"),
@@ -130,7 +129,6 @@ def import_outputs(
                 item.structure_id = ids["molecule_id"]
                 item.calculation_id = ids["calculation_id"]
 
-                # Mayer bond orders (ORCA Print[P_Mayer] 1) when present.
                 from cadmia.io.mayer import parse_mayer
                 mayer = parse_mayer(path)
                 if mayer and mayer.bonds:
@@ -144,7 +142,7 @@ def import_outputs(
                     conn, command=command or f"cadmia import {path}", agent="import",
                     status="ok", ids=ids,
                 )
-            except Exception as exc:                 # one bad file must not stop the batch
+            except Exception as exc:
                 item.error = f"{type(exc).__name__}: {exc}"
                 result.warnings.append(f"{path}: {item.error}")
             result.items.append(item)

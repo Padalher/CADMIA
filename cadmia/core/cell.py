@@ -9,7 +9,7 @@ import numpy as np
 
 @dataclass
 class Cell:
-    lattice_vectors: Optional[np.ndarray] = None   # (3, 3), rows are a/b/c vectors
+    lattice_vectors: Optional[np.ndarray] = None
     periodic:        bool = False
     metadata:        dict = field(default_factory=dict)
 

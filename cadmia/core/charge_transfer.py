@@ -32,10 +32,10 @@ class ChargeTransfer:
     eta_a_ev: float
     mu_b_ev: float
     eta_b_ev: float
-    delta_n: float        # electrons transferred A → B (>0 ⇒ A donates to B)
-    delta_e_ev: float     # second-order charge-transfer stabilization (≤ 0)
-    donor: str            # label of the electron donor
-    acceptor: str         # label of the electron acceptor
+    delta_n: float
+    delta_e_ev: float
+    donor: str
+    acceptor: str
 
 
 def compute_charge_transfer(

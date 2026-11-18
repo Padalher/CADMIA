@@ -1,4 +1,9 @@
-"""Typed configuration loading for structural analysis."""
+"""Typed configuration loading for structural analysis.
+
+Units: covalent and metallic radii and bond cutoffs are in angstrom; atomic masses are in
+atomic mass units (u). The fallback radii table is kept apart from the one in
+``cadmia.utils.chemistry`` and the two are not interchangeable.
+"""
 from __future__ import annotations
 
 import warnings
@@ -8,11 +13,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-# Elements already warned about (missing radius) — avoids repeating the notice per atom pair.
 _WARNED_MISSING_RADII: set[str] = set()
 
-# Covalent radii (Angstrom) from Alvarez 2008, DOI:10.1039/b801115j.
-# Used as fallback when an element is absent from the YAML config.
 _FALLBACK_COVALENT_RADII: Dict[str, float] = {
     "H": 0.31, "He": 0.28, "Li": 1.28, "Be": 0.96, "B": 0.84,
     "C": 0.76, "N": 0.71, "O": 0.66, "F": 0.57, "Ne": 0.58,
@@ -37,8 +39,6 @@ _FALLBACK_COVALENT_RADII: Dict[str, float] = {
     "Md": 1.73, "No": 1.76, "Lr": 1.61,
 }
 
-# Standard atomic weights (g/mol) from IUPAC 2021.
-# Used as fallback when an element is absent from the YAML config.
 _FALLBACK_ATOMIC_MASSES: Dict[str, float] = {
     "H": 1.008, "He": 4.003, "Li": 6.941, "Be": 9.012, "B": 10.811,
     "C": 12.011, "N": 14.007, "O": 15.999, "F": 18.998, "Ne": 20.180,

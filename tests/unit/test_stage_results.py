@@ -48,14 +48,13 @@ def test_every_stage_saves_itself_and_report_assembles_the_output(project):
     assert info["format"] == "extxyz-cadmia-1" and info["energy_unit"] == "Eh"
     names = [n for n, _ in extxyz_columns(info)]
     assert names[:6] == ["index", "q", "f_plus", "f_minus", "f_zero", "dual"]
-    al5 = sites[2 + 4].split()                          # index 5 is Al(5)
+    al5 = sites[2 + 4].split()
     assert al5[0] == "Al" and al5[4] == "5"
     assert float(al5[4 + names.index("f_plus")]) == pytest.approx(0.3539, abs=1e-4)
 
     stages = load_stage_results(root)
     assert list(stages) == ["structure", "cdft", "analysis", "stability"]
     cdft = stages["cdft"][0]
-    # one file: the ranking that geometry/analyze read and the full report correlate reads
     assert cdft["sites"] and cdft["atoms"] and cdft["global_fd"]["ip_ev"] == pytest.approx(10.0968, abs=1e-4)
     assert "Global CDFT descriptors" in cdft["report_text"]
 
@@ -150,7 +149,6 @@ def test_counterpoise_inputs_and_bsse(tmp_path, monkeypatch):
     own = (tmp_path / "cp" / "1tial_CO2_cp_probe_own.inp").read_text(encoding="utf-8")
     assert "C:" in full and "O:" in full and "* xyz 0 1" in full
     assert "\nTi " not in own and own.count("\nO ") == 2
-    # four fake outputs: BSSE = (E_cl_own − E_cl_full) + (E_pr_own − E_pr_full)
     energies = {"cluster_own": -10.0, "cluster_full": -10.002, "probe_own": -5.0, "probe_full": -5.001}
     real = analysis_agent._parse_output
     monkeypatch.setattr(analysis_agent, "_parse_output", lambda f: (
@@ -209,7 +207,7 @@ def test_a_cdft_of_other_files_is_saved_as_a_copy_not_over_the_first(project):
     _ok(runner, ["cdft", "--n", str(D / "1tial_N.out"), "--np1", str(D / "1tial_anion.out"),
                  "--nm1", str(D / "1tial_cation.out"), "--no-db"])
     G = D.parent / "1tial_cdft"
-    for _ in range(2):          # the second run of the same files updates its copy, no third one
+    for _ in range(2):
         _ok(runner, ["cdft", "--n", str(G / "N.out"), "--np1", str(G / "N+1.out"),
                      "--nm1", str(G / "N-1.out"), "--no-db"])
     assert sorted(p.name for p in (root / "results").glob("cdft*.json")) == ["cdft-2.json", "cdft.json"]
@@ -252,9 +250,7 @@ def test_bsse_from_real_orca_single_points_and_a_real_gaussian_counterpoise(tmp_
     assert analysis_agent._parse_bsse_hartree(g16) == pytest.approx(0.002428048502)
     assert analysis_agent._adduct_energy_is_cp_corrected(g16)
     state, engine = analysis_agent._parse_output(g16)
-    # Gaussian's corrected energy is the complex plus the BSSE, not minus
     assert engine == "gaussian" and state.energy_hartree == pytest.approx(-1898.67578709 + 0.002428048502, abs=1e-7)
-    # the two engines agree on the basis-set error within 0.05 kcal/mol
     assert abs(orca - 0.002428048502) * HARTREE_TO_KCAL < 0.05
 
 
@@ -268,7 +264,7 @@ def test_report_takes_originals_by_default_and_copies_on_request(project):
     res = _ok(runner, ["report"])
     out = (root / "reports" / "cadmia.out").read_text(encoding="utf-8")
     assert "cdft-2.json" in res.output and "of 2" not in out
-    assert "MODULE 2  ·  CDFT" in out and "MODULE 1" not in out      # numbers are fixed
+    assert "MODULE 2  ·  CDFT" in out and "MODULE 1" not in out
     for args in (["--cdft", "all"], ["--cdft", "results/cdft.json", "results/cdft-2.json"]):
         _ok(runner, ["report", *args, "-o", "both.out"])
         assert "CDFT 2 of 2: cdft-2" in (root / "both.out").read_text(encoding="utf-8")
@@ -282,7 +278,7 @@ def test_text_reports_print_relative_paths_unless_the_user_asks_for_absolute(pro
     inside.parent.mkdir()
     inside.write_bytes((D / "1tial_N.out").read_bytes())
     assert results.shown_path(inside) == "outs/1tial_N.out"
-    assert results.shown_path(D / "1tial_N.out") == "1tial_N.out"      # outside: the name only
+    assert results.shown_path(D / "1tial_N.out") == "1tial_N.out"
     from cadmia.agents.text_report import analysis_report_text
     assert f" Adduct  : 1tial_N.out" in analysis_report_text({"adduct_path": str(D / "1tial_N.out")})
     _ok(runner, ["structure", "report", str(inside), "-o", "s.txt"])
@@ -321,7 +317,6 @@ def test_structure_report_in_a_project_writes_nothing_beside_the_input(project, 
 
 
 def test_db_status_reads_the_database_the_resolver_picks(project, monkeypatch):
-    # the resolver (tested in test_db.py) returns the project's database inside a project
     from cadmia.db import session
     runner, root = project
     own = root / ".cadmia" / "cadmia.db"

@@ -20,12 +20,10 @@ from typing import Any, Callable, Dict, List, Optional
 
 from cadmia.core.sidecar import atomic_write_text, read_json
 
-# Pipeline stages in dependency order.
 STAGES: tuple[str, ...] = (
     "validate", "cdft", "geometry", "run", "analyze", "stability", "report",
 )
 
-# Stage status vocabulary.
 PENDING, DONE, SKIPPED, BLOCKED, FAILED = (
     "pending", "done", "skipped", "blocked", "failed",
 )
@@ -62,7 +60,6 @@ class PipelineState:
         if not self.created:
             self.created = _now()
 
-    # ── serialization ──
     def to_dict(self) -> dict:
         return {
             "cluster": self.cluster,
@@ -88,7 +85,7 @@ class PipelineState:
             k: StageState(**{kk: vv for kk, vv in v.items() if kk in known})
             for k, v in data.get("stages", {}).items()
         }
-        for name in STAGES:                       # tolerate manifests from other versions
+        for name in STAGES:
             stages.setdefault(name, StageState(name=name))
         return cls(
             cluster=data.get("cluster", ""), probe=data.get("probe", ""),
@@ -96,7 +93,6 @@ class PipelineState:
             stages=stages, created=data.get("created", ""),
         )
 
-    # ── queries ──
     @property
     def completed(self) -> List[str]:
         return [n for n in STAGES if self.stages[n].status in (DONE, SKIPPED)]
@@ -108,10 +104,6 @@ class PipelineState:
                 return n
         return None
 
-
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
 
 def detect_engine(n_output: "str | Path") -> str:
     """Engine of the run: the one that wrote the N output."""
@@ -140,10 +132,6 @@ def _emit(on_event: Optional[Callable[[str, str], None]], stage: str, msg: str) 
     if on_event is not None:
         on_event(stage, msg)
 
-
-# ─────────────────────────────────────────────
-# Stages
-# ─────────────────────────────────────────────
 
 def _stage_validate(state: PipelineState, ctx: dict) -> StageState:
     from cadmia.agents import validation_agent
@@ -231,11 +219,6 @@ def _stage_run(state: PipelineState, ctx: dict) -> StageState:
     except ValueError as exc:
         st.status, st.note = FAILED, str(exc)
         return st
-    # "done" only means the engine exited. Validation is what says the numbers are usable, and
-    # an adduct that failed it still goes through: dropping it here would hide a result the user
-    # may want to look at. What must not happen is that it contributes a number in silence, and
-    # that is guarded where the number is computed — analyze refuses an energy from a geometry
-    # that did not converge. Here it is only made visible.
     rejected = [j.label for j in result.jobs
                 if j.status == "done" and j.output_path and j.validation_ok is False]
     outputs = {j.label: str(j.output_path) for j in result.jobs
@@ -256,7 +239,6 @@ def _stage_run(state: PipelineState, ctx: dict) -> StageState:
             st.note += (f"; {len(rejected)} failed validation and are analyzed anyway: "
                         + ", ".join(sorted(rejected)[:6]) + (" …" if len(rejected) > 6 else ""))
     if result.warnings:
-        # the spin and charge each input got, among others: lost here, nobody would see them
         st.note += f"; {len(result.warnings)} warning(s): " + " | ".join(result.warnings[:3]) + (
             " …" if len(result.warnings) > 3 else "")
     return st
@@ -285,7 +267,7 @@ def _stage_analyze(state: PipelineState, ctx: dict) -> StageState:
                 probe=state.probe, bsse=ctx["bsse"], cdft_json=cdft_json,
                 config_index=cfg.get("config_index"), cluster_label=state.cluster,
             )
-        except Exception as exc:                  # one bad adduct must not sink the batch
+        except Exception as exc:
             failed.append(f"{label}: {exc}")
             continue
         dest = analyses_dir / f"{label}_analysis.json"
@@ -348,10 +330,6 @@ _STAGE_FUNCS: Dict[str, Callable[[PipelineState, dict], StageState]] = {
 }
 
 
-# ─────────────────────────────────────────────
-# Driver
-# ─────────────────────────────────────────────
-
 def _params_record(params) -> dict:
     """The calculation parameters as the manifest stores them (JSON round-trip, so that a
     saved record and a fresh one compare equal)."""
@@ -359,7 +337,6 @@ def _params_record(params) -> dict:
     return json.loads(json.dumps(asdict(params)))
 
 
-# resources, not level of theory: changing them on resume is fine
 _RESOURCE_PARAMS = ("nprocs", "mem_gaussian_gb", "mem_orca_mb_core")
 
 
@@ -443,12 +420,7 @@ def run_pipeline(
                     f"the level options to keep it, or start a new pipeline in another --workdir.")
             regenerate_inputs = bool(changed)
         if params_explicit or not (saved or has_calcs):
-            # a manifest from 0.3.0 holds no level: with outputs present, defaults are no record
             state.inputs["params"] = wanted
-        # Optional inputs may only become available at resume time (the isolated probe
-        # optimized later, or the stability references). When one arrives, re-open the
-        # stage that was skipped for lack of it — and the report that consumes it —
-        # so plan() picks them up instead of skipping them as already SKIPPED.
         reopen: List[str] = []
         if probe_free:
             state.inputs["probe_free"] = str(probe_free)

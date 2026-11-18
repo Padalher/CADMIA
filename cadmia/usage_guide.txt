@@ -13,7 +13,7 @@
 GUÍA DE USO
 ====================================================================
 
-Versión del programa: CADMIA 0.3.1
+Versión del programa: CADMIA 0.3.2
 Año de edición:       2026
 
 Autor:        Pablo Daniel Álvarez Hernández
@@ -1655,6 +1655,14 @@ rank, rel_energy, selection…), y Properties= nombra las columnas extra por át
 después del elemento y las coordenadas: group (cluster o probe) en los aductos,
 los valores CDFT en cdft_sites.xyz. Un lector de XYZ simple sigue leyendo las
 cuatro primeras columnas; un valor que no se calculó se escribe nan, nunca 0.
+
+Todos los pasos de una optimización: cadmia xyz SALIDA.out --steps escribe un
+bloque por paso (ORCA, y Gaussian si el log imprime la tabla Forces) en
+<salida>_steps.xyz (-o lo cambia). Cada bloque lleva energy= (Eh), step=
+(1..N), forces_unit=eV/Ang y la columna forces (3 valores por átomo, en eV/Å:
+-gradiente, convertido de Eh/bohr). En ORCA solo se escriben los ciclos con
+gradiente: la evaluación final en el punto estacionario (otra malla, sin
+gradiente) no se incluye. Si la salida no trae ningún gradiente, el comando termina con error.
 
 REFERENCIAS (12)
 [1] R. Hoppe. "Effective coordination numbers (ECoN) and mean fictive ionic

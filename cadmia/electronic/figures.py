@@ -26,7 +26,6 @@ def _frontier(ax, homo: Optional[float], lumo: Optional[float]) -> None:
         lo = max(homo - VIEW_BELOW_HOMO_EV, min(float(x.min()) for x in xs))
         hi = min(lumo + VIEW_ABOVE_LUMO_EV, max(float(x.max()) for x in xs))
         ax.set_xlim(lo, hi)
-        # the y range of what is on view, not of the core peaks left outside it
         ys = [y[(x >= lo) & (x <= hi)] for line in ax.get_lines()
               for x, y in [line.get_data()] if len(x) > 2]
         top = max((float(abs(v).max()) for v in ys if v.size), default=0.0)

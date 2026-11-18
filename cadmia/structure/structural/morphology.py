@@ -35,8 +35,6 @@ import numpy as np
 from cadmia.core import Structure
 from cadmia.structure.structural.analyzer import StructuralResult
 
-# A ring larger than this is not a motif, it is a path around the whole cluster. The bound also
-# keeps the per-bond search cheap on a structure whose graph is densely connected.
 MAX_RING_SIZE = 12
 
 
@@ -199,7 +197,7 @@ def _horton_candidates(edges: List[Tuple[int, int]], n_atoms: int,
             for vx, ex in _enumerate_shortest_paths(parents, source, x):
                 for vy, ey in _enumerate_shortest_paths(parents, source, y):
                     if not set(vx[1:]).isdisjoint(vy[1:]):
-                        continue  # the two arms touch away from the source: not a simple cycle
+                        continue
                     edge_mask = 1 << edge_index
                     for e in ex:
                         edge_mask ^= 1 << e
@@ -371,7 +369,7 @@ def global_shape(structure: Structure) -> GlobalShape:
 
     centered = positions - positions.mean(axis=0)
     tensor = (centered.T @ centered) / n_atoms
-    moments = np.linalg.eigvalsh(tensor)          # eigvalsh returns them ascending
+    moments = np.linalg.eigvalsh(tensor)
     l1, l2, l3 = (float(value) for value in moments)
     rg2 = l1 + l2 + l3
     asphericity = l3 - 0.5 * (l1 + l2)
@@ -398,10 +396,6 @@ def global_shape(structure: Structure) -> GlobalShape:
     )
 
 
-# The fallback hull enumerates every triple of points, which is fine for the 3 to 8 vertices of
-# a coordination polyhedron and quadratic-times-linear for a whole structure: 100 atoms is 161700
-# triples. Above this many atoms it is skipped rather than silently taking seconds, unless scipy
-# is installed, in which case the proper O(n log n) hull is used and there is no limit.
 HULL_BRUTE_FORCE_LIMIT = 40
 
 
@@ -420,7 +414,7 @@ def _hull_volume(positions: np.ndarray) -> float:
     try:
         return float(ConvexHull(np.asarray(positions, dtype=float)).volume)
     except Exception:
-        return float("nan")          # coplanar or degenerate: no volume to report
+        return float("nan")
 
 
 def coordination_outliers(result: StructuralResult,

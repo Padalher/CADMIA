@@ -18,29 +18,19 @@ from cadmia.core.units import HARTREE_TO_KCAL as _HARTREE_TO_KCAL
 from cadmia.io.electronic import _parse_gaussian_energy, _parse_orca_energy
 from cadmia.utils.geometry import kabsch_rmsd
 
-# ─────────────────────────────────────────────
-# Thresholds
-# ─────────────────────────────────────────────
 
-_DE_KCAL_THRESHOLD   = 0.1     # flag if |ΔE| > 0.1 kcal/mol
-_RMSD_ANG_THRESHOLD  = 0.01    # flag if geometry RMSD > 0.01 Å
+_DE_KCAL_THRESHOLD   = 0.1
+_RMSD_ANG_THRESHOLD  = 0.01
 
-# Modes with |freq| ≤ this are treated as translational/rotational and excluded
-_NONTRIVIAL_FREQ_THRESHOLD = 10.0   # cm⁻¹
+_NONTRIVIAL_FREQ_THRESHOLD = 10.0
 
-_N_FREQ_COMPARE = 6   # compare first N non-trivial modes
+_N_FREQ_COMPARE = 6
 
-
-# ─────────────────────────────────────────────
-# Output parsers (private)
-# ─────────────────────────────────────────────
 
 def _parse_gaussian_frequencies(lines: List[str]) -> List[float]:
     """Parse all vibrational frequencies (cm⁻¹) from Gaussian output."""
     freqs: List[float] = []
     for line in lines:
-        # Not startswith("Frequencies --"): hpmodes prints "Frequencies ---" for the
-        # same modes, so both blocks match and every frequency is counted twice.
         if re.match(r"\s*Frequencies\s+--\s", line):
             freqs.extend(float(x) for x in line.split("--", 1)[1].split())
     return freqs
@@ -55,23 +45,20 @@ def _parse_orca_frequencies(lines: List[str]) -> List[float]:
         6:       145.23 cm**-1
     Skips near-zero modes (|freq| <= _NONTRIVIAL_FREQ_THRESHOLD).
     """
-    # The LAST block, not the first. An opt+freq run prints one per geometry, and the rest of
-    # CADMIA (io/vibrational.py) reads the last one: taking the first here made the same file
-    # give two different frequency sets depending on which code path asked.
     freqs: List[float] = []
     in_block = False
     pat = re.compile(r"^\s*\d+:\s+([-\d.]+)\s+cm\*\*-1")
     for line in lines:
         if "VIBRATIONAL FREQUENCIES" in line:
             in_block = True
-            freqs = []                     # a new block replaces the previous one
+            freqs = []
             continue
         if in_block:
             m = pat.match(line)
             if m:
                 freqs.append(float(m.group(1)))
             elif freqs:
-                in_block = False           # block ended; keep reading in case another follows
+                in_block = False
     return freqs
 
 
@@ -112,18 +99,14 @@ def _parse_orca_wall_time(lines: List[str]) -> Optional[float]:
     return None
 
 
-# ─────────────────────────────────────────────
-# Result types
-# ─────────────────────────────────────────────
-
 @dataclass
 class EngineResult:
     """Parsed results from a single engine's output file."""
-    engine:          str                   # "gaussian" | "orca"
+    engine:          str
     output_path:     Path
     energy_hartree:  Optional[float]       = None
     frequencies_cm1: Optional[List[float]] = None
-    geometry:        Optional[np.ndarray]  = None   # (N, 3) optimized positions
+    geometry:        Optional[np.ndarray]  = None
     atoms:           Optional[List[str]]   = None
     wall_time_s:     Optional[float]       = None
     validation_ok:   bool                  = False
@@ -147,10 +130,10 @@ class EngineResult:
 @dataclass
 class BenchmarkComparison:
     """Cross-engine comparison metrics."""
-    delta_e_kcal:     Optional[float] = None   # |E_gaussian − E_orca| × 627.509
-    rmsd_ang:         Optional[float] = None   # Kabsch RMSD of optimized geometries
-    timing_ratio:     Optional[float] = None   # wall_time_orca / wall_time_gaussian
-    freq_rmsd_cm1:    Optional[float] = None   # RMSD of first 6 non-trivial modes
+    delta_e_kcal:     Optional[float] = None
+    rmsd_ang:         Optional[float] = None
+    timing_ratio:     Optional[float] = None
+    freq_rmsd_cm1:    Optional[float] = None
     engine_agreement: bool            = False
     recommendation:   str             = "inconclusive"
     flags:            List[str]       = field(default_factory=list)
@@ -183,7 +166,7 @@ class BenchmarkResult:
     orca_result:     Optional[EngineResult]     = None
     comparison:      Optional[BenchmarkComparison] = None
     warnings:        List[str]                  = field(default_factory=list)
-    output_json:     Optional[str]              = None   # sidecar written next to the inputs
+    output_json:     Optional[str]              = None
 
     def to_json(self) -> str:
         data: dict = {
@@ -272,21 +255,15 @@ class BenchmarkResult:
         return "\n".join(lines) + "\n"
 
 
-# ─────────────────────────────────────────────
-# Comparison logic
-# ─────────────────────────────────────────────
-
 def _compare(g: EngineResult, o: EngineResult) -> BenchmarkComparison:
     flags: List[str] = []
 
-    # ΔE
     delta_e: Optional[float] = None
     if g.energy_hartree is not None and o.energy_hartree is not None:
         delta_e = abs(g.energy_hartree - o.energy_hartree) * _HARTREE_TO_KCAL
         if delta_e > _DE_KCAL_THRESHOLD:
             flags.append(f"|ΔE| = {delta_e:.4f} kcal/mol > threshold ({_DE_KCAL_THRESHOLD})")
 
-    # Geometry RMSD
     rmsd: Optional[float] = None
     if g.geometry is not None and o.geometry is not None:
         if g.geometry.shape == o.geometry.shape:
@@ -298,12 +275,10 @@ def _compare(g: EngineResult, o: EngineResult) -> BenchmarkComparison:
                 f"Geometry shape mismatch: Gaussian {g.geometry.shape} vs ORCA {o.geometry.shape}"
             )
 
-    # Timing ratio
     timing_ratio: Optional[float] = None
     if g.wall_time_s and o.wall_time_s and g.wall_time_s > 0:
         timing_ratio = o.wall_time_s / g.wall_time_s
 
-    # Frequency RMSD (first N non-trivial modes)
     freq_rmsd: Optional[float] = None
     if g.frequencies_cm1 and o.frequencies_cm1:
         gf = _nontrivial(g.frequencies_cm1)[:_N_FREQ_COMPARE]
@@ -312,7 +287,6 @@ def _compare(g: EngineResult, o: EngineResult) -> BenchmarkComparison:
             arr = np.array(gf) - np.array(of)
             freq_rmsd = float(np.sqrt((arr ** 2).mean()))
 
-    # Validation status
     if not g.validation_ok:
         flags.append(f"Gaussian validation failed: {g.validation_msg}")
     if not o.validation_ok:
@@ -324,7 +298,6 @@ def _compare(g: EngineResult, o: EngineResult) -> BenchmarkComparison:
         and g.validation_ok and o.validation_ok
     )
 
-    # Engine recommendation
     if not agreement:
         recommendation = "inconclusive"
     elif timing_ratio is None:
@@ -363,7 +336,7 @@ def _parse_engine_result(output_path: Path, engine: str) -> EngineResult:
             result.geometry = struct.positions
             result.atoms    = struct.atoms
         except (OSError, ValueError, IndexError, KeyError):
-            pass  # optional geometry enrichment; energy/frequencies already parsed
+            pass
 
     elif engine == "orca":
         result.energy_hartree  = _parse_orca_energy(lines)
@@ -374,14 +347,10 @@ def _parse_engine_result(output_path: Path, engine: str) -> EngineResult:
             result.geometry = struct.positions
             result.atoms    = struct.atoms
         except (OSError, ValueError, IndexError, KeyError):
-            pass  # optional geometry enrichment; energy/frequencies already parsed
+            pass
 
     return result
 
-
-# ─────────────────────────────────────────────
-# Public API
-# ─────────────────────────────────────────────
 
 def generate(
     xyz_path: "str | Path",
@@ -403,7 +372,7 @@ def generate(
 
     xyz_path = Path(xyz_path)
     structure = parse_xyz(xyz_path)
-    params, _ = _structure_spin(structure, params, xyz_path.name)   # the mult= it carries
+    params, _ = _structure_spin(structure, params, xyz_path.name)
     atoms, positions = structure.atoms, structure.positions
 
     label = cluster_label or xyz_path.stem
@@ -422,8 +391,6 @@ def generate(
         gaussian_input=gjf_path,
         orca_input=inp_path,
     )
-    # The level of theory the two inputs share is what `benchmark compare` is comparing at;
-    # the sidecar records it so the comparison never has to be guessed from the outputs.
     result.output_json = str(out_dir / "benchmark.json")
     _, err = write_json_sidecar(result.output_json, result.to_json(),
                                 artifacts=[p for p in (gjf_path, inp_path) if p])
@@ -458,14 +425,11 @@ def compare(
     o_path = Path(orca_out)
     label = cluster_label or g_path.stem
 
-    # Level of theory is not reliably recoverable from output files — report unknown.
     result = BenchmarkResult(cluster=label, params=None)
 
-    # Parse each output
     g_res = _parse_engine_result(g_path, engine_gaussian)
     o_res = _parse_engine_result(o_path, engine_orca)
 
-    # Validate
     g_ok, g_msg = _validate_output(g_path, engine_gaussian)
     o_ok, o_msg = _validate_output(o_path, engine_orca)
     g_res.validation_ok  = g_ok

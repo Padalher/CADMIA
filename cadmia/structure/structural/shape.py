@@ -39,9 +39,6 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-# Beyond this many ligands the brute-force permutation search (N! superpositions) stops being
-# free: 8 ligands is 40320 SVDs and still well under a second, 9 would be nine times that for
-# a coordination number these clusters do not reach.
 MAX_LIGANDS = 8
 
 
@@ -63,54 +60,42 @@ _OCTAHEDRON = np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0],
                         [0.0, -1.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, -1.0]])
 _TRIGONAL_BIPYRAMID = np.vstack((_ring(3), [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]]))
 _PENTAGONAL_BIPYRAMID = np.vstack((_ring(5), [[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]]))
-# The reference trigonal prism has ALL its edges equal, so its lateral faces are squares. With
-# the triangle at unit circumradius the triangular edge is sqrt(3), so the height must be sqrt(3)
-# too: z = +-sqrt(3)/2. Using z = +-1 gives a prism 15% too tall, which is a different shape --
-# it scores 17.51 against the octahedron where the literature value is 16.74.
 _PRISM_HALF_HEIGHT = sqrt(3.0) / 2.0
 _TRIGONAL_PRISM = _normalise(np.vstack((
     np.column_stack((_ring(3)[:, 0], _ring(3)[:, 1], np.full(3, _PRISM_HALF_HEIGHT))),
     np.column_stack((_ring(3)[:, 0], _ring(3)[:, 1], np.full(3, -_PRISM_HALF_HEIGHT))),
 )))
 
-# Reference shapes by coordination number, in the Alvarez naming. The "vacant" ones are literal
-# vertex subsets of their parent polyhedron, which is what makes them unambiguous: a square
-# pyramid here is an octahedron minus one vertex, not a pyramid with a fitted apex angle.
-#
-# That is also why they are named vOC-5 and vPBPY-6 rather than SHAPE's SPY-5 and PPY-6. Those
-# two are the *spherical* pyramids, whose apex-centre-base angle is fitted (about 104.5 degrees
-# for SPY-5) instead of inherited from the parent. Borrowing the name for a different shape
-# would make the numbers look comparable to published ones when they are not.
 _SHAPES: Dict[int, Dict[str, np.ndarray]] = {
     2: {
-        "L-2": np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]),          # linear
-        "vT-2": _TETRAHEDRON[:2],                                       # bent (divacant tetrahedron)
+        "L-2": np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]),
+        "vT-2": _TETRAHEDRON[:2],
     },
     3: {
-        "TP-3": _ring(3),                                               # trigonal planar
-        "vT-3": _TETRAHEDRON[:3],                                       # trigonal pyramid
-        "TS-3": np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),   # T-shaped
+        "TP-3": _ring(3),
+        "vT-3": _TETRAHEDRON[:3],
+        "TS-3": np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
     },
     4: {
-        "T-4": _TETRAHEDRON,                                            # tetrahedron
-        "SP-4": _ring(4),                                               # square planar
-        "SS-4": _OCTAHEDRON[[0, 2, 4, 1]],                              # seesaw (cis-divacant OC)
-        "vTBPY-4": _TRIGONAL_BIPYRAMID[[0, 1, 2, 3]],                   # axially vacant TBPY
+        "T-4": _TETRAHEDRON,
+        "SP-4": _ring(4),
+        "SS-4": _OCTAHEDRON[[0, 2, 4, 1]],
+        "vTBPY-4": _TRIGONAL_BIPYRAMID[[0, 1, 2, 3]],
     },
     5: {
-        "TBPY-5": _TRIGONAL_BIPYRAMID,                                  # trigonal bipyramid
-        "vOC-5": _OCTAHEDRON[:5],                                       # vacant octahedron
-        "PP-5": _ring(5),                                               # pentagon
+        "TBPY-5": _TRIGONAL_BIPYRAMID,
+        "vOC-5": _OCTAHEDRON[:5],
+        "PP-5": _ring(5),
     },
     6: {
-        "OC-6": _OCTAHEDRON,                                            # octahedron
-        "TPR-6": _TRIGONAL_PRISM,                                       # trigonal prism
-        "vPBPY-6": _PENTAGONAL_BIPYRAMID[:6],                           # vacant pentagonal bipyramid
-        "HP-6": _ring(6),                                               # hexagon
+        "OC-6": _OCTAHEDRON,
+        "TPR-6": _TRIGONAL_PRISM,
+        "vPBPY-6": _PENTAGONAL_BIPYRAMID[:6],
+        "HP-6": _ring(6),
     },
     7: {
-        "PBPY-7": _PENTAGONAL_BIPYRAMID,                                # pentagonal bipyramid
-        "HP-7": _ring(7),                                               # heptagon
+        "PBPY-7": _PENTAGONAL_BIPYRAMID,
+        "HP-7": _ring(7),
     },
 }
 
@@ -159,9 +144,6 @@ def continuous_shape_measure(center: Sequence[float],
     if q_norm2 <= 0.0:
         return float("nan")
 
-    # Centring and scaling are done once: every permutation is the same set of points, so the
-    # centroid and the norm do not depend on the order. Only the rows are shuffled afterwards,
-    # and row 0 — the centre — stays put.
     base = np.vstack((np.zeros(3), reference))
     base = base - base.mean(axis=0)
     p_norm = sqrt(float((base * base).sum()))
@@ -172,8 +154,6 @@ def continuous_shape_measure(center: Sequence[float],
     best = 0.0
     for perm in permutations(range(1, n + 1)):
         P = base[(0,) + perm, :]
-        # Kabsch trace with the reflection correction: the largest attainable <Q, R P> is the
-        # sum of the singular values of P^T Q, with the smallest flipped if R would reflect.
         u, singular, vt = np.linalg.svd(P.T @ Q)
         if np.linalg.det(vt.T @ u.T) < 0:
             trace = float(singular[:-1].sum() - singular[-1])
@@ -181,7 +161,6 @@ def continuous_shape_measure(center: Sequence[float],
             trace = float(singular.sum())
         best = max(best, trace)
 
-    # |P| = 1, so the optimal scale is the trace itself and the residual is |Q|^2 - trace^2.
     return float(max(0.0, 100.0 * (1.0 - (best * best) / q_norm2)))
 
 

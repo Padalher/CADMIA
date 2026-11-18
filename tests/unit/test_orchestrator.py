@@ -21,10 +21,6 @@ _GAUSSIAN = Path(__file__).resolve().parent.parent / "fixtures" / "1tial_cdft"
 _needs_data = pytest.mark.skipif(not _HAS_DATA, reason="1tial_orca fixtures not present")
 
 
-# ─────────────────────────────────────────────
-# PipelineState / plan — no data needed
-# ─────────────────────────────────────────────
-
 def test_pipeline_state_roundtrip(tmp_path):
     state = PipelineState(cluster="X", probe="NH3", workdir=str(tmp_path))
     state.inputs = {"n": "N.out"}
@@ -38,8 +34,6 @@ def test_pipeline_state_roundtrip(tmp_path):
 
 
 def test_pipeline_state_load_rejects_corrupt_manifest(tmp_path):
-    # A power cut mid-write leaves a truncated manifest; --resume must fail with an
-    # actionable error naming the file, not a raw JSONDecodeError.
     manifest = tmp_path / "pipeline.json"
     manifest.write_text('{"cluster": "X", "stages":')
     with pytest.raises(ValueError, match="pipeline.json"):
@@ -94,7 +88,7 @@ def test_resume_reopens_only_analyze_when_only_probe_free(tmp_path):
     state = run_pipeline(n=None, np1=None, nm1=None, workdir=tmp_path, resume=True,
                          probe_free="NH3.out", dry_run=True, on_event=lambda s, m: None)
     assert state.stages["analyze"].status == "pending"
-    assert state.stages["stability"].status == SKIPPED   # no refs → stays skipped
+    assert state.stages["stability"].status == SKIPPED
     assert state.stages["report"].status == "pending"
 
 def test_resume_without_new_inputs_changes_nothing(tmp_path):
@@ -109,13 +103,9 @@ def test_dry_run_writes_nothing(tmp_path):
     events = []
     state = run_pipeline(n="a", np1="b", nm1="c", workdir=tmp_path / "wd",
                          dry_run=True, on_event=lambda s, m: events.append((s, m)))
-    assert not (tmp_path / "wd").exists()       # dry-run creates no working dir
+    assert not (tmp_path / "wd").exists()
     assert len(events) == len(STAGES)
 
-
-# ─────────────────────────────────────────────
-# Engine-free stages with real data: clean stop at run
-# ─────────────────────────────────────────────
 
 @_needs_data
 def test_pipeline_blocks_at_run_without_engine(tmp_path):
@@ -129,7 +119,6 @@ def test_pipeline_blocks_at_run_without_engine(tmp_path):
     assert state.stages["geometry"].status == DONE
     assert state.stages["run"].status == BLOCKED
     assert state.stages["analyze"].status == "pending"
-    # geometry produced configs and a cdft.json on disk
     assert Path(state.stages["cdft"].outputs["cdft_json"]).exists()
     assert (wd / "configs").is_dir()
     assert len(list((wd / "configs").glob("*.xyz"))) == state.stages["geometry"].outputs["n_configs"]
@@ -142,21 +131,15 @@ def test_pipeline_until_geometry(tmp_path):
         workdir=tmp_path / "pipe", until="geometry",
     )
     assert state.stages["geometry"].status == DONE
-    assert state.stages["run"].status == "pending"      # never attempted
+    assert state.stages["run"].status == "pending"
 
-
-# ─────────────────────────────────────────────
-# Resume with a mocked engine: run → (analyze skipped) → report
-# ─────────────────────────────────────────────
 
 @_needs_data
 def test_resume_with_mocked_engine_completes(tmp_path, monkeypatch):
     wd = tmp_path / "pipe"
-    # First leg: engine-free, blocks at run.
     run_pipeline(n=_N, np1=_NP1, nm1=_NM1, cluster="Al2TiO5", probe="NH3",
                  workdir=wd, engine="orca", engine_path=str(tmp_path / "absent"))
 
-    # Second leg: pretend ORCA is available.
     from cadmia.calculators import local_runner
     monkeypatch.setattr(local_runner, "find_engine",
                         lambda engine, path=None: Path("/fake/orca"))
@@ -172,8 +155,8 @@ def test_resume_with_mocked_engine_completes(tmp_path, monkeypatch):
 
     assert state.stages["run"].status == DONE
     assert state.stages["run"].outputs["n_done"] > 0
-    assert state.stages["analyze"].status == SKIPPED   # no probe_free supplied
-    assert state.stages["stability"].status == SKIPPED  # no refs supplied
+    assert state.stages["analyze"].status == SKIPPED
+    assert state.stages["stability"].status == SKIPPED
     assert state.stages["report"].status == DONE
     assert Path(state.stages["report"].outputs["report_md"]).exists()
     assert state.blocked_stage is None
@@ -211,7 +194,7 @@ def test_analyze_stage_maps_configs(tmp_path, monkeypatch):
 
     assert state.stages["analyze"].status == DONE
     assert len(state.stages["analyze"].outputs["analyses"]) > 0
-    assert all(idx is not None for idx in seen)      # every adduct got its config_index
+    assert all(idx is not None for idx in seen)
     assert (wd / "analyses").is_dir()
 
 
@@ -261,10 +244,6 @@ def test_run_fails_when_every_output_fails_validation(tmp_path, monkeypatch):
     assert st.outputs["n_failed_validation"] == st.outputs["n_done"] > 0
 
 
-# ─────────────────────────────────────────────
-# Validation gate
-# ─────────────────────────────────────────────
-
 def test_validate_failure_stops_pipeline(tmp_path, monkeypatch):
     from cadmia.agents import validation_agent
 
@@ -276,7 +255,7 @@ def test_validate_failure_stops_pipeline(tmp_path, monkeypatch):
     n = tmp_path / "n.out"; n.write_text("x")
     state = run_pipeline(n=n, np1=n, nm1=n, workdir=tmp_path / "pipe", engine="orca")
     assert state.stages["validate"].status == "failed"
-    assert state.stages["cdft"].status == "pending"   # chain stopped at the gate
+    assert state.stages["cdft"].status == "pending"
 
 
 def _manifest_with_params(tmp_path, functional, run_status="pending"):

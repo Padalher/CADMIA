@@ -24,15 +24,8 @@ import numpy as np
 from cadmia.core import Structure
 from cadmia.structure.structural.analyzer import StructuralResult
 
-# Numerically an angle is undefined when either arm has no length. Below this separation the
-# two atoms are the same point for practical purposes and the arccos is meaningless.
 _MIN_ARM = 1e-8
 
-# An angle this wide is a *trans* pair: two ligands on opposite sides of the centre. It must be
-# summarised apart from the rest, because mixing the two families makes a PERFECT polyhedron look
-# distorted. An ideal octahedron has twelve angles at 90 degrees and three at 180: pooled, that is
-# a mean of 108 and a standard deviation of 36 for a centre with no distortion at all. The same
-# trap is why polyhedra.py averages only the cis angles.
 _TRANS_CUTOFF = 150.0
 
 

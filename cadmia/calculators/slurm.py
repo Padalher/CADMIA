@@ -10,9 +10,9 @@ if TYPE_CHECKING:
 
 
 def write_slurm_script(
-    remote_input:  str,    # remote absolute path to .gjf or .inp
-    remote_output: str,    # remote absolute path for the output file
-    engine:        str,    # "gaussian" | "orca"
+    remote_input:  str,
+    remote_output: str,
+    engine:        str,
     params:        "CalcParams",
     profile:       "HPCProfile",
     job_name:      str = "",
@@ -87,23 +87,15 @@ def write_slurm_script(
             "_rc=$?",
         ]
 
-    # Completion marker — lets check_status fall back to file inspection
     lines += [
         "",
         'echo "CADMIA_DONE:$_rc" >> ' + remote_output,
     ]
 
-    # Tuck accessory byproducts into aux/.
     if tidy:
         from cadmia.calculators.tidy import slurm_tidy_block
         lines += ["", slurm_tidy_block(remote_input, work_dir)]
 
-    # The script's exit status must be the ENGINE's, and nothing else's. A bash script exits
-    # with the status of its last command, and the last command here is the tidy loop, whose
-    # `[ -f X ] && mv` returns 1 whenever the file is absent. ORCA only writes <stem>.xyz for
-    # an optimization, so every single point and every frequency job ended with status 1 and
-    # SLURM recorded it as FAILED — which check_status reads from sacct BEFORE it ever looks
-    # at the CADMIA_DONE marker. Hence the explicit exit.
     lines += ["", "exit $_rc"]
 
     return "\n".join(lines) + "\n"

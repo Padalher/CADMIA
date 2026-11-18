@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cadmia"
-version = "0.3.1"
+version = "0.3.2"
 description = "CADMIA — Computational Agent-Driven Molecular Intelligence Architecture"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
-authors = [{ name = "Pablo Daniel Alvarez Hernandez", email = "pablo.alvarez@padalher.com" }]
+authors = [{ name = "Pablo Daniel Álvarez Hernández", email = "pablo.alvarez@padalher.com" }]
 keywords = [
     "conceptual DFT", "Fukui functions", "adsorption",
     "heterogeneous catalysis", "nanoclusters", "ORCA", "computational chemistry",

@@ -14,10 +14,6 @@ from cadmia.calculators.hpc_runner import HPCRunner, HPCConnectionError, marker_
 from cadmia.agents.calculation_agent import _make_runner
 
 
-# ─────────────────────────────────────────────
-# Local profiles
-# ─────────────────────────────────────────────
-
 def test_local_profile_allows_empty_host_user():
     p = HPCProfile(name="ws", host="", user="", work_dir="/scratch/ws", local=True)
     assert p.local is True
@@ -44,7 +40,6 @@ def test_local_profile_roundtrip(tmp_path):
 
 
 def test_old_profile_without_local_defaults_false(tmp_path):
-    # A YAML written before the 'local' field existed must still load.
     (tmp_path / "legacy.yaml").write_text(
         "name: legacy\nhost: h\nuser: u\nwork_dir: /w\npartition: general\n",
         encoding="utf-8",
@@ -52,10 +47,6 @@ def test_old_profile_without_local_defaults_false(tmp_path):
     loaded = HPCProfile.load("legacy", directory=tmp_path)
     assert loaded.local is False
 
-
-# ─────────────────────────────────────────────
-# Conditional `module load`
-# ─────────────────────────────────────────────
 
 @pytest.fixture
 def params():
@@ -86,10 +77,6 @@ def test_slurm_keeps_module_when_set(params):
     assert "module load orca/5.0.4" in s
 
 
-# ─────────────────────────────────────────────
-# Runner selection
-# ─────────────────────────────────────────────
-
 def test_make_runner_local():
     p = HPCProfile(name="ws", host="", user="", work_dir="/w", local=True)
     assert isinstance(_make_runner(p), LocalSlurmRunner)
@@ -99,10 +86,6 @@ def test_make_runner_remote():
     p = HPCProfile(name="c", host="h", user="u", work_dir="/w")
     assert isinstance(_make_runner(p), HPCRunner)
 
-
-# ─────────────────────────────────────────────
-# LocalSlurmRunner
-# ─────────────────────────────────────────────
 
 @pytest.fixture
 def local_profile():
@@ -132,8 +115,8 @@ def test_local_submit_writes_script_and_parses_jobid(tmp_path):
 
     assert job_id == "4242"
     work = tmp_path / "mol"
-    assert (work / "mol.inp").exists()        # input staged
-    assert (work / "mol.sh").exists()          # SLURM script written
+    assert (work / "mol.inp").exists()
+    assert (work / "mol.sh").exists()
     assert out_path == str(work / "mol.out")
     script = (work / "mol.sh").read_text(encoding="utf-8")
     assert "module load" not in script
@@ -158,10 +141,6 @@ def test_local_check_status_maps_state(local_profile):
         assert runner.check_status("4242") == "running"
 
 
-# ─────────────────────────────────────────────
-# Completion marker fallback (SLURM without accounting)
-# ─────────────────────────────────────────────
-
 def test_marker_status_parsing():
     assert marker_status("...\nORCA TERMINATED NORMALLY\nCADMIA_DONE:0\n") == "done"
     assert marker_status("boom\nCADMIA_DONE:1\n") == "failed"
@@ -172,7 +151,7 @@ def test_local_check_status_uses_marker_when_no_squeue_no_sacct(tmp_path, local_
     runner = LocalSlurmRunner(local_profile)
     out = tmp_path / "h2o.out"
     out.write_text("ORCA TERMINATED NORMALLY\nCADMIA_DONE:0\n")
-    empty = MagicMock(returncode=0, stdout="", stderr="")   # squeue + sacct both empty
+    empty = MagicMock(returncode=0, stdout="", stderr="")
     with patch("subprocess.run", return_value=empty):
         assert runner.check_status("1", str(out)) == "done"
 
@@ -208,7 +187,7 @@ def test_local_download_noop_when_same_path(tmp_path, local_profile):
     runner = LocalSlurmRunner(local_profile)
     f = tmp_path / "x.out"
     f.write_text("R")
-    runner.download(str(f), f)   # must not raise or truncate
+    runner.download(str(f), f)
     assert f.read_text(encoding="utf-8") == "R"
 
 
@@ -233,8 +212,7 @@ def test_script_exits_with_the_engine_status_not_the_tidy_loop(params):
 
     body = [line for line in s.splitlines() if line.strip()]
     assert body[-1].strip() == "exit $_rc"
-    assert 'echo "CADMIA_DONE:$_rc"' in s            # the marker reports the engine too
-    # The status is captured right after the engine runs, before anything can overwrite $?.
+    assert 'echo "CADMIA_DONE:$_rc"' in s
     assert s.index("_rc=$?") < s.index("for _ext in")
 
 

@@ -53,7 +53,6 @@ def test_gbw_to_molden_renames_input_to_molden(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.shutil, "which", lambda _p: "/fake/orca_2mkl")
 
     def fake_run(cmd, **kwargs):
-        # orca_2mkl writes <stem>.molden.input next to the .gbw.
         (gbw.parent / "cluster.molden.input").write_text("[Molden Format]\n")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
@@ -61,7 +60,7 @@ def test_gbw_to_molden_renames_input_to_molden(tmp_path, monkeypatch):
     res = gbw_to_molden(gbw)
     assert res.molden_path == gbw.with_suffix(".molden")
     assert res.molden_path.exists()
-    assert not (gbw.parent / "cluster.molden.input").exists()   # moved, not left behind
+    assert not (gbw.parent / "cluster.molden.input").exists()
 
 
 def test_gbw_to_molden_custom_output_dir(tmp_path, monkeypatch):

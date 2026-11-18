@@ -13,27 +13,22 @@ from cadmia.config import HPCProfile
 from cadmia.core.sidecar import atomic_write_text, file_lock, read_json
 from cadmia.io.xyz import EXTXYZ_FORMAT, comment_info
 
-# What `prepare` accepts as a source: inputs an engine can already run, and the files that
-# carry a geometry to build one from.
 _READY_SUFFIXES  = {".inp", ".gjf"}
 _OUTPUT_SUFFIXES = {".out", ".log"}
 
-# ─────────────────────────────────────────────
-# Result types
-# ─────────────────────────────────────────────
 
 @dataclass
 class JobRecord:
     """State of one submitted HPC job."""
     label:           str
-    engine:          str                    # gaussian | orca
-    input_path:      Path                   # local input file
-    remote_input:    str                    # remote path to input
-    remote_output:   str                    # remote path to output
+    engine:          str
+    input_path:      Path
+    remote_input:    str
+    remote_output:   str
     remote_work_dir: str
     job_id:          str        = ""
-    status:          str        = "pending" # pending|queued|running|done|failed|unknown
-    output_path:     Optional[Path] = None  # local output after download
+    status:          str        = "pending"
+    output_path:     Optional[Path] = None
     validation_ok:   Optional[bool] = None
     validation_msg:  str             = ""
 
@@ -110,7 +105,7 @@ class CalculationResult:
                 label=j["label"],
                 engine=j["engine"],
                 input_path=Path(j["input_path"]),
-                remote_input="",    # not persisted; not needed for monitoring
+                remote_input="",
                 remote_output=j["remote_output"],
                 remote_work_dir="",
                 job_id=j["job_id"],
@@ -121,10 +116,6 @@ class CalculationResult:
             ))
         return cls(profile=data["profile"], jobs=jobs, warnings=data.get("warnings", []))
 
-
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
 
 def _make_runner(profile: "HPCProfile"):
     """Return the right SLURM backend for *profile*: local (no SSH) or remote SSH.
@@ -140,11 +131,6 @@ def _make_runner(profile: "HPCProfile"):
     return HPCRunner(profile)
 
 
-# Markers that identify an input's engine, mirroring the output autodetection of
-# `cdft_agent._detect_engine`. The extension cannot decide it: `.inp` is the usual name for
-# an ORCA input, but Gaussian is fed through stdin and does not care about the extension,
-# so many groups call its inputs `.inp` too. The content, on the other hand, is unambiguous.
-# (`#` is NOT a marker: it starts a Gaussian route AND an ORCA comment.)
 _GAUSSIAN_INPUT_MARKERS = ("%chk", "%nprocshared", "%mem", "--link1--")
 _ORCA_INPUT_MARKERS     = ("%pal", "%maxcore", "* xyz", "*xyz")
 
@@ -160,9 +146,6 @@ def _engine_from_input(path: Path) -> str:
         return "gaussian"
     if any(m in head for m in _ORCA_INPUT_MARKERS):
         return "orca"
-    # Fallback for inputs carrying none of the markers above (a bare Gaussian route, an ORCA
-    # input reading its geometry from an xyzfile). The `!` simple-input line is checked over
-    # the whole head BEFORE any `#`, because an ORCA input may open with a `#` comment.
     lines = [line.strip() for line in head.splitlines()]
     if any(line.startswith("!") for line in lines):
         return "orca"
@@ -220,10 +203,6 @@ def _resolve_job_files(
     return files, warnings
 
 
-# ─────────────────────────────────────────────
-# Public API
-# ─────────────────────────────────────────────
-
 def prepare(
     jobs_source: "Path | str | List[Path | str]",
     params: Optional[CalcParams] = None,
@@ -263,10 +242,6 @@ def prepare(
     result = PrepareResult(warnings=warnings)
 
     eng = engine or "orca"
-    # Both engines get `.inp`: ORCA takes the filename as its argument and Gaussian is fed
-    # through stdin, so the extension is CADMIA's convention, not a requirement — and `.gjf`
-    # is a GaussView habit rather than what groups actually use. The engine of a ready input
-    # is read from its content (`_engine_from_input`), which the extension cannot tell.
     ext = ".inp"
     for f in files:
         suffix = f.suffix.lower()
@@ -334,15 +309,13 @@ def prepare_cdft(
                          f"output (.out/.log), got '{xyz.name}'")
 
     structure = structure_from_file(xyz)
-    ext = ".inp"                       # one extension for both engines, as in prepare()
+    ext = ".inp"
     states = [
         ("N",      charge,     mult),
         ("anion",  charge - 1, mult_anion),
         ("cation", charge + 1, mult_cation),
     ]
 
-    # The spin the geometry carries (an XYZ with mult=, an engine output) sets N under auto, and
-    # the ions one electron away from it: m − 1, which both adding and removing one can reach.
     if structure.metadata.get("spin_given") and int(structure.charge or 0) == charge:
         m_n = int(structure.multiplicity)
         states = [(label, q, m if m is not None else (m_n if label == "N" else max(m_n - 1, 2)))
@@ -442,7 +415,6 @@ def submit(
                 status="failed",
             ))
 
-    # Persist initial state
     result.save(out_dir / "cadmia_jobs.json")
 
     if wait:
@@ -540,7 +512,7 @@ def run_local(
             record.status = "failed"
             result.warnings.append(f"{inp.name}: {exc}")
             result.save(jobs_path)
-            break   # engine missing — no point trying the rest of the queue
+            break
         record.output_path = output
         record.status = "done" if ok else "failed"
         if not ok:
@@ -567,7 +539,7 @@ def _structures_from_source(f: Path):
     if suffix in _OUTPUT_SUFFIXES:
         from cadmia.io import structure_from_file
         structure = structure_from_file(f)
-        structure.metadata["spin_given"] = True   # the engine's own charge and spin
+        structure.metadata["spin_given"] = True
         return [structure]
     raise ValueError(
         f"{f.name}: cannot prepare an input from a '{f.suffix}' file. Give a geometry "
@@ -728,8 +700,6 @@ def monitor(
     runner  = _make_runner(profile)
     out_dir = Path(output_dir)
 
-    # Hold an exclusive lock across load→poll→save so a second `cadmia monitor` on the same
-    # jobs file cannot overwrite this one's updates (a `done` reverting to `running`).
     with file_lock(jobs_path):
         result = CalculationResult.load(jobs_path)
         result.profile = profile_name

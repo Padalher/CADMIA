@@ -43,8 +43,6 @@ Plotly.newPlot("plot", data, layout, {{responsive: true}});
 
 def _frontier_decorations(homo_ev: Optional[float], lumo_ev: Optional[float],
                           gap_ev: Optional[float]) -> tuple[list, list]:
-    # HOMO's label sits left of its line and LUMO's right of its own, so the two never meet however
-    # small the gap; the gap gets its own bracket lower down, between the lines.
     shapes, annotations = [], []
     for x, label, side in ((homo_ev, "HOMO", "right"), (lumo_ev, "LUMO", "left")):
         if x is None:
@@ -70,21 +68,18 @@ def _frontier_decorations(homo_ev: Optional[float], lumo_ev: Optional[float],
     return shapes, annotations
 
 
-# Readable on a full-width browser window (plotly's 12 px default is lost on a large plot).
 _FONT_PX = 17
 
-# Opening view around the frontier orbitals; the core levels stay in the data, one zoom-out away.
 VIEW_BELOW_HOMO_EV, VIEW_ABOVE_LUMO_EV = 20.0, 10.0
 
 
 def _layout(title: str, ylabel: str, shapes: list, annotations: list,
             homo: Optional[float] = None, lumo: Optional[float] = None,
             energy: Optional[list] = None) -> dict:
-    # no zero line on x: a solid line at 0 eV reads as a Fermi level, and there is none
     xaxis = {"title": {"text": "Energy (eV)"}, "zeroline": False}
     if homo is not None and lumo is not None:
         lo, hi = homo - VIEW_BELOW_HOMO_EV, lumo + VIEW_ABOVE_LUMO_EV
-        if energy:      # never past the ends of the curve
+        if energy:
             lo, hi = max(lo, energy[0]), min(hi, energy[-1])
         xaxis["range"] = [lo, hi]
     return {

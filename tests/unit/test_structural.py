@@ -218,23 +218,15 @@ def test_polyhedron_distortion_non_negative(config):
         assert poly.metal_displacement >= 0
 
 
-# ─────────────────────────────────────────────
-# Combined structural summary (CN + ECN + avg distances + angles)
-# ─────────────────────────────────────────────
-
 def test_structural_summary_combines_cn_ecn_and_angles():
     from cadmia.structure.structural.summary import structural_summary, site_coordination
     s = parse_xyz(FIXTURES / "Al2TiO5_cluster.xyz")
     summ = structural_summary(s)
     assert summ["n_atoms"] == s.n_atoms
-    # per-atom CN/ECN present
     assert summ["atoms"] and all({"cn", "ecn", "element"} <= set(a) for a in summ["atoms"])
-    # average bond distances per type (Ti-O and Al-O exist in the mixed oxide)
     assert any(bt.startswith("Ti-O") for bt in summ["bond_statistics"])
-    # polyhedra carry angles
     assert summ["polyhedra"], "expected at least one coordination polyhedron"
     assert all("mean_angle" in p for p in summ["polyhedra"])
-    # site lookup returns that atom's coordination
     first = summ["atoms"][0]
     sc = site_coordination(summ, first["index"])
     assert sc["cn"] == first["cn"] and sc["ecn"] == first["ecn"]

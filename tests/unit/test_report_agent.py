@@ -30,19 +30,13 @@ def _analysis_dict(cfg, idx, sym, e_ads, probe="NH3"):
             "e_ads_kcal": e_ads, "e_ads_bsse_kcal": e_ads + 1.5, "activated": False}
 
 
-# ─────────────────────────────────────────────
-# build_report
-# ─────────────────────────────────────────────
-
 def test_report_has_global_and_ranking_tables():
     rep = build_report(cdft=_cdft_dict())
     md = rep.markdown
     assert "## Global CDFT descriptors" in md
     assert "| Gap | 4.5700 | eV |".replace("Gap", "Gap") in md or "Gap" in md
     assert "## CDFT site ranking" in md
-    # ranking sorted by rank: O(2) rank 1 before Al(5) rank 2
     assert md.index("O(2)") < md.index("Al(5)")
-    # mu present, ip None skipped
     assert "μ" in md and "IP" not in md.split("## CDFT")[0].split("Global")[1]
 
 
@@ -59,11 +53,10 @@ def test_report_adsorption_and_correlation():
     assert "## Adsorption summary" in rep.markdown
     assert len(rep.correlations) == 1
     c = rep.correlations[0]
-    assert c.name == "df_vs_eads_NH3"            # named by probe, not pooled
+    assert c.name == "df_vs_eads_NH3"
     assert set(c.x) == {0.24, -0.25, 0.0}
     assert c.pearson_r < -0.99
     assert "NH3" in rep.markdown
-    # Fewer than 8 distinct Δf: the report has to say so instead of letting r stand alone.
     assert "not conclusive" in rep.markdown
 
 
@@ -84,7 +77,7 @@ def test_probes_are_never_pooled_into_one_correlation():
     names = {c.name for c in rep.correlations}
     assert names == {"df_vs_eads_NH3", "df_vs_eads_CO2"}
     rs = {c.name: c.pearson_r for c in rep.correlations}
-    assert rs["df_vs_eads_NH3"] < 0 < rs["df_vs_eads_CO2"]   # opposite signs, kept apart
+    assert rs["df_vs_eads_NH3"] < 0 < rs["df_vs_eads_CO2"]
 
 
 def test_two_points_are_not_reported_as_a_correlation():
@@ -102,21 +95,17 @@ def test_report_correlation_needs_enough_points():
 
 
 def test_report_dedups_configs_that_share_a_dft_minimum():
-    # Two configs that relaxed to the same well: same site + (near) identical total energy.
     a0 = _analysis_dict(0, 6, "O", -30.00); a0["e_adduct_hartree"] = -1000.000004
     a1 = _analysis_dict(1, 6, "O", -30.00); a1["e_adduct_hartree"] = -1000.000002
     rep = build_report(cdft=_cdft_dict(), analyses=[a0, a1])
-    # collapsed to a single unique minimum → no spurious correlation
     assert rep.correlations == []
     assert any("collapsed" in w for w in rep.warnings)
-    # the summary table lists only one configuration row (one trailing pipe per row)
     summary = rep.markdown.split("## Adsorption summary", 1)[1]
     data_rows = [ln for ln in summary.splitlines() if ln.startswith("| 0 ") or ln.startswith("| 1 ")]
     assert len(data_rows) == 1
 
 
 def test_report_keeps_distinct_minima():
-    # Same site but genuinely different energies (> window) must NOT be collapsed.
     a0 = _analysis_dict(0, 5, "Al", -25.0); a0["e_adduct_hartree"] = -1000.70
     a1 = _analysis_dict(1, 2, "O", -8.0); a1["e_adduct_hartree"] = -1000.60
     a2 = _analysis_dict(2, 7, "Al", -16.7); a2["e_adduct_hartree"] = -1000.65
@@ -158,7 +147,6 @@ def test_report_latex_and_files(tmp_path):
     written = rep.to_files(out, latex=True, figures=True)
     assert out.exists()
     assert written["latex"].endswith(".tex")
-    # matplotlib likely absent in the dev env → CSV fallback for the correlation
     assert written["figures"] or written["csv"]
 
 

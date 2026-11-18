@@ -15,7 +15,7 @@
 
 </p>
 
-Author: Pablo Daniel Alvarez Hernandez, Universidad Juárez Autónoma de Tabasco (UJAT)
+Author: Pablo Daniel Álvarez Hernández, División Académica de Ciencias Básicas (DACB), Universidad Juárez Autónoma de Tabasco (UJAT)
 
 Versions follow [Semantic Versioning](https://semver.org): before 1.0.0, a minor version may change
 commands or output formats, and every such change is listed in the changelog. 1.0.0 will mark a
@@ -61,26 +61,18 @@ Main features:
   GFN2-xTB screens the configurations before DFT, and failed calculations are diagnosed.
 - **Architecture:** one suite of modules over a common data core.
 
-## What's new in 0.3.1
+## What's new in 0.3.2
 
 Highlights only; the full detail is in
 [CHANGELOG.md](https://github.com/Padalher/CADMIA/blob/main/CHANGELOG.md).
 
-- **One source per module:** inside a `cadmia init` project, `structure report`, `cdft`, `analyze`
-  and `stability` save their data and full text report to `results/`; `cadmia report` assembles
-  them into `reports/cadmia.out`, and `--report/-r FILE` alone rewrites a module's report without
-  recomputing.
-- **Counterpoise BSSE for ORCA:** `prepare bsse` writes the four Boys–Bernardi single points and
-  `analyze --bsse` reads them; checked against Gaussian `Counterpoise=2` on Al₂TiO₅ + CO₂
-  (1.49 vs 1.52 kcal/mol).
-- **Spin and charge carried through:** `geometry` writes `charge=`/`mult=` (O₂ is a triplet), and
-  `prescreen`, `rank`, `prepare`, `benchmark` and `pipeline --charge` keep them.
-- **Thermochemistry:** ΔG with the σ correction and quasi-RRHO ΔG in `analyze`; activation by
-  bending for linear probes (`--bend-threshold`, 10° by default).
-- **Static figures:** `electronic dos|pdos|ir` and `structure plot` write PNG/SVG/PDF
-  (`--format`, `--width single|double`). The DOS is in states/eV over both spins.
-- **Safer runs:** results of different clusters are not mixed in one report, a used pipeline
-  folder needs `--resume`, and each output is checked with its own engine.
+- **Extended XYZ:** every `.xyz` that `geometry`, `prescreen`, `rank` and `cdft` write carries the
+  energy in Hartree, charge, multiplicity and the stage's keys, and is readable by ASE and OVITO;
+  `cdft` also writes `results/cdft_sites.xyz` with the per-atom CDFT values as columns.
+- **Project database:** `db status` and `db ask` read the project's database inside a project.
+- **Clearer CDFT cross-check:** `analyze` no longer counts an ambiphilic binding site as agreeing
+  with the CDFT.
+- **Supported platform:** Linux.
 
 ## What's next
 
@@ -163,4 +155,6 @@ results always come from the quantum-chemistry outputs, never from a language mo
 
 Bugs and questions: [GitHub Issues](https://github.com/Padalher/CADMIA/issues).
 
-Direct contact: Pablo Daniel Alvarez Hernandez — pablo.alvarez@padalher.com — https://padalher.com
+Questions about the software: contact@padalher.com
+
+Direct contact: Pablo Daniel Álvarez Hernández — pablo.alvarez@padalher.com — https://padalher.com

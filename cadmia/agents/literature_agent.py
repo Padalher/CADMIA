@@ -21,7 +21,6 @@ from typing import Dict, List, Optional
 CROSSREF_API = "https://api.crossref.org/works"
 OPENALEX_API = "https://api.openalex.org/works"
 SEMANTIC_SCHOLAR_API = "https://api.semanticscholar.org/graph/v1/paper/search"
-# A contact mailto puts Crossref/OpenAlex requests in their faster "polite" pool.
 CONTACT = "cadmia@users.noreply.github.com"
 
 SOURCES = ("crossref", "openalex", "semanticscholar")
@@ -36,13 +35,13 @@ class Reference:
     title:     str
     authors:   List[str] = field(default_factory=list)
     year:      Optional[int] = None
-    container: str = ""           # journal / venue
+    container: str = ""
     doi:       Optional[str] = None
     url:       Optional[str] = None
     citations: Optional[int] = None
     type:      str = ""
-    source:    str = ""           # crossref / openalex / semanticscholar
-    abstract:  str = ""           # plain-text abstract when the API provides one
+    source:    str = ""
+    abstract:  str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -73,10 +72,6 @@ class LiteratureResult:
         )
 
 
-# ─────────────────────────────────────────────
-# HTTP (single network choke point — monkeypatched in tests)
-# ─────────────────────────────────────────────
-
 def _http_get_json(url: str, params: Dict[str, str], *, timeout_s: int) -> dict:
     full = f"{url}?{urllib.parse.urlencode(params)}" if params else url
     request = urllib.request.Request(
@@ -92,10 +87,6 @@ def _http_get_json(url: str, params: Dict[str, str], *, timeout_s: int) -> dict:
     except (ValueError, TimeoutError) as exc:
         raise LiteratureError(f"Bad response from {url}: {exc}") from exc
 
-
-# ─────────────────────────────────────────────
-# Normalization
-# ─────────────────────────────────────────────
 
 def _norm_doi(doi: Optional[str]) -> Optional[str]:
     if not doi:
@@ -187,10 +178,6 @@ def _ref_from_semanticscholar(item: dict) -> Reference:
     )
 
 
-# ─────────────────────────────────────────────
-# Searches
-# ─────────────────────────────────────────────
-
 def search_crossref(query: str, *, rows: int = 20, from_year: Optional[int] = None,
                     timeout_s: int = 30) -> List[Reference]:
     params = {
@@ -237,10 +224,6 @@ def fetch_by_doi(doi: str, *, timeout_s: int = 30) -> Reference:
     return _ref_from_crossref(message)
 
 
-# ─────────────────────────────────────────────
-# Dedupe / rank
-# ─────────────────────────────────────────────
-
 def dedupe(refs: List[Reference]) -> List[Reference]:
     """Merge duplicates by DOI (preferred) or normalized title; keep the richest record."""
     seen: Dict[str, Reference] = {}
@@ -254,10 +237,8 @@ def dedupe(refs: List[Reference]) -> List[Reference]:
             order.append(key)
         else:
             cur = seen[key]
-            # Carry over an abstract from whichever record has one.
             if not cur.abstract and r.abstract:
                 cur.abstract = r.abstract
-            # Prefer the record that carries a citation count / more authors.
             if (r.citations or -1) > (cur.citations or -1) or (
                 len(r.authors) > len(cur.authors) and cur.citations is None
             ):
@@ -274,12 +255,8 @@ def rank(refs: List[Reference], *, by: str = "relevance") -> List[Reference]:
         return sorted(refs, key=lambda r: (r.citations or 0), reverse=True)
     if by == "year":
         return sorted(refs, key=lambda r: (r.year or 0), reverse=True)
-    return refs  # "relevance": keep API order
+    return refs
 
-
-# ─────────────────────────────────────────────
-# Rendering
-# ─────────────────────────────────────────────
 
 def _bibtex_key(ref: Reference, used: set) -> str:
     family = ""
@@ -338,10 +315,6 @@ def to_markdown(result: LiteratureResult) -> str:
     return "\n".join(lines) + "\n"
 
 
-# ─────────────────────────────────────────────
-# Main entry point
-# ─────────────────────────────────────────────
-
 def run(
     query: str = "",
     *,
@@ -376,7 +349,7 @@ def run(
         except LiteratureError as exc:
             result.warnings.append(f"DOI {doi}: {exc}")
 
-    rows = max(limit * 2, limit)  # over-fetch so dedupe still leaves enough
+    rows = max(limit * 2, limit)
     for src in sources:
         if not query:
             break
@@ -398,7 +371,7 @@ def run(
     if narrate and refs:
         try:
             result.narrative = _narrate(refs, query, language)
-        except Exception as exc:  # never let optional narration break the result
+        except Exception as exc:
             result.warnings.append(f"Narration skipped: {exc}")
 
     return result

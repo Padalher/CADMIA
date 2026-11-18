@@ -1,4 +1,8 @@
-"""Geometry Agent — adsorption starting configurations guided by CDFT site ranking."""
+"""Geometry Agent — adsorption starting configurations guided by CDFT site ranking.
+
+Distances are in angstrom (``_ANG``), angles in degrees (``_DEG``). The ``*_OF_RADII_SUM``
+factors are dimensionless multiples of the sum of the two covalent radii.
+"""
 from __future__ import annotations
 
 import json
@@ -13,20 +17,18 @@ from cadmia.core.sidecar import write_json_sidecar
 from cadmia.io.xyz import extxyz_block, parse_xyz
 from cadmia.utils.chemistry import covalent_radius
 
-# ─────────────────────────────────────────────
-# Probe geometry definitions (binding atom at origin, molecule along +z)
-# ─────────────────────────────────────────────
 
-_H2_BOND = 0.741    # Å, experimental
-_CO2_CO  = 1.160    # Å, C=O in free CO2
-_CO2_BENT_OCO = 127.0  # degrees, O–C–O in the activated (bent, ~CO2^δ−) carbonate precursor
-_NH3_NH  = 1.012    # Å, N–H in free NH3
-_NH3_HNH = 106.7    # degrees, H–N–H angle
-_CO_BOND = 1.128    # Å, C≡O in free CO
-_N2_BOND = 1.098    # Å, N≡N in free N2
-_O2_BOND = 1.208    # Å, O=O in free O2 (triplet ground state)
-_H2O_OH  = 0.9572   # Å, O–H in free H2O
-_H2O_HOH = 104.5    # degrees, H–O–H angle
+_H2_BOND_ANG = 0.741
+_CO2_CO_ANG = 1.160
+_CO2_BENT_OCO_DEG = 127.0
+_NH3_NH_ANG = 1.012
+_NH3_HNH_DEG = 106.7
+_CO_BOND_ANG = 1.128
+_N2_BOND_ANG = 1.098
+_O2_BOND_ANG = 1.208
+_H2O_OH_ANG = 0.9572
+_H2O_HOH_DEG = 104.5
+_FALLBACK_COVALENT_RADIUS_ANG = 1.5
 
 
 @dataclass(frozen=True)
@@ -41,21 +43,21 @@ class _ProbeGeom:
     binding_atom: str
     coords:       Tuple[Tuple[str, float, float, float], ...]
     orientation:  str
-    multiplicity: int = 1          # ground state of the free probe (O2 is a triplet)
+    multiplicity: int = 1
 
 
 def _h2_eta1() -> _ProbeGeom:
     """H2 end-on (η¹): binding H at origin, second H at +z."""
     return _ProbeGeom(
         "H2", "H",
-        (("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, _H2_BOND)),
+        (("H", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, _H2_BOND_ANG)),
         "eta1",
     )
 
 
 def _h2_eta2() -> _ProbeGeom:
     """H2 side-on (η²): H–H midpoint at origin, bond along x."""
-    half = _H2_BOND / 2
+    half = _H2_BOND_ANG / 2
     return _ProbeGeom(
         "H2", "H",
         (("H", -half, 0.0, 0.0), ("H", half, 0.0, 0.0)),
@@ -65,9 +67,9 @@ def _h2_eta2() -> _ProbeGeom:
 
 def _co2_bent(z_sign: float, orientation: str) -> _ProbeGeom:
     """Bent CO2 (activated, O–C–O = 127°): C at origin, both O toward *z_sign*·z (±)."""
-    half = math.radians(_CO2_BENT_OCO / 2)
-    x = _CO2_CO * math.sin(half)
-    z = _CO2_CO * math.cos(half) * z_sign
+    half = math.radians(_CO2_BENT_OCO_DEG / 2)
+    x = _CO2_CO_ANG * math.sin(half)
+    z = _CO2_CO_ANG * math.cos(half) * z_sign
     return _ProbeGeom(
         "CO2", "C",
         (("C", 0.0, 0.0, 0.0), ("O", x, 0.0, z), ("O", -x, 0.0, z)),
@@ -91,7 +93,7 @@ def _co2_o_down() -> _ProbeGeom:
     """CO2 end-on through one O (O-down): O at origin, linear O–C–O along +z (away)."""
     return _ProbeGeom(
         "CO2", "O",
-        (("O", 0.0, 0.0, 0.0), ("C", 0.0, 0.0, _CO2_CO), ("O", 0.0, 0.0, 2 * _CO2_CO)),
+        (("O", 0.0, 0.0, 0.0), ("C", 0.0, 0.0, _CO2_CO_ANG), ("O", 0.0, 0.0, 2 * _CO2_CO_ANG)),
         "o_down",
     )
 
@@ -100,7 +102,7 @@ def _co2_side_on() -> _ProbeGeom:
     """CO2 lying parallel to the surface (η²): C at origin, linear O–C–O along x."""
     return _ProbeGeom(
         "CO2", "C",
-        (("C", 0.0, 0.0, 0.0), ("O", _CO2_CO, 0.0, 0.0), ("O", -_CO2_CO, 0.0, 0.0)),
+        (("C", 0.0, 0.0, 0.0), ("O", _CO2_CO_ANG, 0.0, 0.0), ("O", -_CO2_CO_ANG, 0.0, 0.0)),
         "side_on",
     )
 
@@ -112,9 +114,8 @@ def _co2_bidentate() -> _ProbeGeom:
 
 def _nh3_geom(z_sign: float, orientation: str) -> _ProbeGeom:
     """NH3 pyramid: N at origin, the three N–H bonds along *z_sign*·z (±)."""
-    r = _NH3_NH
-    alpha = math.radians(_NH3_HNH)
-    # Angle β each N–H bond makes with the pyramid axis: cos(α) = (3cos²β − 1)/2
+    r = _NH3_NH_ANG
+    alpha = math.radians(_NH3_HNH_DEG)
     cos_beta = math.sqrt((2 * math.cos(alpha) + 1) / 3)
     sin_beta = math.sqrt(max(0.0, 1.0 - cos_beta ** 2))
     sq3 = math.sqrt(3)
@@ -143,40 +144,40 @@ def _nh3_tripod() -> _ProbeGeom:
 
 def _co_c_down() -> _ProbeGeom:
     """CO bound through carbon (η¹ C-down): C at origin, O at +z."""
-    return _ProbeGeom("CO", "C", (("C", 0.0, 0.0, 0.0), ("O", 0.0, 0.0, _CO_BOND)), "c_down")
+    return _ProbeGeom("CO", "C", (("C", 0.0, 0.0, 0.0), ("O", 0.0, 0.0, _CO_BOND_ANG)), "c_down")
 
 
 def _co_o_down() -> _ProbeGeom:
     """CO bound through oxygen (η¹ O-down): O at origin, C at +z."""
-    return _ProbeGeom("CO", "O", (("O", 0.0, 0.0, 0.0), ("C", 0.0, 0.0, _CO_BOND)), "o_down")
+    return _ProbeGeom("CO", "O", (("O", 0.0, 0.0, 0.0), ("C", 0.0, 0.0, _CO_BOND_ANG)), "o_down")
 
 
 def _n2_eta1() -> _ProbeGeom:
     """N2 end-on (η¹): binding N at origin, second N at +z."""
-    return _ProbeGeom("N2", "N", (("N", 0.0, 0.0, 0.0), ("N", 0.0, 0.0, _N2_BOND)), "eta1")
+    return _ProbeGeom("N2", "N", (("N", 0.0, 0.0, 0.0), ("N", 0.0, 0.0, _N2_BOND_ANG)), "eta1")
 
 
 def _n2_eta2() -> _ProbeGeom:
     """N2 side-on (η²): N–N midpoint at origin, bond along x."""
-    half = _N2_BOND / 2
+    half = _N2_BOND_ANG / 2
     return _ProbeGeom("N2", "N", (("N", -half, 0.0, 0.0), ("N", half, 0.0, 0.0)), "eta2")
 
 
 def _o2_eta1() -> _ProbeGeom:
     """O2 end-on (η¹): binding O at origin, second O at +z (triplet)."""
-    return _ProbeGeom("O2", "O", (("O", 0.0, 0.0, 0.0), ("O", 0.0, 0.0, _O2_BOND)), "eta1", 3)
+    return _ProbeGeom("O2", "O", (("O", 0.0, 0.0, 0.0), ("O", 0.0, 0.0, _O2_BOND_ANG)), "eta1", 3)
 
 
 def _o2_eta2() -> _ProbeGeom:
     """O2 side-on (η²): O–O midpoint at origin, bond along x (triplet)."""
-    half = _O2_BOND / 2
+    half = _O2_BOND_ANG / 2
     return _ProbeGeom("O2", "O", (("O", -half, 0.0, 0.0), ("O", half, 0.0, 0.0)), "eta2", 3)
 
 
 def _h2o_geom(z_sign: float, orientation: str) -> _ProbeGeom:
     """H2O with the O at origin and the two O–H bonds along *z_sign*·z (±)."""
-    r = _H2O_OH
-    theta = math.radians(_H2O_HOH / 2)
+    r = _H2O_OH_ANG
+    theta = math.radians(_H2O_HOH_DEG / 2)
     zc = z_sign * r * math.cos(theta)
     h1 = ("H",  r * math.sin(theta), 0.0, zc)
     h2 = ("H", -r * math.sin(theta), 0.0, zc)
@@ -227,10 +228,6 @@ def _probe_from_spec(name: str, spec: dict) -> List[_ProbeGeom]:
                 raise ValueError(
                     f"Probe '{name}' mode {i}: each atom must be [symbol, x, y, z], got {a!r}."
                 )
-            # A misspelled symbol is not harmless: `covalent_radius` returns None for it and the
-            # clash filter silently falls back to 1.5 A, so the probe is placed by a radius that
-            # belongs to no element. The cluster reader already refuses unknown symbols; user
-            # probes went through unchecked.
             if covalent_radius(str(a[0])) is None:
                 raise ValueError(
                     f"Probe '{name}' mode {i}: '{a[0]}' is not a known element symbol.")
@@ -277,10 +274,6 @@ def available_probes(probes_yaml: "str | Path | None" = None) -> List[str]:
     return sorted(registry)
 
 
-# ─────────────────────────────────────────────
-# Result types
-# ─────────────────────────────────────────────
-
 @dataclass
 class AdsorptionConfig:
     """Single adsorption starting geometry."""
@@ -289,10 +282,10 @@ class AdsorptionConfig:
     config_index:     int
     orientation:      str
     probe:            str
-    approach_angle:   float   # polar angle from +z, degrees
-    azimuthal_angle:  float   # rotation around z, degrees
-    placement_dist:   float   # M–X distance used, Å (after any push-out)
-    pushed_out:       float = 0.0   # Å added to clear an overlap (0 = placed as computed)
+    approach_angle:   float
+    azimuthal_angle:  float
+    placement_dist:   float
+    pushed_out:       float = 0.0
     xyz_path:         Optional[Path] = None
 
 
@@ -304,10 +297,10 @@ class GeometryResult:
     n_sites:    int
     configs:    List[AdsorptionConfig] = field(default_factory=list)
     warnings:   List[str]             = field(default_factory=list)
-    n_rejected_clash: int             = 0   # dropped: no room for the probe at all
-    n_pushed_out:     int             = 0   # moved outward to clear an overlap
+    n_rejected_clash: int             = 0
+    n_pushed_out:     int             = 0
     output_dir: Optional[Path]        = None
-    output_json: Optional[str]        = None   # sidecar written inside output_dir
+    output_json: Optional[str]        = None
 
     def to_json(self) -> str:
         return json.dumps(
@@ -341,10 +334,6 @@ class GeometryResult:
         )
 
 
-# ─────────────────────────────────────────────
-# XYZ I/O
-# ─────────────────────────────────────────────
-
 def _read_xyz(path: Path) -> Tuple[List[str], List[np.ndarray], str]:
     """Cluster geometry from an .xyz, through the project's validating parser.
 
@@ -361,10 +350,6 @@ def _read_xyz(path: Path) -> Tuple[List[str], List[np.ndarray], str]:
         str(struct.metadata.get("comment", "")),
     )
 
-
-# ─────────────────────────────────────────────
-# Coordinate geometry
-# ─────────────────────────────────────────────
 
 def _rodrigues(axis: np.ndarray, angle: float) -> np.ndarray:
     """Rotation matrix around *axis* by *angle* radians (Rodrigues formula)."""
@@ -390,13 +375,8 @@ def _z_to_approach(approach: np.ndarray) -> np.ndarray:
     return _rodrigues(axis, angle)
 
 
-# A neighbour is anything within this multiple of the summed covalent radii. Wider than a
-# strict bond so a stretched or under-coordinated contact still counts toward the normal.
-_NEIGHBOR_FACTOR = 1.30
+_NEIGHBOR_FACTOR_OF_RADII_SUM = 1.30
 
-
-# Elements that bridge a cluster: a bond between two of the others is not what defines the
-# coordination gap of a metal site.
 _NONMETALS = frozenset({"O", "N", "C", "S", "F", "Cl", "Br", "I", "H", "P", "Se"})
 
 
@@ -420,24 +400,19 @@ def _site_normal(
     for j, other in enumerate(coords):
         if j == idx:
             continue
-        # Metal–metal pairs are excluded from the sum. With Cordero radii and the 1.30 factor,
-        # Ti···Ti counts as a neighbour out to 4.16 A, and in an oxide the non-bonded M···M
-        # distances are 2.8–3.5 A: every one of them would enter the resultant and tilt the
-        # normal of a metal site away from its actual coordination gap. Oxygens are unaffected
-        # (O+O reaches only 1.72 A).
         if symbols[idx] not in _NONMETALS and symbols[j] not in _NONMETALS:
             continue
         d = float(np.linalg.norm(site - other))
-        r_sum = (covalent_radius(symbols[idx]) or 1.5) + (covalent_radius(symbols[j]) or 1.5)
-        if d < _NEIGHBOR_FACTOR * r_sum and d > 1e-8:
+        r_sum = (covalent_radius(symbols[idx]) or _FALLBACK_COVALENT_RADIUS_ANG) + (
+            covalent_radius(symbols[j]) or _FALLBACK_COVALENT_RADIUS_ANG
+        )
+        if d < _NEIGHBOR_FACTOR_OF_RADII_SUM * r_sum and d > 1e-8:
             resultant += (site - other) / d
 
     norm = float(np.linalg.norm(resultant))
     if norm > 1e-6:
         return resultant / norm, "neighbours"
 
-    # Centrosymmetric environment (an interior atom): the neighbour vectors cancel and carry
-    # no directional information. Point away from the cluster instead.
     centroid = np.mean(np.asarray(coords, dtype=float), axis=0)
     outward = site - centroid
     norm = float(np.linalg.norm(outward))
@@ -485,16 +460,8 @@ def _site_frame(
     """
     normal, source = _site_normal(symbols, coords, idx)
     site = coords[idx]
-    # Distances are rounded before the tie-break: a symmetric site has two neighbours at the
-    # SAME distance, and comparing raw floats lets a 1e-16 difference — which a rigid rotation
-    # of the input is enough to flip — pick the azimuth origin. Rounding makes the tie fall to
-    # the lower atom index, which no rotation can change.
     others = sorted((round(float(np.linalg.norm(site - c)), 6), i)
                     for i, c in enumerate(coords) if i != idx)
-    # The NEAREST neighbour is not always usable: when it lies along the normal its projection
-    # onto the azimuth plane vanishes and `_local_frame` falls back to a cartesian seed, which
-    # ties the azimuth back to the file's orientation — exactly the coupling this frame exists
-    # to break. Walk outwards to the first neighbour that spans the plane.
     reference = None
     for _, j in others:
         candidate = coords[j] - site
@@ -505,20 +472,10 @@ def _site_frame(
     return (normal, *_local_frame(normal, reference)), source
 
 
-# Closest admissible probe–cluster contact in a STARTING geometry, as a multiple of the
-# summed covalent radii. Deliberately stricter than the 0.65 of `bond_distance_range`,
-# which exists to spot fused atoms in a geometry that is already *optimized*: 0.65 admits an
-# H about 0.7 A from a cluster oxygen — shorter than the real O–H bond, 0.96 — and that is not
-# sampling adsorption, it is seeding a reaction.
-_CLASH_FACTOR = 0.80
+_CLASH_FACTOR_OF_RADII_SUM = 0.80
 
-# The placement distance is measured to the binding atom alone, so the rest of the probe
-# can dip toward the cluster on its own — worst in the bent and side-on CO2 modes, where
-# an oxygen ends up closer to the site than the carbon it binds through. Sliding the whole
-# probe back out along its own approach recovers those configurations instead of throwing
-# them away, which is what simply raising the rejection floor to 0.80 would do.
-_PUSHOUT_STEP = 0.05    # A per step
-_PUSHOUT_MAX  = 2.00    # A; past this the site has no room for this orientation at all
+_PUSHOUT_STEP_ANG = 0.05
+_PUSHOUT_MAX_ANG = 2.00
 
 
 def _clash_ratio(
@@ -530,7 +487,8 @@ def _clash_ratio(
     return min(
         (
             float(np.linalg.norm(p_pos - c_pos))
-            / ((covalent_radius(p_sym) or 1.5) + (covalent_radius(c_sym) or 1.5))
+            / ((covalent_radius(p_sym) or _FALLBACK_COVALENT_RADIUS_ANG)
+               + (covalent_radius(c_sym) or _FALLBACK_COVALENT_RADIUS_ANG))
             for p_sym, p_pos in placed
             for c_sym, c_pos in zip(cluster_symbols, cluster_coords)
         ),
@@ -544,7 +502,7 @@ def _has_clash(
     placed: List[Tuple[str, np.ndarray]],
 ) -> bool:
     """True if any probe–cluster pair sits below the starting-geometry clash floor."""
-    return _clash_ratio(cluster_symbols, cluster_coords, placed) < _CLASH_FACTOR
+    return _clash_ratio(cluster_symbols, cluster_coords, placed) < _CLASH_FACTOR_OF_RADII_SUM
 
 
 def _is_axial(pg: "_ProbeGeom") -> bool:
@@ -578,11 +536,6 @@ def _place_probe(
     polar = math.radians(polar_deg)
     azimuth = math.radians(azimuthal_deg)
     normal, t1, t2 = frame
-    # Everything is built INSIDE the site frame and carried out to the global one by F, which
-    # rotates with the cluster. Composing `_z_to_approach` on the local direction instead of the
-    # global one is what makes the probe's own orientation covariant: the minimal rotation from
-    # the file's +z is not (R(G·a) ≠ G·R(a) for a rigid rotation G), and that left the roll of
-    # every non-axial probe tied to how the input .xyz happened to be oriented.
     F = np.column_stack((t1, t2, normal))
     local = np.array([math.sin(polar) * math.cos(azimuth),
                       math.sin(polar) * math.sin(azimuth),
@@ -591,10 +544,6 @@ def _place_probe(
     R = F @ _z_to_approach(local)
     return [(sym, binding_pos + R @ np.array([px, py, pz])) for sym, px, py, pz in pg.coords]
 
-
-# ─────────────────────────────────────────────
-# Main entry point
-# ─────────────────────────────────────────────
 
 def run(
     cdft_json: "str | Path | dict",
@@ -632,30 +581,18 @@ def run(
     if probe not in registry:
         raise ValueError(f"Unknown probe '{probe}'. Available: {sorted(registry)}")
 
-    # ── Parse CDFTResult ─────────────────────────────────────
     if isinstance(cdft_json, dict):
         data = cdft_json
     else:
         p = Path(str(cdft_json))
         data = json.loads(p.read_text(encoding="utf-8") if p.exists() else str(cdft_json))
 
-    # By rank, never by list position: the CDFT Agent emits its sites ordered by |Δf|,
-    # but `repository.py` reorders them by atom_index when persisting, so a JSON that
-    # came back from the database would otherwise sample the first n ATOMS of the
-    # cluster instead of the n most reactive sites. The CLI already sorts by rank.
     ranked_sites = sorted(data.get("sites", []), key=lambda s: s.get("rank", 1 << 30))
-    # n_sites <= 0 means every site: the generator's job is to cover the configuration space,
-    # and the screening downstream is cheap.
     sites_data = ranked_sites if n_sites <= 0 else ranked_sites[:n_sites]
 
-    # ── Parse cluster geometry (.xyz or a Gaussian/ORCA output) ──
-    # Either way the atom order is preserved, so it keeps matching the SCF the CDFT
-    # ranking came from.
     from cadmia.io import structure_from_file
     cluster_path = Path(cluster_xyz)
     struct = structure_from_file(cluster_path)
-    # The probes are neutral. Spins couple high: a closed-shell cluster with triplet O2 starts as
-    # a triplet, the spin-conserving state; the singlet is another calculation, asked for on purpose.
     adduct_charge = int(struct.charge or 0)
 
     def adduct_mult(pg: _ProbeGeom) -> int:
@@ -679,8 +616,6 @@ def run(
     config_idx = 0
 
     if not sites_data:
-        # Without this the agent walks zero sites, writes zero files and returns a
-        # normal-looking result: no configuration and no reason given.
         result.warnings.append(
             "The CDFT input has no 'sites' list, so no adsorption site was sampled and no "
             "configuration was generated — check that this is the CDFT Agent's JSON and "
@@ -688,7 +623,7 @@ def run(
         )
 
     for site in sites_data:
-        site_idx = site["atom_index"]   # 1-based, as emitted by the CDFT Agent
+        site_idx = site["atom_index"]
         site_sym = site["atom_symbol"]
 
         if site_idx < 1 or site_idx > len(cl_coords):
@@ -700,9 +635,6 @@ def run(
 
         zero_based = site_idx - 1
         if cl_symbols[zero_based] != site_sym:
-            # Skipped, not merely flagged: generating anyway puts every configuration of this
-            # site on the wrong atom while the filename and the JSON still claim the right one,
-            # and the orchestrator discards warnings, so through `pipeline` nothing is seen.
             result.warnings.append(
                 f"Atom {site_idx}: cluster .xyz has {cl_symbols[zero_based]} but "
                 f"CDFT site is {site_sym} — the .xyz atom order does not match the SCF output; "
@@ -730,29 +662,18 @@ def run(
                     f"using fallback {dist:.1f} Å."
                 )
             else:
-                # A hydrogen reaching an oxygen at r_O + r_H + 0.5 starts at 1.47 A, which is
-                # already a proton-abstraction transition state and not a physisorption. Given an
-                # atop site with no metal to receive the hydride, xTB resolves it into O–H plus a
-                # stranded H, and that "dissociated H2" is an artefact of the seed. The extra
-                # clearance puts it at a hydrogen-bond distance instead.
                 clearance = 1.0 if (pg.binding_atom == "H" and site_sym == "O") else 0.5
                 dist = r_site + r_probe + clearance
 
             axial = _is_axial(pg)
             for polar in polar_angles:
-                # At polar=0 the azimuth stops being an approach direction and becomes the
-                # probe's own roll about the normal. That collapses to one geometry only for an
-                # axial probe; for a bent or pyramidal one it is a degree of freedom worth sampling
-                # at exactly the most important approach.
                 azims = [0.0] if (polar == 0.0 and axial) else azimuthal_angles
                 for azimuth in azims:
                     placed = _place_probe(site_pos, pg, dist, polar, azimuth, frame)
-                    # Slide the probe outward until nothing overlaps, rather than discard a
-                    # sampling direction because one non-binding atom of the probe leans in.
                     pushed = 0.0
                     while (_has_clash(cl_symbols, cl_coords, placed)
-                           and pushed < _PUSHOUT_MAX):
-                        pushed += _PUSHOUT_STEP
+                           and pushed < _PUSHOUT_MAX_ANG):
+                        pushed += _PUSHOUT_STEP_ANG
                         placed = _place_probe(
                             site_pos, pg, dist + pushed, polar, azimuth, frame)
                     if _has_clash(cl_symbols, cl_coords, placed):
@@ -806,23 +727,18 @@ def run(
         result.warnings.append(
             f"{result.n_pushed_out} configuration(s) had a non-binding probe atom too close "
             f"to the cluster and were moved outward along their approach (up to "
-            f"{_PUSHOUT_MAX:.1f} Å) to clear it; see pushed_out_A in the record."
+            f"{_PUSHOUT_MAX_ANG:.1f} Å) to clear it; see pushed_out_A in the record."
         )
     if result.n_rejected_clash:
         result.warnings.append(
             f"{result.n_rejected_clash} configuration(s) dropped: the probe still overlapped "
-            f"the cluster after being pushed {_PUSHOUT_MAX:.1f} Å out — that site has no room "
+            f"the cluster after being pushed {_PUSHOUT_MAX_ANG:.1f} Å out — that site has no room "
             f"for those orientations."
         )
 
     if out_dir is not None:
-        # The site/orientation each geometry came from lives in this record, not in the .xyz.
         written_xyz = [c.xyz_path for c in result.configs if c.xyz_path]
 
-        # A second run into the same directory overwrites the names it produces and leaves the
-        # rest of the previous run in place. The sidecar then lists N2 files while the next
-        # stage globs N1 > N2 of them, and the ones it did not write carry this run's command
-        # and commit in a record that never mentions them.
         orphans = sorted({f.name for f in out_dir.glob("*.xyz")}
                          - {Path(x).name for x in written_xyz})
         if orphans:

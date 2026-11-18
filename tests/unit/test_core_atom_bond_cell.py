@@ -8,10 +8,6 @@ from cadmia.core import Atom, Bond, Cell, Structure
 from cadmia.core.elements import atomic_number
 
 
-# ─────────────────────────────────────────────
-# elements
-# ─────────────────────────────────────────────
-
 def test_atomic_number_lookup_case_insensitive():
     assert atomic_number("Ti") == 22
     assert atomic_number("al") == 13
@@ -19,10 +15,6 @@ def test_atomic_number_lookup_case_insensitive():
     assert atomic_number("Xx") is None
     assert atomic_number("") is None
 
-
-# ─────────────────────────────────────────────
-# Atom
-# ─────────────────────────────────────────────
 
 def test_atom_autofills_atomic_number_and_validates():
     a = Atom(index=0, symbol="Ti", position=(0.0, 0.0, 0.0))
@@ -41,19 +33,11 @@ def test_atom_roundtrip():
     assert back.atomic_number == 8
 
 
-# ─────────────────────────────────────────────
-# Bond
-# ─────────────────────────────────────────────
-
 def test_bond_roundtrip():
     b = Bond(atom_i=0, atom_j=1, distance=1.8, order=1.2, kind="covalent")
     back = Bond.from_dict(b.to_dict())
     assert back == b
 
-
-# ─────────────────────────────────────────────
-# Cell
-# ─────────────────────────────────────────────
 
 def test_cell_volume_and_fractional_roundtrip():
     cell = Cell(lattice_vectors=np.diag([2.0, 3.0, 4.0]), periodic=True)
@@ -73,10 +57,6 @@ def test_cell_empty():
     with pytest.raises(ValueError):
         c.cart_to_frac(np.array([0.0, 0.0, 0.0]))
 
-
-# ─────────────────────────────────────────────
-# Structure hybrid views (flat storage unchanged)
-# ─────────────────────────────────────────────
 
 def _water() -> Structure:
     return Structure(atoms=["O", "H", "H"],
@@ -110,7 +90,6 @@ def test_structure_bonds_cell_dict_roundtrip():
     back = Structure.from_dict(s.to_dict())
     assert len(back.bonds) == 1 and back.bonds[0].kind == "covalent"
     assert back.cell is not None and back.cell.periodic is True
-    # flat storage preserved
     assert back.atoms == s.atoms
     assert np.allclose(back.positions, s.positions)
 

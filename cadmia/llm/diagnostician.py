@@ -58,7 +58,7 @@ class SuggestionResult:
 
 
 def suggest_fixes(
-    diagnosis: Any,                   # cadmia.agents.diagnosis_agent.Diagnosis (or its JSON str)
+    diagnosis: Any,
     *,
     language: str = "es",
     provider: Optional[Provider] = None,

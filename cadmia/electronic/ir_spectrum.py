@@ -18,23 +18,16 @@ from cadmia.io.vibrational import VibrationalAnalysis, parse_orca_vibrational
 
 @dataclass
 class IRSpectrum:
-    wavenumber_cm1: np.ndarray   # x grid (cm⁻¹)
-    intensity: np.ndarray        # broadened curve (arb. units)
-    peak_positions: np.ndarray   # scaled wavenumbers of the IR-active modes
-    peak_intensities: np.ndarray  # km/mol of those modes
+    wavenumber_cm1: np.ndarray
+    intensity: np.ndarray
+    peak_positions: np.ndarray
+    peak_intensities: np.ndarray
     scaling_factor: float
     fwhm_cm1: float
     lineshape: str
-    # Imaginary modes carry no IR intensity, so they drop out of the broadening on their own and
-    # the spectrum of a saddle point comes out looking like a minimum's. Counted here so the
-    # caller can say what the curve does not show.
     n_imaginary: int = 0
 
 
-# Both profiles integrate to 1, so a band's AREA is its km/mol intensity and its height is
-# whatever the width makes it. Normalising to height 1 instead — as this did — means two spectra
-# computed with different --fwhm cannot be compared on intensity at all, and the area stops being
-# the quantity the experiment measures.
 def _lorentzian(grid: np.ndarray, center: float, fwhm: float) -> np.ndarray:
     gamma = fwhm / 2.0
     return (gamma / np.pi) / ((grid - center) ** 2 + gamma ** 2)
@@ -65,8 +58,6 @@ def compute_ir_spectrum(
     lineshape : ``"lorentzian"`` (default) or ``"gaussian"``.
     """
     if fwhm <= 0:
-        # gamma = 0 makes the Lorentzian 0/0 at the peak and the Gaussian divide by zero:
-        # a whole spectrum of NaN, with nothing to say where it came from.
         raise ValueError(f"fwhm must be positive, got {fwhm}.")
 
     active = analysis.ir_active_modes

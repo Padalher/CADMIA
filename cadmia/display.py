@@ -328,9 +328,6 @@ def print_geometry_result(result: "GeometryResult") -> None:
 
     console.print(table)
 
-    # Both counters were being computed and written to the sidecar without ever reaching
-    # the terminal, so a site quietly losing a quarter of its sampling looked like a
-    # complete run.
     if result.n_pushed_out:
         console.print(f"  {result.n_pushed_out} configuration(s) moved outward to clear "
                       f"an overlap (see pushed_out_A)")

@@ -13,10 +13,6 @@ from cadmia.llm.anthropic import AnthropicProvider
 from cadmia.llm.registry import get_provider
 
 
-# ─────────────────────────────────────────────
-# config
-# ─────────────────────────────────────────────
-
 def test_load_config_defaults_when_missing(tmp_path):
     cfg = load_config(tmp_path / "nope.yaml")
     assert cfg.provider == "anthropic"
@@ -49,7 +45,6 @@ def test_load_config_rejects_secret_keys(tmp_path):
         load_config(p)
 
 def test_load_config_allows_max_tokens(tmp_path):
-    # "max_tokens" contains "token" but is a legitimate whitelisted key.
     p = tmp_path / "llm.yaml"
     p.write_text("provider: anthropic\nmax_tokens: 256\n")
     assert load_config(p).max_tokens == 256
@@ -59,10 +54,6 @@ def test_api_key_missing_raises(monkeypatch):
     with pytest.raises(LLMError, match="ANTHROPIC_API_KEY"):
         LLMConfig().api_key()
 
-
-# ─────────────────────────────────────────────
-# registry
-# ─────────────────────────────────────────────
 
 def test_get_provider_anthropic(monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
@@ -101,10 +92,6 @@ def test_get_provider_unknown():
     with pytest.raises(LLMError, match="Unknown LLM provider"):
         get_provider(LLMConfig(provider="mistral"))
 
-
-# ─────────────────────────────────────────────
-# Anthropic provider (mocked HTTP)
-# ─────────────────────────────────────────────
 
 class _FakeHTTPResponse(io.BytesIO):
     def __enter__(self):
@@ -196,10 +183,6 @@ def test_anthropic_empty_response_raises(monkeypatch):
         prov.complete("hola")
 
 
-# ─────────────────────────────────────────────
-# narrator
-# ─────────────────────────────────────────────
-
 class FakeProvider(Provider):
     name = "fake"
     def __init__(self):
@@ -230,10 +213,6 @@ def test_narrate_report_bad_language():
         narrate_report("# R", language="fr", provider=FakeProvider())
 
 
-# ─────────────────────────────────────────────
-# CLI: cadmia report --narrate
-# ─────────────────────────────────────────────
-
 def test_cli_report_narrate_appends_section(tmp_path, monkeypatch):
     from click.testing import CliRunner
     from cadmia.cli import main
@@ -255,9 +234,6 @@ def test_cli_report_narrate_appends_section(tmp_path, monkeypatch):
     assert "borrador generado por IA" in text
     assert "Borrador de discusión." in text
 
-# ─────────────────────────────────────────────
-# NL → read-only SQL
-# ─────────────────────────────────────────────
 
 class FakeSQLProvider(Provider):
     name = "fake"
@@ -285,7 +261,6 @@ def test_validate_readonly_sql_strips_fences():
     "DELETE FROM molecules",
     "",
     "SELECT 1; SELECT 2",
-    # the table-valued pragma form evaded `\\bpragma\\b` (the `_` broke the boundary)
     "SELECT * FROM pragma_table_info('stability')",
     "SELECT load_extension('evil.so')",
 ])
@@ -295,9 +270,9 @@ def test_validate_readonly_sql_rejects(bad):
         validate_readonly_sql(bad)
 
 @pytest.mark.parametrize("good", [
-    "SELECT * FROM molecules WHERE name = 'a;b'",          # ';' inside a literal
-    "SELECT replace(name, 'a', 'b') FROM molecules",       # replace() scalar function
-    "SELECT name FROM stability -- has ; and DROP\nWHERE balanced = 1",  # comment noise
+    "SELECT * FROM molecules WHERE name = 'a;b'",
+    "SELECT replace(name, 'a', 'b') FROM molecules",
+    "SELECT name FROM stability -- has ; and DROP\nWHERE balanced = 1",
 ])
 def test_validate_readonly_sql_accepts_legit_selects(good):
     from cadmia.llm.sql import validate_readonly_sql
@@ -324,7 +299,7 @@ def test_ask_database_executes_generated_select(tmp_path):
     result = ask_database("¿cuál es la estabilidad?", db, provider=fake)
     assert result.columns == ["name", "e_rel_kcal"]
     assert result.rows == [("Al2TiO5", -146.169)]
-    assert "CREATE TABLE" in fake.last_prompt          # schema included in prompt
+    assert "CREATE TABLE" in fake.last_prompt
     assert "estabilidad" in fake.last_prompt
 
 def test_ask_database_rejects_mutation(tmp_path):
@@ -381,7 +356,6 @@ def test_cli_db_ask_fails_cleanly_without_key(tmp_path, monkeypatch):
     from click.testing import CliRunner
     from cadmia.cli import main
     import cadmia.llm.config as llm_config
-    # Isolate from any real ~/.cadmia/llm.yaml so the default provider (anthropic) applies.
     monkeypatch.setattr(llm_config, "DEFAULT_CONFIG_PATH", tmp_path / "no_llm.yaml")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     db = _seed_db(tmp_path)

@@ -11,10 +11,6 @@ from cadmia.core.electronic_descriptors import GlobalElectronic
 from cadmia.io.results import fit_width, shown_path
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
 def _hdr(title: str, width: int = 72) -> str:
     return f"\n {title}\n {'=' * (width - 1)}"
 
@@ -30,16 +26,10 @@ def _ev_only(label: str, ev: float) -> str:
     return f" {label:<38}{ev:>14.4f} eV"
 
 
-# ---------------------------------------------------------------------------
-# Section builders
-# ---------------------------------------------------------------------------
-
 def _fukui_title(result: CDFTWorkflowResult) -> str:
     title = (f"{result.charge_scheme.capitalize()} charges, condensed Fukui functions and "
              "condensed dual descriptors")
     if result.charge_scheme == "mulliken":
-        # Hirshfeld is read whenever the output has it; landing here means none of the three
-        # files carried a Hirshfeld block (Gaussian Pop=Hirshfeld, ORCA Print[P_Hirshfeld]).
         title += ("\n NOTE: no Hirshfeld block in the outputs, so Mulliken charges were used."
                   "\n Mulliken populations depend strongly on the basis set; rerun the three"
                   "\n single points with Pop=Hirshfeld (Gaussian) for basis-stable Fukui values.")
@@ -250,7 +240,7 @@ def _section_global_fd(fd: FiniteDifferenceCDFT, open_shell: bool = False) -> st
     lines.append(_two_units("Mulliken electronegativity χ:", fd.chi_ev / HARTREE_TO_EV, fd.chi_ev))
     lines.append(_two_units("Chemical potential μ:", fd.mu_ev / HARTREE_TO_EV, fd.mu_ev))
     lines.append(_two_units("Hardness η (IP-EA):", fd.hardness_ev / HARTREE_TO_EV, fd.hardness_ev))
-    s_h = fd.softness * HARTREE_TO_EV  # Hartree^-1
+    s_h = fd.softness * HARTREE_TO_EV
     lines.append(f" {'Softness S:':<38}{fd.softness:>14.6f} eV^-1,  {s_h:>8.4f} Hartree^-1")
     lines.append(_two_units("Electrophilicity index ω:", fd.omega_ev / HARTREE_TO_EV, fd.omega_ev))
     lines.append(_two_units("Electrodonating power ω-:", fd.omega_minus_ev / HARTREE_TO_EV, fd.omega_minus_ev))
@@ -330,10 +320,6 @@ def _section_koopmans_vs_scf(fd: FiniteDifferenceCDFT, gk: GlobalElectronic,
     return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def write_cdft_report(
     result: CDFTWorkflowResult,
     filepath: str | Path,
@@ -403,7 +389,6 @@ def cdft_report_text(
     if result.states:
         sections.append(_section_provenance(result))
 
-    # Fukui / charges section
     if charges_n is not None:
         sections.append(
             _section_fukui_full(result, charges_n, charges_np1, charges_nm1)
@@ -454,7 +439,6 @@ def cdft_report_payload(
             "rel_nucleophilicity":  f.relative_nucleophilicity[i]  if f.relative_nucleophilicity  else None,
             "local_electrophilicity": f.local_electrophilicity[i] if f.local_electrophilicity else None,
             "local_nucleophilicity":  f.local_nucleophilicity[i]  if f.local_nucleophilicity  else None,
-            # η·f0 — f0 rescaled by a global constant, not a local hardness (see calculator.py)
             "f_zero_scaled_by_hardness": (f.f_zero_scaled_by_hardness[i]
                                           if f.f_zero_scaled_by_hardness else None),
             "donicity":             f.donicity[i]             if f.donicity             else None,
@@ -536,8 +520,6 @@ def cdft_report_payload(
         "atoms": atoms,
     }
     if nuclear:
-        # The nuclear response is computed by a separate path and joined here BY ATOM INDEX,
-        # never by list position: `atoms` is in atom order but the caller's rows need not be.
         by_index = {r["atom_index"]: r for r in nuclear}
         for entry in atoms:
             row = by_index.get(entry["index"])

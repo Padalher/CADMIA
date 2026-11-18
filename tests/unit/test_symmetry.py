@@ -19,7 +19,6 @@ _T = 1.0 / np.sqrt(3.0)
                            [-0.65, -1.1258, 0]], "D3h", 6, False),
     (["O", "C", "O"], [[-1.16, 0, 0], [0, 0, 0], [1.16, 0, 0]], "D∞h", 2, False),
     (["C", "O"], [[0, 0, 0], [1.13, 0, 0]], "C∞v", 1, False),
-    # H2O2-like twist: a C2 axis and no improper operation, so chiral
     (["O", "O", "H", "H"], [[0, 0.7, 0], [0, -0.7, 0], [0.9, 0.9, 0.3], [-0.9, -0.9, 0.3]],
      "C2", 2, True),
     (["Ti", "O", "Al", "H"], [[0, 0, 0], [1.7, 0.2, 0.1], [-0.4, 2.1, 0.3], [0.3, -0.5, 1.9]],
@@ -31,7 +30,7 @@ def test_point_group_sigma_and_chirality(atoms, positions, group, sigma, chiral)
 
 
 def test_tolerance_decides_what_counts_as_symmetric():
-    water = np.array([[0, 0, 0.12], [0, 0.76, -0.47], [0, -0.762, -0.47]])   # 2 mÅ off C2v
+    water = np.array([[0, 0, 0.12], [0, 0.76, -0.47], [0, -0.762, -0.47]])
     assert detect_symmetry(["O", "H", "H"], water).point_group == "C2v"
     assert detect_symmetry(["O", "H", "H"], water, tol=1e-4).point_group == "Cs"
 

@@ -33,20 +33,13 @@ from cadmia.io.xyz import (comment_info, extxyz_block, extxyz_columns, extxyz_co
 from cadmia.utils.chemistry import classify_skeletons, skeleton
 from cadmia.utils.geometry import kabsch_max_deviation
 
-_DEFAULT_WINDOW_KCAL = 10.0   # keep configs within this of the lowest xTB energy
-_DEFAULT_DEDUP_RMSD = 0.20    # Å; below this (and ~same energy) → same minimum
-_DEDUP_ENERGY_KCAL = 0.5      # energy tolerance for the dedup pairing
-_DEFAULT_MIN_KEEP = 2         # guarantee ≥ this many distinct survivors for DFT comparison
+_DEFAULT_WINDOW_KCAL = 10.0
+_DEFAULT_DEDUP_RMSD = 0.20
+_DEDUP_ENERGY_KCAL = 0.5
+_DEFAULT_MIN_KEEP = 2
 
-# Physical-sanity filter: drop nonphysical xTB minima before ranking, so a spurious
-# collapsed/exploded structure cannot become the (lowest-energy) reference and poison
-# the whole window. Same-composition adducts must lie within a chemically bounded range,
-# so an energy hundreds of kcal/mol below the median (or fused atoms) signals garbage.
-_MIN_ATOM_DIST = 0.5              # Å; no real bond is shorter → collapsed/fused atoms
-_MAX_BELOW_MEDIAN_KCAL = 250.0    # energy this far BELOW the median → spurious minimum
-# The reference is the batch's own median, so the filter catches isolated outliers, not a
-# batch that is mostly garbage: if most configs collapsed, so did the median, and nothing
-# stands out against it. The geometric half (_MIN_ATOM_DIST) is absolute and still applies.
+_MIN_ATOM_DIST = 0.5
+_MAX_BELOW_MEDIAN_KCAL = 250.0
 
 
 def _min_pair_distance(coords: np.ndarray) -> float:
@@ -88,14 +81,14 @@ class PrescreenItem:
     """xTB result for one starting configuration."""
     source_xyz:      str
     energy_hartree:  Optional[float] = None
-    rel_kcal:        Optional[float] = None      # relative to the lowest survivor
+    rel_kcal:        Optional[float] = None
     rank:            Optional[int] = None
     kept:            bool = False
-    reason:          str = ""                     # why kept/dropped
-    optimized_xyz:   Optional[str] = None         # path written for survivors
+    reason:          str = ""
+    optimized_xyz:   Optional[str] = None
     converged:       bool = True
-    physical:        bool = True                   # False ⇒ dropped as a nonphysical minimum
-    cluster_skeleton: Optional[str] = None        # "reference" / "isomer-N" (needs cluster_ref)
+    physical:        bool = True
+    cluster_skeleton: Optional[str] = None
     error:           Optional[str] = None
 
 
@@ -105,13 +98,13 @@ class PrescreenResult:
     n_input:    int = 0
     n_kept:     int = 0
     window_kcal: float = _DEFAULT_WINDOW_KCAL
-    frozen:     bool = False      # cluster atoms held fixed in xTB, only the probe relaxed
+    frozen:     bool = False
     items:      List[PrescreenItem] = field(default_factory=list)
     warnings:   List[str] = field(default_factory=list)
     output_dir: Optional[str] = None
-    output_json: Optional[str] = None       # sidecar written inside output_dir
-    candidates_xyz: Optional[str] = None   # ALL good distinct minima, one file, energy order
-    n_reserve:  int = 0                     # good minima kept as reserve (not selected for DFT)
+    output_json: Optional[str] = None
+    candidates_xyz: Optional[str] = None
+    n_reserve:  int = 0
 
     @property
     def survivors(self) -> List[PrescreenItem]:
@@ -197,7 +190,7 @@ def _resolve_jobs(jobs: int, n_files: int) -> int:
         return max(1, min(jobs, n_files))
     try:
         available = len(os.sched_getaffinity(0))
-    except AttributeError:                      # not Linux
+    except AttributeError:
         available = os.cpu_count() or 1
     return max(1, min(available, n_files))
 
@@ -312,9 +305,6 @@ def prescreen(
             raise ValueError("freeze needs cluster_ref: it says which atoms are the cluster.")
         ref_atoms = tuple(parse_xyz(cluster_ref).atoms)
 
-    # If the input directory carries a sidecar from the stage that produced it, check that it
-    # still describes what is there. Reading files its record does not account for is how a
-    # second run with fewer sites quietly feeds the leftovers of the first one into the screen.
     if isinstance(configs, (str, Path)) and Path(configs).is_dir():
         result.warnings += check_input_directory(configs)
 
@@ -324,13 +314,9 @@ def prescreen(
         out_dir.mkdir(parents=True, exist_ok=True)
         result.output_dir = str(out_dir)
 
-    # Scratch lives on the USER's disk (under the output dir, or the cwd) — never
-    # in /tmp, which is small/shared — and each config's scratch is removed right
-    # after we read what we need, so disk use stays bounded to ~one xTB run.
     scratch_root = (out_dir or Path.cwd()) / ".xtb_scratch"
     scratch_root.mkdir(parents=True, exist_ok=True)
 
-    # ── 1. xTB optimize each configuration ──
     optimized_coords: dict[int, np.ndarray] = {}
     optimized_atoms: dict[int, tuple] = {}
     opt_xyz_text: dict[int, str] = {}
@@ -356,8 +342,6 @@ def prescreen(
             relaxed = (
                 np.asarray(opt_struct.positions, dtype=float),
                 tuple(opt_struct.atoms),
-                # keep the optimized geometry in memory (tiny) so we can drop the scratch now;
-                # the spin goes with the geometry, or the DFT inputs fall back to the parity
                 _xtbopt_block(f, names[str(f)], opt_struct, res.energy_hartree, charge, mult,
                               len(ref_atoms)),
             )
@@ -369,9 +353,7 @@ def prescreen(
             warning = f"{f.name}: {item.error}"
         finally:
             if item.error is None:
-                shutil.rmtree(workdir, ignore_errors=True)   # never leave xTB litter behind
-            # A run that failed keeps its scratch: item.error holds the message but not
-            # xTB's stdout, so deleting it makes the failure impossible to diagnose later.
+                shutil.rmtree(workdir, ignore_errors=True)
         return item, relaxed, warning
 
     def _drop_scratch() -> None:
@@ -399,13 +381,9 @@ def prescreen(
             if on_progress is not None:
                 on_progress(done, len(files), files[i].name, item.energy_hartree, item.error)
 
-    # Everything downstream indexes by position in *files*, so refile in input order —
-    # completion order is whatever the scheduler happened to produce.
     result.items = [collected[i] for i in range(len(files))]
     result.warnings.extend(warnings_by_index[i] for i in sorted(warnings_by_index))
 
-    # ── 1b. Physical-sanity filter: drop nonphysical minima BEFORE they can become the
-    #        lowest-energy reference and poison the window (see _nonphysical_reasons). ──
     if sanity:
         finite = [it.energy_hartree for it in result.items if it.energy_hartree is not None]
         median_e = float(np.median(finite)) if finite else None
@@ -420,20 +398,10 @@ def prescreen(
                     f"{Path(it.source_xyz).name}: dropped as nonphysical minimum ({'; '.join(reasons)})"
                 )
 
-    # ── 1c. Drop configurations whose xTB optimization did not converge: their energy
-    #        is not that of a minimum, so it cannot be compared against the others and
-    #        must not spend DFT time. They stay in `items` with the reason, and in the
-    #        JSON sidecar, so the verdict on every input geometry is auditable. ──
     for it in result.items:
         if it.energy_hartree is not None and not it.converged:
             it.reason = "dropped (xTB optimization did not converge — not a minimum)"
 
-    # ── 1d. Drop configurations that came back with an energy but no readable relaxed
-    #        geometry: xTB reports the energy before the .xyz is parsed, so a truncated or
-    #        unreadable xtbopt.xyz still leaves a number behind. Such a config cannot be
-    #        deduplicated (there is nothing to superimpose), cannot be written out for the
-    #        DFT stage, and — worst — would still set the zero of every relative energy if
-    #        it happened to rank first, shifting the whole window. ──
     for i, it in enumerate(result.items):
         if it.energy_hartree is not None and i not in optimized_coords:
             it.reason = "dropped (xTB gave an energy but its relaxed geometry could not be read)"
@@ -452,7 +420,6 @@ def prescreen(
         _drop_scratch()
         return result
 
-    # ── 2. Dedup: group configs that relaxed to the same minimum (RMSD + energy) ──
     e_min = min(it.energy_hartree for it in valid)
     order = sorted(range(len(result.items)),
                    key=lambda i: (result.items[i].energy_hartree
@@ -467,14 +434,6 @@ def prescreen(
         for j in representative_idx:
             de_kcal = abs(it.energy_hartree - result.items[j].energy_hartree) * HARTREE_TO_KCAL
             if de_kcal <= _DEDUP_ENERGY_KCAL:
-                # Largest atomic displacement, not the RMSD: an RMSD averages over the
-                # whole system, so the probe would have to move dedup_rmsd·√(N/n_probe)
-                # before the mean noticed, so the tolerance would silently loosen as the
-                # cluster grows.
-                # Atoms are paired by ELEMENT, not by list position: probe modes write
-                # their atoms in different orders (o_down gives O,C,O where side_on gives
-                # C,O,O), and pairing by position would take the same relaxed carbonate reached
-                # from two modes for two species and send both to DFT.
                 a_syms, b_syms = optimized_atoms.get(i), optimized_atoms.get(j)
                 if a_syms is not None and b_syms is not None and len(a_syms) == len(b_syms):
                     dev = kabsch_max_deviation(optimized_coords[i], optimized_coords[j],
@@ -487,19 +446,10 @@ def prescreen(
         else:
             representative_idx.append(i)
 
-    # ── 3. Rank unique reps by energy; keep within window OR to guarantee min_keep. ──
-    #        A rep survives if it is within the energy window, or if it is among the
-    #        lowest `guarantee` distinct minima (so DFT always gets ≥min_keep to compare),
-    #        always bounded above by top_n when that cap is set.
     reps = sorted(representative_idx, key=lambda i: result.items[i].energy_hartree)
-    # a frozen cluster keeps its skeleton by construction, and the DFT cluster it was frozen at
-    # may not match an xTB-relaxed reference (n=2 does not), which would call every config an isomer
     classes = (_classify_skeletons(reps, optimized_atoms, optimized_coords,
                                    cluster_ref, result.warnings)
                if cluster_ref is not None and not freeze else None)
-    # Each skeleton class is its own comparison set: its own zero, its own window, its own
-    # cap and guarantee. A global cap would let the class that ranks first eat the budget,
-    # which is the defect being fixed rather than a separate one.
     if classes:
         for i in reps:
             result.items[i].cluster_skeleton = classes.get(i)
@@ -564,11 +514,6 @@ def prescreen(
             f"widen sampling (more --n-sites / binding modes) to get more candidates."
         )
 
-    # ── 4. Preserve the FULL pool of good minima so more can go to DFT later WITHOUT
-    #        re-running xTB: one ranked file with every physical distinct minimum (tagged
-    #        [DFT] vs reserve) + the reserves as individual .xyz. These live under pool/,
-    #        NOT the main output dir, so prepare/run (which glob *.xyz there) never ingest
-    #        the multi-structure file or re-prepare the reserves by accident. ──
     if out_dir is not None:
         pool_dir = out_dir / "pool"
         reserve_dir = pool_dir / "reserve"
@@ -607,8 +552,6 @@ def prescreen(
     result.n_kept = kept
 
     if out_dir is not None:
-        # Why every config was kept or dropped (and its xTB ΔE) survives only here: the
-        # survivors' .xyz cannot carry the verdict on the ones that did not make it.
         result.output_json = str(out_dir / "prescreen.json")
         written_xyz = [i.optimized_xyz for i in result.items if i.optimized_xyz]
         if result.candidates_xyz:

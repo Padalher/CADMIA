@@ -31,7 +31,7 @@ def ecn_trend_figure(data, output_path, width: str = "single") -> Path:
     fig = new_figure(width)
     ax = fig.subplots()
     for pair, y in zip(pairs, values):
-        ax.plot(n, y, marker="o", markersize=3, label=pair)       # NaN breaks the line
+        ax.plot(n, y, marker="o", markersize=3, label=pair)
     ax.set_xticks(n)
     ax.set_xlabel("n")
     ax.set_ylabel("Average ECN")
@@ -49,7 +49,7 @@ def ecn_heatmap_figure(data, output_path, display_decimals: int = 1, label_style
     ax = fig.subplots()
     image = ax.imshow(np.ma.masked_invalid(values), cmap="viridis", aspect="auto")
     lo, hi = np.nanmin(values), np.nanmax(values)
-    cell_w = 0.75 * FIGURE_WIDTHS_IN[width] / len(n)            # inches per column, colorbar aside
+    cell_w = 0.75 * FIGURE_WIDTHS_IN[width] / len(n)
     label_size = min(8, 11 * cell_w)
     for i, row in enumerate(values):
         for j, v in enumerate(row):
@@ -77,8 +77,6 @@ def bond_histogram_figure(result, output_path, width: str = "single") -> Path:
     ax = fig.subplots()
     every = [d for ds in grouped.values() for d in ds]
     bins = np.arange(np.floor(min(every) * 20) / 20, max(every) + 0.05, 0.05) if every else 10
-    # stacked, with a white edge per bin: overlaid translucent bars hid one type behind another,
-    # and equal-height neighbours of one type fused into a bar several bins wide
     types = sorted(grouped)
     ax.hist([grouped[t] for t in types], bins=bins, stacked=True, label=types,
             edgecolor="white", linewidth=0.8)
@@ -94,8 +92,6 @@ def bond_histogram_figure(result, output_path, width: str = "single") -> Path:
 def distance_heatmap_figure(structure, output_path, width: str = "single", bonds=()) -> Path:
     diff = structure.positions[:, np.newaxis, :] - structure.positions[np.newaxis, :, :]
     distances = np.linalg.norm(diff, axis=-1)
-    # the matrix is symmetric with a zero diagonal: half of it, so it reads as a table of pairs
-    # and not as one more colour map like the ECN heatmap
     shown = np.ma.masked_where(np.triu(np.ones_like(distances, dtype=bool)), distances)
     fig = new_figure(width, aspect=0.85)
     ax = fig.subplots()
@@ -105,7 +101,7 @@ def distance_heatmap_figure(structure, output_path, width: str = "single", bonds
     index = {label: i for i, label in enumerate(structure.labels)}
     bonded = {tuple(sorted((index[b.label_i], index[b.label_j]))) for b in bonds
               if b.label_i in index and b.label_j in index}
-    if n_atoms <= 20:                       # beyond that the numbers no longer fit in a cell
+    if n_atoms <= 20:
         lo, hi = shown.min(), shown.max()
         for i in range(n_atoms):
             for j in range(i):

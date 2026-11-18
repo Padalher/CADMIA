@@ -17,12 +17,12 @@ from typing import List, Sequence
 
 from cadmia.core.elements import atomic_number
 
-# Atomic numbers of the d-block (Sc–Zn, Y–Cd, Hf–Hg) plus the lanthanides/actinides,
-# where the lowest-parity multiplicity is often NOT the ground state.
-_TRANSITION_AND_F_BLOCK = (
-    set(range(21, 31)) | set(range(39, 49)) | set(range(72, 81))
-    | set(range(57, 72)) | set(range(89, 104))
-)
+_BLOCK_3D = set(range(21, 31))
+_BLOCK_4D = set(range(39, 49))
+_BLOCK_5D = set(range(72, 81))
+_LANTHANIDES = set(range(57, 72))
+_ACTINIDES = set(range(89, 104))
+_TRANSITION_AND_F_BLOCK = _BLOCK_3D | _BLOCK_4D | _BLOCK_5D | _LANTHANIDES | _ACTINIDES
 
 
 def electron_count(atoms: Sequence[str], charge: int = 0) -> int:

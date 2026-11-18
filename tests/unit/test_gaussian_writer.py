@@ -12,7 +12,6 @@ def _route(tmp_path, **kw) -> str:
 
 
 def test_route_card_has_a_space_after_the_hash(tmp_path):
-    # "#PBE1PBE/..." is read as print level P + a stray "BE1PBE": l1.exe dies on the '/'.
     assert _route(tmp_path).startswith("# ")
 
 

@@ -33,15 +33,12 @@ def kabsch_rmsd(P: np.ndarray, Q: np.ndarray) -> float:
     if P.ndim != 2 or P.shape[1] != 3:
         raise ValueError(f"Coordinates must be (N, 3), got {P.shape}")
 
-    # Center
     Pc = P - P.mean(axis=0)
     Qc = Q - Q.mean(axis=0)
 
-    # Covariance matrix
     H = Pc.T @ Qc
     U, _, Vt = np.linalg.svd(H)
 
-    # Handle improper rotation (reflection)
     d = float(np.linalg.det(Vt.T @ U.T))
     D = np.diag([1.0, 1.0, math.copysign(1.0, d)])
     R = Vt.T @ D @ U.T
@@ -95,7 +92,7 @@ def kabsch_deviations(P: np.ndarray, Q: np.ndarray) -> np.ndarray:
         raise ValueError(f"Shape mismatch: P={P.shape}, Q={Q.shape}")
     if P.ndim != 2 or P.shape[1] != 3:
         raise ValueError(f"Coordinates must be (N, 3), got {P.shape}")
-    P_rot, _ = align(P, Q)       # align() returns P in Q's own frame
+    P_rot, _ = align(P, Q)
     return np.linalg.norm(P_rot - Q, axis=1)
 
 
@@ -157,19 +154,13 @@ def kabsch_paired_deviations(P: np.ndarray, Q: np.ndarray,
     if len(sp) != len(P) or len(sq) != len(Q):
         raise ValueError("symbols must have one entry per atom")
     if sorted(sp) != sorted(sq):
-        return np.empty(0)             # different composition: not the same structure
+        return np.empty(0)
 
-    # The rotation is fitted on the atoms whose element already agrees position by
-    # position — in a cluster + probe that is the cluster, which pins the frame. If too
-    # few agree there is no reliable frame and the two count as different.
     anchor = [k for k in range(len(sp)) if sp[k] == sq[k]]
     if len(anchor) < min(3, len(sp)):
-        return np.empty(0)    # too few atoms agree to fit a frame on
+        return np.empty(0)
     R, t = _superposition(P[anchor], Q[anchor])
 
-    # Fit on the atoms that already agree, pair the rest by element, then re-fit on that
-    # pairing: the first frame is only as good as the agreeing atoms, and the few that do
-    # not agree are exactly the ones that tilt it.
     mapping = [0] * len(sp)
     for _ in range(2):
         P_rot = P @ R.T + t

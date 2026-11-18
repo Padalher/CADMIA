@@ -43,8 +43,6 @@ def _kill_process_tree(proc: "subprocess.Popen") -> None:
             pass
 
 
-# Binaries smaller than this are not a QC engine (e.g. /usr/bin/orca is the
-# GNOME screen reader on many Linux desktops).
 _MIN_ENGINE_SIZE = 5_000_000
 
 
@@ -101,9 +99,6 @@ def run_job(
     start = time.monotonic()
     try:
         with open(output_file, "wb") as out:
-            # start_new_session=True puts the engine in its own process group so a timeout
-            # can reap the whole tree (subprocess.run's own timeout kill would only hit the
-            # direct child, orphaning ORCA's MPI ranks).
             proc = subprocess.Popen(
                 cmd, cwd=workdir, stdin=stdin, stdout=out,
                 stderr=subprocess.STDOUT, start_new_session=True,
@@ -116,10 +111,6 @@ def run_job(
                 proc.wait()
                 ok = False
             except BaseException:
-                # Its own process group is what lets a timeout reap the whole tree; it is also
-                # what stops Ctrl-C from reaching the engine. Without this the queue dies and
-                # ORCA carries on writing to the same .out, which a later --resume then reopens
-                # in "wb" underneath it.
                 _kill_process_tree(proc)
                 proc.wait()
                 raise

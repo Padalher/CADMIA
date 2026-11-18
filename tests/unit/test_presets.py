@@ -44,7 +44,7 @@ def test_orca_input_emits_output_block(tmp_path):
     inp = write_inp(["O", "H", "H"], np.zeros((3, 3)), p, tmp_path / "m.inp")
     text = inp.read_text(encoding="utf-8")
     assert "%output" in text and "Print[P_Mayer] 1" in text and "end" in text
-    assert "CHELPG" in text.splitlines()[0]   # simple-input line
+    assert "CHELPG" in text.splitlines()[0]
 
 
 def test_orca_input_without_flags_has_no_output_block(tmp_path):

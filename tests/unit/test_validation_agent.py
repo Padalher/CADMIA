@@ -24,10 +24,6 @@ _HAS_DATA = (_DATA / "N.out").exists()
 _requires_data = pytest.mark.skipif(not _HAS_DATA, reason="1tial_cdft reference data not present")
 
 
-# ─────────────────────────────────────────────
-# _check_termination
-# ─────────────────────────────────────────────
-
 def test_termination_gaussian_normal():
     r = _check_termination([" Normal termination of Gaussian 16"], "gaussian")
     assert r.status == "pass"
@@ -49,10 +45,6 @@ def test_termination_orca_error():
     assert r.status == "fail"
 
 
-# ─────────────────────────────────────────────
-# _check_scf_convergence
-# ─────────────────────────────────────────────
-
 def test_scf_gaussian_converged():
     r = _check_scf_convergence([" SCF Done:  E(RPBE1PBE) = -123.4 A.U."], "gaussian")
     assert r.status == "pass"
@@ -70,10 +62,6 @@ def test_scf_orca_not_converged():
     assert r.status == "fail"
 
 
-# ─────────────────────────────────────────────
-# _parse_multiplicity & spin
-# ─────────────────────────────────────────────
-
 def test_parse_multiplicity():
     assert _parse_multiplicity([" Charge =  0 Multiplicity = 3"]) == 3
 
@@ -81,7 +69,6 @@ def test_parse_multiplicity_absent():
     assert _parse_multiplicity(["no mult here"]) is None
 
 def test_spin_singlet_clean():
-    # multiplicity 1, no S**2 block → closed-shell pass
     r = _check_spin_contamination([" Multiplicity = 1", "SCF Done"], "gaussian")
     assert r.status == "pass"
 
@@ -95,7 +82,6 @@ def test_spin_gaussian_contaminated_doublet():
         " S**2 before annihilation     1.5000,   after     1.2000",
     ]
     r = _check_spin_contamination(lines, "gaussian")
-    # expected S² for doublet = 0.75; 1.50 is >25% deviation → fail
     assert r.status == "fail"
 
 
@@ -116,17 +102,11 @@ def test_evaluate_spin_doublet_clean():
     assert _evaluate_spin(0.76, 0.75, 2).status == "pass"
 
 def test_evaluate_spin_doublet_warning():
-    # ~15% deviation
     assert _evaluate_spin(0.86, 0.75, 2).status == "warning"
 
 def test_evaluate_spin_doublet_fail():
-    # ~33% deviation
     assert _evaluate_spin(1.0, 0.75, 2).status == "fail"
 
-
-# ─────────────────────────────────────────────
-# _check_frequencies
-# ─────────────────────────────────────────────
 
 def test_frequencies_all_positive():
     r = _check_frequencies([" Frequencies --   100.0  200.0  300.0"], "gaussian")
@@ -146,10 +126,6 @@ def test_frequencies_orca_positive():
     assert r.status == "pass"
 
 
-# ─────────────────────────────────────────────
-# _check_bsse
-# ─────────────────────────────────────────────
-
 def test_bsse_present_gaussian():
     r = _check_bsse([" Counterpoise: corrected energy ="], "gaussian")
     assert r.status == "pass"
@@ -162,10 +138,6 @@ def test_bsse_present_orca():
     r = _check_bsse([" BSSE correction applied"], "orca")
     assert r.status == "pass"
 
-
-# ─────────────────────────────────────────────
-# ValidationReport serialisation
-# ─────────────────────────────────────────────
 
 def test_report_to_dict_and_json():
     report = ValidationReport(
@@ -182,10 +154,6 @@ def test_report_passed_property():
     assert ValidationReport("f", "orca", "warning").passed is False
 
 
-# ─────────────────────────────────────────────
-# run() — integration with real data
-# ─────────────────────────────────────────────
-
 @_requires_data
 def test_run_real_file_passes():
     report = validation_agent.run(filepath=str(_DATA / "N.out"))
@@ -197,7 +165,6 @@ def test_run_real_file_passes():
 
 @_requires_data
 def test_run_real_file_frequencies_skip():
-    # N.out is an SCF (no freq) job → frequencies check is skipped
     report = validation_agent.run(filepath=str(_DATA / "N.out"))
     assert report.checks["frequencies"].status == "skip"
 
@@ -219,7 +186,7 @@ def test_gaussian_freq_job_is_not_taken_for_an_unconverged_optimization(tmp_path
     freq.write_text(" ------------------\n #P PBE1PBE Def2TZVP FREQ Geom=AllCheck\n ------------------\n"
                     " Berny optimization.\n Step number   1 out of a maximum of    2\n")
     assert validation_agent.geometry_converged(freq, "gaussian") is None
-    opt = tmp_path / "opt.out"          # route wrapped in the middle of "Opt"
+    opt = tmp_path / "opt.out"
     opt.write_text(" ------------------\n #P PBE1PBE Def2TZVP Op\n t FREQ\n ------------------\n"
                    " Berny optimization.\n Step number   1 out of a maximum of  100\n")
     assert validation_agent.geometry_converged(opt, "gaussian") is False

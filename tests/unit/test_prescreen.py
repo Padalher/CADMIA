@@ -21,8 +21,6 @@ def _write_xyz(path: Path, coords: list[tuple[str, float, float, float]], commen
     return path
 
 
-# ── xtb_runner ──
-
 def test_parse_energy_from_stdout(tmp_path):
     stdout = "blah\n          | TOTAL ENERGY              -10.123456 Eh   |\nmore\n"
     assert _parse_energy(stdout, tmp_path / "nope.xyz") == pytest.approx(-10.123456)
@@ -40,17 +38,12 @@ def test_run_xtb_opt_raises_without_binary(tmp_path, monkeypatch):
         run_xtb_opt(xyz, xtb_path="xtb")
 
 
-# ── convergence verdict ──
-# Fragments below are literal xtb 6.x output captured from real runs.
-
 _CONVERGED_TAIL = """
    *** convergence criteria satisfied after 10 iterations ***
    *** GEOMETRY OPTIMIZATION CONVERGED AFTER 5 ITERATIONS ***
           | TOTAL ENERGY               -5.070544442574 Eh   |
 """
 
-# A run that gives up on the geometry still reports SCF convergence for every
-# cycle — the reason the verdict must be anchored on "GEOMETRY OPTIMIZATION".
 _FAILED_TAIL = """
    *** convergence criteria satisfied after 10 iterations ***
    *** convergence criteria satisfied after 7 iterations ***
@@ -97,7 +90,6 @@ def test_run_xtb_opt_flags_an_unconverged_optimization(tmp_path, monkeypatch):
 
 
 def test_freeze_holds_the_cluster_with_constrain_not_fix(tmp_path, monkeypatch):
-    # $fix let the cluster move 1.6 A under xtb's default optimizer; $constrain holds it
     xyz = _write_xyz(tmp_path / "m.xyz", [("H", 0, 0, 0), ("H", 0, 0, 0.74)])
     _fake_xtb_run(monkeypatch, _CONVERGED_TAIL)
     run_xtb_opt(xyz, workdir=tmp_path / "scratch", fix_atoms=8)
@@ -125,7 +117,7 @@ def test_nonzero_exit_is_never_reported_as_converged(tmp_path, monkeypatch):
     _fake_xtb_run(monkeypatch, _CONVERGED_TAIL, rc=2)
     res = run_xtb_opt(xyz, workdir=tmp_path / "scratch")
     assert res.converged is False
-    assert res.energy_hartree is not None      # the energy is still usable for reporting
+    assert res.energy_hartree is not None
 
 
 def test_dedup_does_not_merge_different_species(tmp_path, monkeypatch):
@@ -140,7 +132,6 @@ def test_dedup_does_not_merge_different_species(tmp_path, monkeypatch):
 
     monkeypatch.setattr(prescreen_agent, "run_xtb_opt", _fake)
     res = prescreen_agent.prescreen(d, output_dir=tmp_path / "out")
-    # Identical coordinates and identical energies, but they are not the same species.
     assert len(res.survivors) == 2, [it.reason for it in res.items]
 
 
@@ -164,10 +155,6 @@ def test_prescreen_drops_unconverged_configs(tmp_path, monkeypatch):
     d.mkdir()
     good = _write_xyz(d / "good.xyz", [("H", 0, 0, 0), ("H", 0, 0, 0.74)])
     bad = _write_xyz(d / "bad.xyz", [("H", 0, 0, 0), ("H", 3.0, 0, 0.74)])
-    # The unconverged one is the LOWEST in energy: if it were kept it would become the
-    # reference and shift every relative energy in the window. The gap is deliberately
-    # small (~3 kcal/mol) so the physical-sanity filter has no reason to drop it —
-    # convergence must be the only thing that excludes it.
     energies = {good.name: -10.0, bad.name: -10.005}
 
     def _fake(xyz_path, **kwargs):
@@ -182,7 +169,6 @@ def test_prescreen_drops_unconverged_configs(tmp_path, monkeypatch):
     assert kept == {good.name}
     dropped = next(it for it in res.items if Path(it.source_xyz).name == bad.name)
     assert not dropped.kept and "did not converge" in dropped.reason
-    # The survivor is the reference, so its ΔE is 0 — the unconverged −12.0 was ignored.
     assert res.survivors[0].rel_kcal == pytest.approx(0.0)
 
 
@@ -207,7 +193,6 @@ def test_real_xtb_reports_convergence(tmp_path):
                      [("O", 0, 0, 0.5), ("H", 0, 1.25, -0.5), ("H", 0, -1.25, -0.5)])
     ok = run_xtb_opt(xyz, workdir=tmp_path / "ok")
     assert ok.converged is True
-    # --cycles 1 cannot relax this stretched geometry, so xtb gives up.
     import cadmia.calculators.xtb_runner as xr
     real_run = xr.subprocess.run
 
@@ -222,12 +207,10 @@ def test_real_xtb_reports_convergence(tmp_path):
     assert bad.converged is False
 
 
-# ── prescreen agent ──
-
 @pytest.fixture
 def configs(tmp_path):
     a = _write_xyz(tmp_path / "site1_a.xyz", [("H", 0, 0, 0), ("H", 0, 0, 0.74)])
-    b = _write_xyz(tmp_path / "site1_b.xyz", [("H", 0, 0, 0), ("H", 0, 0, 0.74)])  # same geom as a
+    b = _write_xyz(tmp_path / "site1_b.xyz", [("H", 0, 0, 0), ("H", 0, 0, 0.74)])
     c = _write_xyz(tmp_path / "site2_c.xyz", [("H", 0, 0, 0), ("H", 1.0, 0, 0.74)])
     d = _write_xyz(tmp_path / "site3_d.xyz", [("H", 0, 0, 0), ("H", 2.0, 0, 0.74)])
     return tmp_path, {a.name: -10.0, b.name: -10.0, c.name: -9.995, d.name: -9.970}
@@ -251,13 +234,11 @@ def test_prescreen_dedup_and_window(configs, mock_xtb, tmp_path):
 
     assert result.n_input == 4
     kept = {Path(it.source_xyz).name for it in result.survivors}
-    # a is the lowest; b is a duplicate of a (same geometry); c is within window; d is outside.
     assert kept == {"site1_a.xyz", "site2_c.xyz"}
     b = next(it for it in result.items if it.source_xyz.endswith("site1_b.xyz"))
     assert not b.kept and "duplicate" in b.reason
     d = next(it for it in result.items if it.source_xyz.endswith("site3_d.xyz"))
     assert not d.kept and "window" in d.reason
-    # survivors' optimized geometries were written out
     assert (out / "site1_a_xtbopt.xyz").exists()
 
 
@@ -268,16 +249,16 @@ def test_prescreen_reports_progress(configs, mock_xtb):
         src_dir, energy_window_kcal=100.0,
         on_progress=lambda done, total, name, energy, err: seen.append((done, total, name)),
     )
-    assert len(seen) == 4                  # one callback per input config
+    assert len(seen) == 4
     assert [s[0] for s in seen] == [1, 2, 3, 4]
-    assert all(s[1] == 4 for s in seen)    # total reported each time
+    assert all(s[1] == 4 for s in seen)
 
 
 def test_prescreen_top_n_cap(configs, mock_xtb):
     src_dir, _ = configs
     result = prescreen_agent.prescreen(src_dir, top_n=1, energy_window_kcal=100.0)
     assert result.n_kept == 1
-    assert result.survivors[0].source_xyz.endswith("site1_a.xyz")  # the lowest
+    assert result.survivors[0].source_xyz.endswith("site1_a.xyz")
 
 
 def test_prescreen_handles_xtb_failure(configs, monkeypatch, tmp_path):
@@ -293,18 +274,14 @@ def test_prescreen_handles_xtb_failure(configs, monkeypatch, tmp_path):
     assert any("xtb blew up" in w for w in result.warnings)
 
 
-# ── physical-sanity filter: nonphysical minima must not poison the ranking ──
-
 def test_min_pair_distance():
     assert prescreen_agent._min_pair_distance([[0, 0, 0], [0, 0, 1.5], [3, 0, 0]]) == pytest.approx(1.5)
     assert prescreen_agent._min_pair_distance([[0.0, 0.0, 0.0]]) == float("inf")
 
 
 def test_nonphysical_reasons_energy_outlier():
-    # far below the median → spurious minimum
     r = prescreen_agent._nonphysical_reasons(-20.0, None, median_energy=-9.99)
     assert r and "below the median" in r[0]
-    # normal spread → physical
     assert prescreen_agent._nonphysical_reasons(-9.97, None, median_energy=-9.99) == []
 
 
@@ -338,7 +315,6 @@ def test_prescreen_drops_energy_poison(poisoned, mock_xtb_poisoned):
     result = prescreen_agent.prescreen(src, energy_window_kcal=10.0)
     bad = next(it for it in result.items if it.source_xyz.endswith("bad.xyz"))
     assert not bad.kept and not bad.physical and "nonphysical" in bad.reason
-    # the real lowest is the reference (rank 1, +0.00), NOT the −20 Eh garbage
     r1 = next(it for it in result.items if it.source_xyz.endswith("real1.xyz"))
     assert r1.kept and r1.rank == 1 and r1.rel_kcal == pytest.approx(0.0, abs=1e-6)
     assert any("nonphysical" in w for w in result.warnings)
@@ -348,10 +324,8 @@ def test_prescreen_no_sanity_keeps_poison(poisoned, mock_xtb_poisoned):
     src, _ = poisoned
     result = prescreen_agent.prescreen(src, energy_window_kcal=10.0, sanity=False, min_keep=0)
     bad = next(it for it in result.items if it.source_xyz.endswith("bad.xyz"))
-    assert bad.physical and bad.rank == 1   # filter off → garbage becomes the reference
+    assert bad.physical and bad.rank == 1
 
-
-# ── min_keep guarantee: DFT must get ≥N distinct candidates even outside the window ──
 
 @pytest.fixture
 def spread(tmp_path):
@@ -359,7 +333,6 @@ def spread(tmp_path):
     a = _write_xyz(tmp_path / "a.xyz", [("H", 0, 0, 0), ("H", 0, 0, 0.74)])
     b = _write_xyz(tmp_path / "b.xyz", [("H", 0, 0, 0), ("H", 0.5, 0, 0.74)])
     c = _write_xyz(tmp_path / "c.xyz", [("H", 0, 0, 0), ("H", 1.0, 0, 0.74)])
-    # a=0, b≈+31 kcal/mol, c≈+63 kcal/mol → with a 10 kcal/mol window only `a` qualifies.
     return tmp_path, {a.name: -10.00, b.name: -9.95, c.name: -9.90}
 
 
@@ -375,7 +348,6 @@ def mock_xtb_spread(monkeypatch, spread):
 
 
 def test_prescreen_min_keep_forces_second_candidate(spread, mock_xtb_spread):
-    # window keeps only `a`, but min_keep=2 must also carry the 2nd-lowest distinct minimum.
     result = prescreen_agent.prescreen(spread[0], energy_window_kcal=10.0, min_keep=2)
     assert result.n_kept == 2
     kept_ranks = sorted(it.rank for it in result.survivors)
@@ -387,18 +359,16 @@ def test_prescreen_min_keep_forces_second_candidate(spread, mock_xtb_spread):
 
 def test_prescreen_min_keep_zero_is_window_only(spread, mock_xtb_spread):
     result = prescreen_agent.prescreen(spread[0], energy_window_kcal=10.0, min_keep=0)
-    assert result.n_kept == 1   # only `a` within the window; no guarantee
+    assert result.n_kept == 1
 
 
 def test_prescreen_min_keep_capped_by_top_n(spread, mock_xtb_spread):
-    # top_n=1 must win over min_keep=2 (never keep more than the explicit cap).
     result = prescreen_agent.prescreen(spread[0], energy_window_kcal=10.0, min_keep=2, top_n=1)
     assert result.n_kept == 1
 
 
 def test_prescreen_pool_has_all_good_minima_in_energy_order(spread, mock_xtb_spread, tmp_path):
     out = tmp_path / "kept"
-    # wide window + no cap → all three distinct minima selected, all in the pool file.
     result = prescreen_agent.prescreen(
         spread[0], energy_window_kcal=100.0, top_n=0, output_dir=out,
     )
@@ -408,11 +378,10 @@ def test_prescreen_pool_has_all_good_minima_in_energy_order(spread, mock_xtb_spr
     assert pool.name == "candidates_by_energy.xyz"
     assert pool.parent.name == "pool" and pool.exists()
     text = pool.read_text(encoding="utf-8")
-    # three 2-atom H2 blocks → 3 × (1 + 1 + 2) = 12 lines
     assert len(text.splitlines()) == 12
     infos = [comment_info(ln) for ln in text.splitlines() if ln.startswith("format=")]
-    assert [i["rank"] for i in infos] == ["1", "2", "3"]          # ascending energy
-    assert all(i["selection"] == "to-DFT" for i in infos)         # all selected here
+    assert [i["rank"] for i in infos] == ["1", "2", "3"]
+    assert all(i["selection"] == "to-DFT" for i in infos)
     assert all(i["energy_unit"] == "Eh" and i["energy_kind"] == "xtb" for i in infos)
 
 
@@ -425,15 +394,12 @@ def test_prescreen_pool_keeps_reserves_out_of_glob(spread, mock_xtb_spread, tmp_
         spread[0], energy_window_kcal=10.0, min_keep=1, output_dir=out,
     )
     assert result.n_kept == 1 and result.n_reserve == 2
-    # the pool file still lists ALL three good minima, tagged.
     text = Path(result.candidates_xyz).read_text(encoding="utf-8")
     infos = [comment_info(ln) for ln in text.splitlines() if ln.startswith("format=")]
     assert [i["selection"] for i in infos].count("to-DFT") == 1
     assert [i["selection"] for i in infos].count("reserve") == 2
-    # main dir has ONLY the one selected *_xtbopt.xyz (safe for prepare's glob).
     loose = sorted(p.name for p in out.glob("*.xyz"))
     assert len(loose) == 1
-    # reserves live under pool/reserve/, ready to promote.
     reserves = sorted(p.name for p in (out / "pool" / "reserve").glob("*.xyz"))
     assert len(reserves) == 2
 
@@ -444,14 +410,11 @@ def test_prescreen_no_pool_without_output_dir(spread, mock_xtb_spread):
 
 
 def test_prescreen_min_keep_bounded_by_distinct_minima(configs, mock_xtb):
-    # a and b are duplicates → only 3 distinct minima; asking for 5 keeps at most 3.
     src_dir, _ = configs
     result = prescreen_agent.prescreen(src_dir, energy_window_kcal=1.0, min_keep=5)
     assert result.n_kept == 3
     assert any("distinct xTB min" in w for w in result.warnings)
 
-
-# ── CLI + sidecar: the JSON record is written automatically, with no flag ──
 
 def test_prescreen_writes_json_sidecar_in_output_dir(configs, mock_xtb, tmp_path):
     """Why each config was kept or dropped survives only here: the survivors' .xyz cannot say."""
@@ -487,10 +450,8 @@ def test_prescreen_cli_announces_the_sidecar(configs, mock_xtb, monkeypatch, tmp
     assert res.exit_code == 0, res.output
     assert (out / "prescreen.json").exists()
     assert "JSON → " in res.output
-    assert "Survivors for DFT" in res.output       # the table still prints
+    assert "Survivors for DFT" in res.output
 
-
-# ── A config with an energy but no readable geometry must not rank ──
 
 @pytest.fixture
 def unreadable_relaxed_geometry(tmp_path, monkeypatch):
@@ -510,7 +471,6 @@ def unreadable_relaxed_geometry(tmp_path, monkeypatch):
     truncated = relaxed / "truncated.xyz"
     truncated.write_text("2\nsays two, has one\nH 0.0 0.0 0.0\n", encoding="utf-8")
 
-    # c is the LOWEST energy: if it ranks, it sets the zero for everything else.
     energies = {"a.xyz": -5.000, "b.xyz": -5.001, "c.xyz": -5.002}
 
     def _fake(xyz_path, **kwargs):
@@ -605,11 +565,10 @@ def test_the_dedup_tolerance_does_not_loosen_as_the_cluster_grows(tmp_path, monk
     from cadmia.utils.geometry import kabsch_rmsd, kabsch_max_deviation
     pa = np.asarray(parse_xyz(a).positions, float)
     pb = np.asarray(parse_xyz(b).positions, float)
-    # the premise: the mean does not see it, the worst atom does
     assert kabsch_rmsd(pa, pb) < 0.20
     assert kabsch_max_deviation(pa, pb) > 0.20
 
-    energies = {"a.xyz": -1.0000, "b.xyz": -1.0001}   # 0.06 kcal/mol apart → dedup pairs them
+    energies = {"a.xyz": -1.0000, "b.xyz": -1.0001}
 
     def _fake(xyz_path, **kw):
         src = Path(xyz_path)
@@ -630,7 +589,7 @@ def test_the_same_minimum_written_in_two_atom_orders_is_one_candidate(tmp_path, 
     """
     coords = [("Ti", 0, 0, 0), ("O", 1.6, 0, 0), ("O", 0, 1.6, 0),
               ("C", 4.5, 0, 0), ("O", 5.66, 0, 0), ("O", 3.34, 0, 0)]
-    swapped = coords[:3] + [coords[4], coords[3], coords[5]]   # C and one O swap places
+    swapped = coords[:3] + [coords[4], coords[3], coords[5]]
     a = _write_xyz(tmp_path / "a.xyz", coords)
     b = _write_xyz(tmp_path / "b.xyz", swapped)
     c = _write_xyz(tmp_path / "c.xyz", coords[:3] + [("C", 4.5, 0, 2.0),
@@ -649,8 +608,6 @@ def test_the_same_minimum_written_in_two_atom_orders_is_one_candidate(tmp_path, 
                if Path(it.source_xyz).name == "b.xyz")
 
 
-# ── The energy window must not mix cluster isomers ───────────────────
-
 def _isomer_batch(tmp_path):
     """Four configs: two keep the reference cluster skeleton, two isomerize it (and are
     ~56 kcal/mol lower, so a global window would discard the intact ones)."""
@@ -659,7 +616,7 @@ def _isomer_batch(tmp_path):
     ref = _write_xyz(tmp_path / "cluster.xyz",
                      [("Al", 0, 0, 0), ("O", 1.7, 0, 0), ("Al", 3.4, 0, 0)])
     intact = [("Al", 0, 0, 0), ("O", 1.7, 0, 0), ("Al", 3.4, 0, 0)]
-    bent   = [("Al", 0, 0, 0), ("O", 1.7, 0, 0), ("Al", 1.0, 1.5, 0)]   # Al–Al bond appears
+    bent   = [("Al", 0, 0, 0), ("O", 1.7, 0, 0), ("Al", 1.0, 1.5, 0)]
     _write_xyz(d / "intact_a.xyz", intact + [("H", 1.7, 2.5, 0)])
     _write_xyz(d / "intact_b.xyz", intact + [("H", 1.7, -2.5, 0)])
     _write_xyz(d / "isomer_a.xyz", bent + [("H", 1.7, 2.5, 0)])
@@ -684,7 +641,6 @@ def test_the_window_is_measured_within_each_skeleton_class(tmp_path, monkeypatch
     classes = {Path(it.source_xyz).stem: it.cluster_skeleton for it in res.survivors}
     assert classes.get("intact_a") == "reference"
     assert classes.get("isomer_b") == "isomer-1"
-    # Each class is ranked on its own zero, so the lowest of each sits at 0 kcal/mol.
     zeros = {it.cluster_skeleton for it in res.survivors if it.rel_kcal == 0.0}
     assert zeros == {"reference", "isomer-1"}
 
@@ -694,7 +650,7 @@ def test_without_a_cluster_reference_the_window_is_global(tmp_path, monkeypatch)
     _fake_by_name(monkeypatch, energies)
     res = prescreen_agent.prescreen(d, output_dir=tmp_path / "out", min_keep=0)
     kept = {Path(it.source_xyz).stem for it in res.survivors}
-    assert kept == {"isomer_a", "isomer_b"}          # the intact ones fall outside
+    assert kept == {"isomer_a", "isomer_b"}
     assert all(it.cluster_skeleton is None for it in res.items)
 
 

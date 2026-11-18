@@ -19,32 +19,27 @@ class MEPStats:
     vmax: float
     vmean: float
     vstd: float
-    # Isosurface-restricted stats (only computed when density cube is provided)
     surface_vmin: Optional[float] = None
     surface_vmax: Optional[float] = None
     surface_vmean: Optional[float] = None
     surface_positive_fraction: Optional[float] = None
     surface_negative_fraction: Optional[float] = None
-    # Where the surface extremes are (Å) and the atom nearest to each
     surface_vmin_position: Optional[tuple] = None
     surface_vmax_position: Optional[tuple] = None
     surface_vmin_atom: Optional[str] = None
     surface_vmax_atom: Optional[str] = None
-    # Derived reactivity indicators
-    nucleophilic_site_mep: Optional[float] = None   # most negative MEP on surface
-    electrophilic_site_mep: Optional[float] = None  # most positive MEP on surface
+    nucleophilic_site_mep: Optional[float] = None
+    electrophilic_site_mep: Optional[float] = None
     isovalue_used: Optional[float] = None
-    # Surface area breakdown (Å²)
     surface_area_ang2: Optional[float] = None
     positive_area_ang2: Optional[float] = None
     negative_area_ang2: Optional[float] = None
-    # Politzer-Murray second moments and indices, all area-weighted over the surface
-    sigma2_plus: Optional[float] = None    # centred variance over the V > 0 part
-    sigma2_minus: Optional[float] = None   # centred variance over the V < 0 part
-    sigma2_total: Optional[float] = None   # σ²+ + σ²-
-    nu_balance: Optional[float] = None     # σ²+ × σ²- / σ²_tot²
-    pi_au: Optional[float] = None          # internal charge separation (a.u.)
-    mpi_ev: Optional[float] = None         # molecular polarity index (eV)
+    sigma2_plus: Optional[float] = None
+    sigma2_minus: Optional[float] = None
+    sigma2_total: Optional[float] = None
+    nu_balance: Optional[float] = None
+    pi_au: Optional[float] = None
+    mpi_ev: Optional[float] = None
 
     def __str__(self) -> str:
         lines = [
@@ -108,7 +103,7 @@ def _surface_points(rho: np.ndarray, field: np.ndarray, isovalue: float, steps: 
         lo, hi = tuple(lo), tuple(hi)
         cross = inside[lo] != inside[hi]
         r0 = rho[lo][cross]
-        t = (isovalue - r0) / (rho[hi][cross] - r0)       # one end is >= isovalue, the other not
+        t = (isovalue - r0) / (rho[hi][cross] - r0)
         lerp = lambda f: f[lo][cross] + t * (f[hi][cross] - f[lo][cross])
         values.append(lerp(field))
         normals.append(np.stack([lerp(g) for g in grad], axis=-1))
@@ -146,7 +141,6 @@ def analyze_mep(
     """
     mep = mep_grid.data
 
-    # Remove pathological large values (e.g. near nuclei in MEP cubes)
     finite_mask = np.isfinite(mep) & (np.abs(mep) < 1e6)
     mep_clean = mep[finite_mask]
 
@@ -164,7 +158,7 @@ def analyze_mep(
         raise ValueError(
             f"MEP grid shape {mep.shape} does not match density grid shape {rho.shape}."
         )
-    axes = np.array([mep_grid.vx, mep_grid.vy, mep_grid.vz])     # step vectors, already in Å
+    axes = np.array([mep_grid.vx, mep_grid.vy, mep_grid.vz])
     steps = np.linalg.norm(axes, axis=1)
     if not np.allclose(axes, np.diag(steps), atol=1e-6 * steps.max()):
         raise ValueError("The MEP surface analysis needs a grid with axes along x, y and z.")
@@ -207,8 +201,6 @@ def analyze_mep(
     stats.surface_area_ang2 = float(area)
     stats.positive_area_ang2 = float(w[pos].sum())
     stats.negative_area_ang2 = float(w[neg].sum())
-    # Politzer: centred variances, each over its own part; nu = s2+ s2- / s2tot^2;
-    # Pi = mean |V - mean(V)| and MPI = mean |V| (eV) are different quantities.
     stats.sigma2_plus, stats.sigma2_minus, stats.sigma2_total = s2p, s2m, s2t
     stats.nu_balance = (s2p * s2m) / s2t ** 2 if s2t > 0 else 0.0
     stats.pi_au = float(np.average(np.abs(v - mean), weights=w))

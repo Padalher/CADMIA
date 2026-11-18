@@ -6,7 +6,6 @@ from typing import List
 
 from cadmia.calculators.params import CalcParams, resolve_multiplicity
 
-# ORCA keyword mappings
 _DISPERSION_KW = {
     "d3bj": "D3BJ",
     "d4":   "D4",
@@ -46,7 +45,6 @@ def write_inp(
     disp_kw = _DISPERSION_KW.get(params.dispersion, "")
     task_kw = _TASK_KW.get(params.task, "SP")
 
-    # Simple input line: ! functional basis [dispersion] task [extra]
     simple_parts = [params.functional, params.basis]
     if disp_kw:
         simple_parts.append(disp_kw)
@@ -60,21 +58,17 @@ def write_inp(
     if title:
         lines += [f"# {title}", ""]
 
-    # Parallel and memory blocks
     lines += [
         f"%pal nprocs {params.nprocs} end",
         f"%maxcore {params.mem_orca_mb_core}",
     ]
 
-    # SCF iteration limit (helps open-shell ions converge); 0 keeps the ORCA default.
     if params.scf_maxiter > 0:
         lines += ["%scf", f"  MaxIter {params.scf_maxiter}", "end"]
 
-    # Geometry step limit; 0 keeps the ORCA default of max(50, 3N).
     if params.geom_maxiter > 0 and "opt" in params.task:
         lines += ["%geom", f"  MaxIter {params.geom_maxiter}", "end"]
 
-    # Fine CHELPG grid, only when CHELPG charges were actually requested.
     if params.chelpg_fine and "chelpg" in params.extra_orca.lower():
         lines += [
             "%chelpg",
@@ -85,7 +79,6 @@ def write_inp(
             "end",
         ]
 
-    # Analysis output requests (Mayer / per-MO Löwdin / Hirshfeld …), usually from a preset.
     if params.orca_output_flags:
         lines.append("%output")
         for flag in params.orca_output_flags:

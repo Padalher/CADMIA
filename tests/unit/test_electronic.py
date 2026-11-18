@@ -12,9 +12,9 @@ def test_global_descriptors_known_values():
     assert d.ea_ev == pytest.approx(4.0, abs=1e-9)
     assert d.mu_ev == pytest.approx(-5.0, abs=1e-9)
     assert d.chi_ev == pytest.approx(5.0, abs=1e-9)
-    assert d.eta_ev == pytest.approx(2.0, abs=1e-9)      # η = LUMO − HOMO = gap (no ½)
-    assert d.softness == pytest.approx(0.5, abs=1e-9)    # S = 1/η
-    assert d.omega_ev == pytest.approx(6.25, abs=1e-9)   # ω = μ²/(2η)
+    assert d.eta_ev == pytest.approx(2.0, abs=1e-9)
+    assert d.softness == pytest.approx(0.5, abs=1e-9)
+    assert d.omega_ev == pytest.approx(6.25, abs=1e-9)
 
 
 def test_global_descriptors_positive_gap():
@@ -31,10 +31,6 @@ def test_global_descriptors_positive_omega():
     d = compute_global_descriptors(homo_ev=-6.0, lumo_ev=-4.0)
     assert d.omega_ev > 0
 
-
-# ─────────────────────────────────────────────
-# parse_all_charges — all ORCA schemes
-# ─────────────────────────────────────────────
 
 _ORCA_CHARGES = """\
 MULLIKEN ATOMIC CHARGES
@@ -107,13 +103,8 @@ def test_parse_all_charges_wrong_atom_count_excluded(tmp_path):
     assert parse_all_charges(p, 5) == {}
 
 
-# ─────────────────────────────────────────────
-# ORCA HOMO/LUMO — open-shell cross-spin rule (regression)
-# ─────────────────────────────────────────────
-
 def test_frontier_from_eigenvalues_cross_spin():
     from cadmia.io.electronic import _frontier_from_eigenvalues
-    # α: HOMO -10, LUMO -3 ; β: HOMO -9, LUMO -5  → HOMO=max(-10,-9)=-9, LUMO=min(-3,-5)=-5
     alpha = [-12.0, -10.0, -3.0, 1.0]
     beta = [-11.0, -9.0, -5.0, 2.0]
     homo, lumo = _frontier_from_eigenvalues(alpha, beta, na=2, nb=2)
@@ -164,8 +155,8 @@ def test_parse_orca_electronic_open_shell_uses_beta(tmp_path):
     s = Structure(atoms=["H"], positions=np.zeros((1, 3)),
                   labels=["H1"], structure_id="t", source_file=str(p))
     es = parse_orca_electronic(p, s)
-    assert es.homo_ev == pytest.approx(-13.0615, abs=1e-3)   # β HOMO > α HOMO
-    assert es.lumo_ev == pytest.approx(-8.1634, abs=1e-3)    # β LUMO < α LUMO
+    assert es.homo_ev == pytest.approx(-13.0615, abs=1e-3)
+    assert es.lumo_ev == pytest.approx(-8.1634, abs=1e-3)
     assert es.homo_beta_ev == pytest.approx(-13.0615, abs=1e-3)
     assert es.lumo_beta_ev == pytest.approx(-8.1634, abs=1e-3)
     assert es.gap_beta_ev == pytest.approx(4.8981, abs=1e-3)
@@ -179,19 +170,12 @@ def test_gaussian_open_shell_keeps_both_spin_gaps_and_spin_sq():
     from cadmia.io.gaussian import parse_gaussian_geometry
     path = Path(__file__).parent.parent / "fixtures" / "1tial_cdft" / "N+1.out"
     es = parse_gaussian_electronic(path, parse_gaussian_geometry(path))
-    assert es.spin_sq == pytest.approx(0.7591)     # before annihilation, not the 0.7500 after
+    assert es.spin_sq == pytest.approx(0.7591)
     assert es.gap_alpha_ev == pytest.approx(1.7628, abs=1e-3)
     assert es.gap_beta_ev == pytest.approx(5.6499, abs=1e-3)
-    assert es.homo_lumo_gap_ev == pytest.approx(es.gap_alpha_ev)   # here both frontiers are α
+    assert es.homo_lumo_gap_ev == pytest.approx(es.gap_alpha_ev)
 
 
-# ─────────────────────────────────────────────
-# Gaussian Opt with pop=Hirshfeld prints one block per step (regression)
-# ─────────────────────────────────────────────
-
-# Trimmed from a real Gaussian 16 run (PBE1PBE/Def2SVP Opt pop=Hirshfeld on a distorted
-# water): the first block belongs to the starting geometry (E = -76.2285) and the last to
-# the converged one (E = -76.2763). The O charge moves by 0.012 e between them.
 _GAUSSIAN_HIRSHFELD_TWO_STEPS = """\
  SCF Done:  E(RPBE1PBE) =  -76.2285231881     A.U. after   10 cycles
  Hirshfeld charges, spin densities, dipoles, and CM5 charges using IRadAn=      5:
@@ -220,8 +204,8 @@ def test_gaussian_hirshfeld_keeps_the_converged_step():
     so the charges described a geometry the reported energy did not."""
     from cadmia.io.electronic import _parse_gaussian_hirshfeld_charges
     charges = _parse_gaussian_hirshfeld_charges(_GAUSSIAN_HIRSHFELD_TWO_STEPS.splitlines(), 3)
-    assert charges == pytest.approx([-0.319426, 0.159713, 0.159713])   # converged step
-    assert sum(charges) == pytest.approx(0.0, abs=1e-6)                # neutral molecule
+    assert charges == pytest.approx([-0.319426, 0.159713, 0.159713])
+    assert sum(charges) == pytest.approx(0.0, abs=1e-6)
 
 
 def test_gaussian_hirshfeld_ignores_the_heavy_atom_summary_block():
@@ -232,13 +216,6 @@ def test_gaussian_hirshfeld_ignores_the_heavy_atom_summary_block():
         == pytest.approx(-0.319426)
 
 
-# ─────────────────────────────────────────────
-# ORCA Opt/Freq prints two blocks — the converged one wins (regression)
-# ─────────────────────────────────────────────
-
-# An Opt/Freq output as ORCA writes it: one set of blocks on the starting geometry of
-# cycle 1, another once the optimization has converged. Values differ in the last decimals
-# exactly as in a real run, so a parser reading the wrong block still looks plausible.
 _ORCA_OPT_FREQ_TWO_BLOCKS = """\
                     *      GEOMETRY OPTIMIZATION CYCLE   1      *
 
@@ -290,16 +267,16 @@ def test_orca_orbital_energies_keep_converged_block():
     described a geometry the reported energy did not."""
     from cadmia.io.electronic import _parse_orca_orbital_energies
     alpha, beta, na, nb = _parse_orca_orbital_energies(_ORCA_OPT_FREQ_TWO_BLOCKS.splitlines())
-    assert alpha[na - 1] == pytest.approx(-8.2876, abs=1e-4)   # converged, not -8.2928
-    assert alpha[na] == pytest.approx(-3.7254, abs=1e-4)       # converged, not -3.7253
-    assert len(alpha) == 3                                     # not 6 (no concatenation)
+    assert alpha[na - 1] == pytest.approx(-8.2876, abs=1e-4)
+    assert alpha[na] == pytest.approx(-3.7254, abs=1e-4)
+    assert len(alpha) == 3
 
 
 def test_orca_hirshfeld_keeps_converged_block():
     """Regression: same as above for the Hirshfeld charges, which fed the site charges."""
     from cadmia.io.electronic import _parse_orca_hirshfeld_charges
     charges = _parse_orca_hirshfeld_charges(_ORCA_OPT_FREQ_TWO_BLOCKS.splitlines())
-    assert charges == pytest.approx([0.750954, -0.431219])     # not [0.751341, -0.430910]
+    assert charges == pytest.approx([0.750954, -0.431219])
 
 
 def test_orca_electronic_energy_and_orbitals_share_the_final_geometry(tmp_path):
@@ -326,10 +303,6 @@ def test_orca_single_point_still_reads_its_only_block():
     assert alpha[na - 1] == pytest.approx(-8.2928, abs=1e-4)
 
 
-# ─────────────────────────────────────────────
-# Gaussian eigenvalues — multiple dumps must not concatenate (regression)
-# ─────────────────────────────────────────────
-
 _GAUSSIAN_TWO_DUMPS = """\
  Alpha  occ. eigenvalues --  -0.80000  -0.50000
  Alpha virt. eigenvalues --   0.20000   0.60000
@@ -355,14 +328,10 @@ def test_gaussian_eigenvalues_keep_last_dump(tmp_path):
     s = Structure(atoms=["Ti"], positions=np.zeros((1, 3)),
                   labels=["Ti1"], structure_id="t", source_file=str(p))
     es = parse_gaussian_electronic(p, s)
-    assert es.homo_ev / HARTREE_TO_EV == pytest.approx(-0.55, abs=1e-6)   # last dump
-    assert es.lumo_ev / HARTREE_TO_EV == pytest.approx(0.10, abs=1e-6)    # last dump, not 0.20
-    assert len(es.alpha_eigenvalues_ev) == 4                              # not 8 (no concat)
+    assert es.homo_ev / HARTREE_TO_EV == pytest.approx(-0.55, abs=1e-6)
+    assert es.lumo_ev / HARTREE_TO_EV == pytest.approx(0.10, abs=1e-6)
+    assert len(es.alpha_eigenvalues_ev) == 4
 
-
-# ─────────────────────────────────────────────
-# ORCA thermochemistry (Freq run) — G/H/S parsing
-# ─────────────────────────────────────────────
 
 _ORCA_THERMO = """\
                               THERMOCHEMISTRY AT 298.15K
@@ -392,9 +361,6 @@ def test_parse_orca_thermochemistry_absent_when_no_freq():
     assert _parse_orca_thermochemistry(["FINAL SINGLE POINT ENERGY  -100.0"]) == {}
 
 
-# A second THERMOCHEMISTRY block, as a re-run or a concatenated output carries. Values are
-# deliberately far apart: reading the wrong one is not a rounding difference, it is another
-# molecule.
 _ORCA_THERMO_SECOND = """\
                               THERMOCHEMISTRY AT 298.15K
 -------------------------------------------------------
@@ -426,7 +392,7 @@ def test_parse_orca_thermochemistry_truncated_last_block_does_not_borrow_fields(
     truncated = "THERMOCHEMISTRY AT 298.15K\nTemperature         ...   298.15 K\n"
     t = _parse_orca_thermochemistry((_ORCA_THERMO + truncated).splitlines())
     assert t["temperature_kelvin"] == pytest.approx(298.15)
-    assert t.get("gibbs_free_energy_hartree") is None    # not -1898.69 from the block above
+    assert t.get("gibbs_free_energy_hartree") is None
     assert t.get("enthalpy_hartree") is None
 
 
@@ -439,8 +405,6 @@ def test_parse_orca_electronic_real_cation_cross_spin():
     from cadmia.io.electronic import parse_orca_electronic
     f = _REAL_ORCA / "1tial_cation_orca.out"
     es = parse_orca_electronic(f, parse_orca_geometry(f))
-    # The β LUMO (-11.8784) is well below the α LUMO (-8.0776); the old parser
-    # returned the alpha-only -8.0776 (a 3.8 eV error).
     assert es.lumo_ev == pytest.approx(-11.8784, abs=1e-3)
     assert es.homo_ev == pytest.approx(-13.6053, abs=1e-3)
 
@@ -454,14 +418,8 @@ def test_parse_orca_dipole_matches_printed_debye_magnitude():
     f = _REAL_ORCA / "1tial_N_orca.out"
     es = parse_orca_electronic(f, parse_orca_geometry(f))
     assert es.dipole_debye is not None
-    # ORCA prints the vector in a.u.; the parser converts to Debye, so its
-    # magnitude must match the file's "Magnitude (Debye)" line.
     assert float(np.linalg.norm(es.dipole_debye)) == pytest.approx(6.693495273, abs=1e-3)
 
-
-# ─────────────────────────────────────────────
-# Level-of-theory signature (parse_level_of_theory / describe_level_mismatch)
-# ─────────────────────────────────────────────
 
 from cadmia.io.electronic import parse_level_of_theory, describe_level_mismatch
 
@@ -500,12 +458,10 @@ def test_level_orca_no_dispersion_is_none(tmp_path):
 
 def test_level_gaussian_normalizes_gd3_and_basis(tmp_path):
     f = _gauss_lvl(tmp_path, "n.out", "PBE1PBE Def2TZVP EmpiricalDispersion=GD3", "def2TZVP")
-    # ORCA's def2-TZVP/D3BJ and Gaussian's def2TZVP/GD3 must normalize comparably
     assert parse_level_of_theory(f) == {"basis": "def2tzvp", "dispersion": "d3"}
 
 
 def test_level_orca_ignores_dispersion_in_citation_banner(tmp_path):
-    # D3/D4 appear in ORCA's author credits; only the echoed `!` line counts.
     p = tmp_path / "n.out"
     p.write_text("Sebastian Ehlert : r2SCAN-3c, D4, dhf basis sets\n" + _ORCA_HEAD.format(
         kw="PBE0 def2-SVP def2/J RIJCOSX", basis="def2-SVP"))
@@ -526,10 +482,9 @@ def test_describe_level_mismatch_silent_when_equal(tmp_path):
 
 
 def test_describe_level_mismatch_silent_when_component_missing(tmp_path):
-    # No basis line for b → component unknown → no false alarm.
     a = _orca(tmp_path, "a.out", "PBE0 def2-TZVP def2/J D3BJ", "def2-TZVP")
     b = tmp_path / "b.out"
-    b.write_text("| 1> ! PBE0 def2-SVP D3BJ\n")     # dispersion present, basis absent
+    b.write_text("| 1> ! PBE0 def2-SVP D3BJ\n")
     assert describe_level_mismatch({"adduct": a, "probe": b}) is None
 
 

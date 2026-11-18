@@ -25,9 +25,6 @@ from cadmia.agents.benchmark_agent import (
     compare,
 )
 
-# ─────────────────────────────────────────────
-# Fixtures
-# ─────────────────────────────────────────────
 
 @pytest.fixture
 def simple_atoms():
@@ -52,10 +49,6 @@ def simple_xyz(tmp_path, simple_atoms, simple_positions):
     return p
 
 
-# ─────────────────────────────────────────────
-# CalcParams
-# ─────────────────────────────────────────────
-
 def test_calcparams_defaults():
     p = CalcParams()
     assert p.functional == "PBE0"
@@ -76,10 +69,6 @@ def test_calcparams_normalizes_case():
     assert p.task == "opt+freq"
 
 
-# ─────────────────────────────────────────────
-# Gaussian input writer
-# ─────────────────────────────────────────────
-
 def test_write_gjf_creates_file(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.gjf"
     result = write_gjf(simple_atoms, simple_positions, simple_params, out)
@@ -96,7 +85,6 @@ def test_write_gjf_route_card(tmp_path, simple_atoms, simple_positions, simple_p
     out = tmp_path / "test.gjf"
     write_gjf(simple_atoms, simple_positions, simple_params, out)
     content = out.read_text(encoding="utf-8")
-    # Gaussian's own spelling: PBE0 is PBE1PBE and the def2 family loses the hyphen.
     assert "# PBE1PBE/Def2TZVP" in content
     assert "Opt" in content
     assert "EmpiricalDispersion=GD3BJ" in content
@@ -133,7 +121,7 @@ def test_write_gjf_refuses_d4(tmp_path, simple_atoms, simple_positions):
     `EmpiricalDispersion=GD4` and every .gjf built with defaults was an input G16 rejects
     at startup. Refusing beats emitting a broken keyword, and beats silently dropping the
     dispersion (which would change the level of theory without saying so)."""
-    params = CalcParams(task="sp")                      # dispersion defaults to d4
+    params = CalcParams(task="sp")
     with pytest.raises(ValueError, match=r"'d4' is not available in Gaussian 16"):
         write_gjf(simple_atoms, simple_positions, params, tmp_path / "d4.gjf")
 
@@ -158,16 +146,12 @@ def test_write_inp_still_takes_d4(tmp_path, simple_atoms, simple_positions):
 
 
 def test_write_gjf_freq_task(tmp_path, simple_atoms, simple_positions):
-    params = CalcParams(task="opt+freq", dispersion="d3bj")   # G16 has no native D4
+    params = CalcParams(task="opt+freq", dispersion="d3bj")
     out = tmp_path / "test.gjf"
     write_gjf(simple_atoms, simple_positions, params, out)
     content = out.read_text(encoding="utf-8")
     assert "Opt" in content and "Freq" in content
 
-
-# ─────────────────────────────────────────────
-# ORCA input writer
-# ─────────────────────────────────────────────
 
 def test_write_inp_creates_file(tmp_path, simple_atoms, simple_positions, simple_params):
     out = tmp_path / "test.inp"
@@ -221,10 +205,6 @@ def test_write_inp_sp_task(tmp_path, simple_atoms, simple_positions):
     assert "SP" in out.read_text(encoding="utf-8").splitlines()[0]
 
 
-# ─────────────────────────────────────────────
-# Kabsch RMSD
-# ─────────────────────────────────────────────
-
 def test_rmsd_identical_structures():
     P = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 1.0, 0.0]])
     assert kabsch_rmsd(P, P) < 1e-10
@@ -272,10 +252,6 @@ def test_align_returns_rmsd():
     assert rmsd >= 0
     assert P_aligned.shape == P.shape
 
-
-# ─────────────────────────────────────────────
-# Parsers
-# ─────────────────────────────────────────────
 
 def test_parse_gaussian_energy():
     lines = [
@@ -325,7 +301,6 @@ def test_parse_orca_frequencies():
     nontrivial = _nontrivial(freqs)
     assert 145.23 in [round(f, 2) for f in nontrivial]
     assert 200.45 in [round(f, 2) for f in nontrivial]
-    # Near-zero modes excluded
     assert all(abs(f) > 10 for f in nontrivial)
 
 
@@ -351,10 +326,6 @@ def test_parse_energy_returns_none_on_empty():
     assert _parse_gaussian_energy([]) is None
     assert _parse_orca_energy([]) is None
 
-
-# ─────────────────────────────────────────────
-# generate()
-# ─────────────────────────────────────────────
 
 def test_generate_creates_both_files(tmp_path, simple_xyz, simple_params):
     result = generate(simple_xyz, simple_params, tmp_path / "inputs")
@@ -390,10 +361,6 @@ def test_generate_to_json(tmp_path, simple_xyz, simple_params):
     assert data["gaussian_input"] is not None
     assert data["orca_input"] is not None
 
-
-# ─────────────────────────────────────────────
-# compare() — smoke test with real Gaussian files
-# ─────────────────────────────────────────────
 
 _GAUSSIAN_OUT = Path(__file__).resolve().parent.parent / "fixtures" / "1tial_cdft" / "N.out"
 
@@ -464,7 +431,7 @@ def test_kabsch_max_deviation_pairs_atoms_by_element_when_asked():
     coords = np.array([[0.0, 0.0, 0.0], [1.6, 0.0, 0.0], [0.0, 1.6, 0.0],
                        [3.0, 0.0, 0.0], [4.16, 0.0, 0.0], [1.84, 0.0, 0.0]])
     syms = ["Ti", "O", "O", "C", "O", "O"]
-    order = [0, 1, 2, 4, 3, 5]                      # C and one O swap places in the list
+    order = [0, 1, 2, 4, 3, 5]
     assert kabsch_max_deviation(coords, coords[order]) > 1.0
     assert kabsch_max_deviation(coords, coords[order], syms, [syms[i] for i in order]) < 1e-6
 

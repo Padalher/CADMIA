@@ -13,10 +13,6 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
-# ─────────────────────────────────────────────
-# Spanish help (--ayuda)
-# ─────────────────────────────────────────────
-
 def test_root_ayuda(runner):
     result = runner.invoke(main, ["--ayuda"])
     assert result.exit_code == 0
@@ -63,10 +59,6 @@ def test_every_command_has_spanish_help(runner, argv, key):
     assert "No hay ayuda en español" not in result.output
 
 
-# ─────────────────────────────────────────────
-# English help still works and advertises the Spanish flag
-# ─────────────────────────────────────────────
-
 def test_english_help_intact(runner):
     result = runner.invoke(main, ["cdft", "--help"])
     assert result.exit_code == 0
@@ -85,21 +77,11 @@ def test_ayuda_skips_required_option_validation(runner):
     assert "Missing option" not in result.output
 
 
-# ─────────────────────────────────────────────
-# _command_key resolver
-# ─────────────────────────────────────────────
-
 def test_command_key_resolves_nested(runner):
     """Sanity: every SPANISH_HELP key except 'main' is reachable as a command path."""
-    # Group keys and leaf keys must all be non-empty strings.
     assert all(isinstance(k, str) and k for k in SPANISH_HELP)
     assert "main" in SPANISH_HELP
 
-
-# ─────────────────────────────────────────────
-# Unified surface: the electronic/structure programs are reachable as
-# `cadmia` subcommands (CLI consolidation, transition step 1).
-# ─────────────────────────────────────────────
 
 def test_electronic_and_structure_listed_in_root_help(runner):
     result = runner.invoke(main, ["--help"])
@@ -130,7 +112,6 @@ def test_banner_theme_follows_the_calendar():
     assert glyph(10, 15) == "🍂" and glyph(11, 3) == "🍂"
     assert glyph(6, 9) == "🎂" and glyph(6, 10) == "☀"
     assert all(len(_banner_theme(datetime.date(2026, m, 15))[1]) == 6 for m in range(1, 13))
-
 
 
 def _visible_commands(cmd, path=()):

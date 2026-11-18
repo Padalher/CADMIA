@@ -21,8 +21,6 @@ from typing import Dict, List, Optional, Tuple
 
 from cadmia.core.stats import LinFit, linregress
 
-# Alias → candidate field names, searched (in order) inside the CDFT global blocks and, as a
-# fallback, the adsorption cluster block. These are scalar, one value per system.
 _CDFT_SCALARS: Dict[str, Tuple[str, ...]] = {
     "mu": ("mu_ev",),
     "eta": ("hardness_ev", "eta_ev"),
@@ -34,7 +32,6 @@ _CDFT_SCALARS: Dict[str, Tuple[str, ...]] = {
     "ea": ("ea_ev",),
     "gap": ("gap_ev",),
 }
-# Alias → field at the top level of the analysis JSON.
 _ANALYSIS_SCALARS: Dict[str, str] = {
     "e_ads": "e_ads_kcal",
     "dG_ads": "delta_g_ads_kcal",
@@ -44,11 +41,8 @@ _ANALYSIS_SCALARS: Dict[str, str] = {
     "dq_site": "delta_q_site",
     "dr_site": "delta_r_site_ang",
 }
-# Alias → field inside the analysis "charge_transfer" block.
 _CT_SCALARS: Dict[str, str] = {"delta_n": "delta_n", "e_stab": "e_stab_ev"}
-# Atom-resolved Fukui aliases (need "name@atom", atom = 1-based index or the token "site").
 _FUKUI_BASES = {"f_plus", "f_minus", "f_zero", "dual",
-                # nuclear response (present only when the CDFT report was built from .engrad)
                 "phi_norm", "phi_along", "phi_dual_norm"}
 
 _KIND_SUFFIXES = (".analysis", ".cdft", ".report", ".fd", ".koopmans")
@@ -103,12 +97,10 @@ class CorrelateResult:
         return json.dumps(self.to_dict(), indent=2, ensure_ascii=False)
 
 
-# ── loading ──
-
 def _system_id(path: Path, data: dict) -> str:
     if isinstance(data, dict) and data.get("system"):
         return str(data["system"])
-    stem = path.stem  # "cluster_co2.analysis.json" → "cluster_co2.analysis"
+    stem = path.stem
     for suf in _KIND_SUFFIXES:
         if stem.endswith(suf):
             return stem[: -len(suf)]
@@ -125,7 +117,6 @@ def _expand_json(sources: List[str]) -> List[Path]:
             out.append(p)
         else:
             out.extend(Path(m) for m in sorted(glob.glob(src)) if m.lower().endswith(".json"))
-    # de-dup preserving order
     seen, uniq = set(), []
     for p in out:
         rp = p.resolve()
@@ -149,7 +140,7 @@ def load_descriptor_systems(sources: List[str]) -> Tuple[Dict[str, dict], List[s
             warnings.append(f"Skipped {path.name}: not a JSON object.")
             continue
         sid = _system_id(path, data)
-        systems.setdefault(sid, {}).update(data)   # shallow merge; cdft/analysis keys don't collide
+        systems.setdefault(sid, {}).update(data)
     return systems, warnings
 
 
@@ -180,8 +171,6 @@ def load_experimental_table(path: str | Path, system_key: str = "system") -> Tup
     return table, observables
 
 
-# ── descriptor resolution ──
-
 def _search(blocks: List[Optional[dict]], names: Tuple[str, ...]) -> Optional[float]:
     for block in blocks:
         if not isinstance(block, dict):
@@ -197,7 +186,7 @@ def _search(blocks: List[Optional[dict]], names: Tuple[str, ...]) -> Optional[fl
 def resolve_descriptor(alias: str, merged: dict) -> Optional[float]:
     """Resolve a descriptor alias to a scalar for one system, or None if unavailable."""
     base, _, atom_tok = alias.partition("@")
-    if atom_tok:                       # atom-resolved Fukui: name@site / name@N
+    if atom_tok:
         if base not in _FUKUI_BASES:
             return None
         atoms = merged.get("atoms")
@@ -231,8 +220,6 @@ def available_descriptors(merged: dict) -> List[str]:
     aliases = list(_CDFT_SCALARS) + list(_ANALYSIS_SCALARS) + list(_CT_SCALARS)
     return [a for a in aliases if resolve_descriptor(a, merged) is not None]
 
-
-# ── transforms + core ──
 
 def _apply(value: float, transform: str) -> Optional[float]:
     if transform == "abs":
@@ -285,7 +272,6 @@ def _regress_pair(descriptor: str, observable: str,
     )
 
 
-# Cluster-level CDFT blocks that apply to every adsorption config of that cluster.
 _CDFT_BROADCAST_KEYS = ("atoms", "global_fd", "global_koopmans", "electronic_cluster")
 
 
@@ -362,7 +348,6 @@ def correlate(
     if unmatched_desc:
         warnings.append(f"Have descriptors but not in table: {', '.join(unmatched_desc)}.")
 
-    # Which observables?
     if y is not None:
         if y not in observables:
             raise ValueError(f"Observable '{y}' not in table (available: {', '.join(observables)}).")
@@ -373,14 +358,13 @@ def correlate(
         raise ValueError(
             f"Table has several observables ({', '.join(observables)}); choose one with --y.")
 
-    # Which descriptors?
     if x == "all":
         avail: List[str] = []
         for sid in matched:
             for a in available_descriptors(systems[sid]):
                 if a not in avail:
                     avail.append(a)
-        x_aliases = [a for a in avail if a != y]   # skip the trivial y↔y self-fit
+        x_aliases = [a for a in avail if a != y]
         if not x_aliases:
             warnings.append("No scalar descriptors available for the matched systems.")
     else:

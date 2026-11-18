@@ -4,14 +4,11 @@ import textwrap
 
 from cadmia import __version__
 
-# Zenodo concept DOI: it always resolves to the latest version. Add the article DOI when it exists.
 REFERENCES = (
-    f"P. D. Alvarez Hernandez, CADMIA (version {__version__}), Zenodo, "
+    f"P. D. Álvarez Hernández, CADMIA (version {__version__}), Zenodo, "
     "https://doi.org/10.5281/zenodo.23608477",
 )
 
-# One is printed under the notice, as Gaussian does at the end of a job. Every entry carries its
-# source; keep it that way when adding one.
 QUOTES = (
     ("The underlying physical laws necessary for the mathematical theory of a large part of "
      "physics and the whole of chemistry are thus completely known, and the difficulty is only "

@@ -20,12 +20,6 @@ _IR_DATA = re.compile(r"^\s*(\d+):\s+(.*)")
 _SCALING = re.compile(r"Scaling factor for frequencies\s*=\s*([\d.]+)")
 _FLOAT = re.compile(r"-?\d+\.\d+")
 
-
-# Modes with |ν| below this are translations/rotations or Hessian numerical noise, not
-# genuine vibrations: ORCA/Gaussian project the six trans-rot modes to ~0. The SAME tolerance
-# bounds both the imaginary test and the real-mode filter, so the [−tol, tol] dead zone is
-# symmetric — a −5 cm⁻¹ artifact is not miscounted as an imaginary (saddle-point) mode while a
-# +5 cm⁻¹ one is silently dropped.
 _TRANSROT_TOL_CM1 = 10.0
 
 
@@ -36,7 +30,7 @@ class VibrationalMode:
     index: int
     frequency_cm1: float
     ir_intensity_km_mol: Optional[float] = None
-    displacements: Optional[np.ndarray] = None  # shape (n_atoms, 3)
+    displacements: Optional[np.ndarray] = None
 
     @property
     def is_imaginary(self) -> bool:
@@ -100,7 +94,7 @@ def _parse_frequencies(lines: List[str]) -> tuple[dict, float]:
     return freqs, scaling
 
 
-_IR_INT_COL = 2  # IR SPECTRUM row values: freq, eps, Int (km/mol), T**2, ...
+_IR_INT_COL = 2
 
 
 def _parse_ir_intensities(lines: List[str]) -> dict:
@@ -135,13 +129,11 @@ def _parse_normal_modes(lines: List[str], n_coords: int) -> dict:
         stripped = line.split()
         if not stripped:
             continue
-        # A header row is all integers (the mode-column labels for this block).
         if all(tok.lstrip("-").isdigit() for tok in stripped) and "." not in line:
             col_indices = [int(tok) for tok in stripped]
             for c in col_indices:
                 modes.setdefault(c, [None] * n_coords)
             continue
-        # A data row: leading coordinate index, then one float per column.
         if col_indices and stripped[0].isdigit() and "." in line:
             coord = int(stripped[0])
             vals = _FLOAT.findall(line)
@@ -164,7 +156,7 @@ def parse_orca_vibrational(filepath: str | Path) -> VibrationalAnalysis:
     if not freqs:
         return VibrationalAnalysis(source_file=str(path))
 
-    n_coords = max(freqs) + 1            # ORCA prints 3N modes (incl. trans/rot)
+    n_coords = max(freqs) + 1
     n_atoms = n_coords // 3
     intensities = _parse_ir_intensities(lines)
     displacements = _parse_normal_modes(lines, n_coords)

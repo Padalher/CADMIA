@@ -16,13 +16,7 @@ AMPHOTERIC = "amphoteric"
 DUAL_ROLE = "dual_role"
 UNKNOWN = "unknown"
 
-# |Δf| below this → no dominant acid/base character, for a system of _REFERENCE_ATOMS atoms.
 DEFAULT_THRESHOLD = 0.02
-# f sums to 1 over all atoms, so the mean per atom is 1/N and an absolute cut means a
-# different thing in a cluster of 8 than in one of 32: 0.02 is 16 % of the mean in the first
-# and 64 % in the second. The threshold is therefore expressed relative to that mean, with
-# 0.02 kept as the value it takes for an 8-atom system and as an absolute floor below which
-# nothing is worth calling a character.
 _REFERENCE_ATOMS = 8
 
 
@@ -122,10 +116,6 @@ def summarize(sites: Iterable, hardness_ev: Optional[float] = None) -> dict:
     return summary
 
 
-# An undercoordinated metal cation is a stronger Lewis acid. We judge "under-
-# coordinated" relative to the mean ECN of the same element in the same cluster
-# (data-driven, not an absolute cutoff). The 0.1-ECN margin is a presentation
-# tolerance so near-equal coordination is not flagged as unsaturated.
 _ECN_MARGIN = 0.1
 
 

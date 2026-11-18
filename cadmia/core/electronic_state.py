@@ -22,17 +22,13 @@ class ElectronicState:
     charge_scheme: str = "mulliken"
     dipole_debye: Optional[np.ndarray] = None
     source_file: str = ""
-    # Orbital eigenvalues (eV) — alpha and beta spin channels
-    spin_sq: Optional[float] = None       # ⟨S²⟩ of an open-shell SCF; None if closed shell
+    spin_sq: Optional[float] = None
     alpha_eigenvalues_ev: Optional[List[float]] = None
     beta_eigenvalues_ev: Optional[List[float]] = None
-    # Frontier orbitals per spin channel (eV). homo_ev/lumo_ev combine them as max/min, which
-    # for an open shell gives a cross-spin gap; these keep the two channels apart.
     homo_alpha_ev: Optional[float] = None
     lumo_alpha_ev: Optional[float] = None
     homo_beta_ev: Optional[float] = None
     lumo_beta_ev: Optional[float] = None
-    # Thermochemistry — only populated when a frequency calculation is detected
     zpe_correction_hartree: Optional[float] = None
     thermal_energy_correction_hartree: Optional[float] = None
     thermal_enthalpy_correction_hartree: Optional[float] = None
@@ -40,18 +36,12 @@ class ElectronicState:
     electronic_zpe_energy_hartree: Optional[float] = None
     enthalpy_hartree: Optional[float] = None
     gibbs_free_energy_hartree: Optional[float] = None
-    entropy_term_hartree: Optional[float] = None   # T·S (ORCA "Final entropy term")
+    entropy_term_hartree: Optional[float] = None
     temperature_kelvin: Optional[float] = None
     frequencies_cm1: Optional[List[float]] = None
-    # Vibrational entropy the engine used for G: "harmonic" (Gaussian), "grimme" (ORCA's
-    # quasi-RRHO, read from its output), None when there is no G or the output does not say.
     entropy_scheme: Optional[str] = None
-    # Rotational symmetry number the engine used in its G ("Rotational symmetry number" in
-    # Gaussian, "Symmetry Number" in ORCA), and the symmetry CADMIA detects from the geometry
-    # (a cadmia.structure.structural.symmetry.Symmetry, set by the agents that need it).
     rotational_symmetry_number: Optional[int] = None
     geometry_symmetry: Optional[object] = None
-    # Set only by readers that need to mark a lower verification level: None means "native parser, no extra marking needed".
     provenance: Optional[Provenance] = None
 
     @property

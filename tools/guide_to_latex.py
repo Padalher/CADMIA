@@ -41,14 +41,10 @@ APPENDIX_SUB = re.compile(r"^(A\.\d+)\s+(.*)$")
 INDEX_ENTRY = re.compile(r"^\s*(\d+)\.\s+(.+?)\s*$")
 INDEX_APPENDIX_ENTRY = re.compile(r"^\s*(A\.\d+)\s+(.+?)\s*$")
 REFERENCE_ITEM = re.compile(r"^\[([^\]]+)\]\s*(.*)$")
-# A line of its own in capitals ("QUÉ HACE", "ALGORITMO, PASO A PASO") heads a block of prose.
 MINOR_HEAD = re.compile(r"^[A-ZÁÉÍÓÚÜÑ0-9][A-ZÁÉÍÓÚÜÑ0-9 ,;:()/'+&.¿?¡!—–-]{2,70}$")
 LIST_ITEM = re.compile(r"^(\s{0,6})([-•*]|\d{1,2}[.)])\s+(\S.*)$")
-# Three spaces inside a line align columns: such a line is a table and keeps its layout.
 ALIGNED = re.compile(r"\S {3,}\S")
 
-# Words the guide writes in caps that must stay in caps when a heading is
-# converted from ALL CAPS back to sentence case.
 ACRONYMS = {
     "CADMIA", "CDFT", "DFT", "SCF", "DOS", "PDOS", "HPC", "LLM", "ECN", "CN",
     "HOMO", "LUMO", "MEP", "BDE", "BSSE", "HSAB", "SLURM", "SSH", "API", "CLI",
@@ -56,11 +52,6 @@ ACRONYMS = {
     "NPA", "AIM", "TD-DFT", "ORCA", "SP", "MO", "RMSD",
 }
 
-# Non-ASCII characters that appear inside code blocks. `listings` does not read
-# the document's inputenc, so every one of them must be mapped here or pdfLaTeX
-# aborts with "Invalid UTF-8 byte sequence". test_guide_to_latex.py asserts the
-# guides introduce no character outside this table, so a new symbol fails a test
-# instead of a build.
 LISTINGS_LITERATE = {
     "á": r"\'a", "é": r"\'e", "í": r"\'i", "ó": r"\'o", "ú": r"\'u",
     "Á": r"\'A", "É": r"\'E", "Í": r"\'I", "Ó": r"\'O", "Ú": r"\'U",
@@ -81,8 +72,6 @@ LISTINGS_LITERATE = {
     "¹": r"$^1$", "⁻": r"$^-$", "⟨": r"$\langle$", "⟩": r"$\rangle$",
 }
 
-# Same idea for prose, where inputenc does handle UTF-8 but pdfLaTeX still needs
-# a definition for symbols outside the Latin-1 font encoding.
 UNICODE_TEXT = {
     "α": r"\ensuremath{\alpha}", "β": r"\ensuremath{\beta}",
     "η": r"\ensuremath{\eta}", "μ": r"\ensuremath{\mu}",
@@ -150,11 +139,11 @@ LANG = {
 
 @dataclass
 class Block:
-    kind: str                      # cover | section | subsection | minor | para | code | refs | list
+    kind: str
     text: str = ""
     label: str = ""
     lines: List[str] = field(default_factory=list)
-    items: list = field(default_factory=list)   # list: (marker, text, code lines) per item
+    items: list = field(default_factory=list)
 
 
 @dataclass
@@ -222,11 +211,9 @@ def parse_guide(text: str, lang: str) -> Document:
     lines = text.splitlines()
     doc = Document()
 
-    # Cover: everything before the first "==== / title / ====" heading.
     first = next((i for i in range(len(lines)) if _is_heading(lines, i)), 0)
     doc.cover = [ln for ln in lines[:first] if not EQ_RULE.match(ln)]
 
-    # Index block: capture titles, then skip it (LaTeX builds its own toc).
     for i in range(len(lines)):
         if _is_heading(lines, i) and lines[i + 1].strip() == words["index"]:
             stop = next((j for j in range(i + 3, len(lines)) if _is_heading(lines, j)),
@@ -237,7 +224,7 @@ def parse_guide(text: str, lang: str) -> Document:
     i = first
     para: List[str] = []
     code: List[str] = []
-    lst: list = []               # open list: [marker, text, code lines, indent]
+    lst: list = []
     in_appendix = False
 
     def flush_para():
@@ -265,7 +252,6 @@ def parse_guide(text: str, lang: str) -> Document:
     while i < len(lines):
         line = lines[i]
 
-        # ---- "==== / TITLE / ====" heading -----------------------------------
         if _is_heading(lines, i):
             flush()
             title = lines[i + 1].strip()
@@ -277,8 +263,6 @@ def parse_guide(text: str, lang: str) -> Document:
             if title == words["guide"]:
                 doc.title = title
                 continue
-            # The appendix banner is itself a ==== heading; from here on, A.N
-            # headings are underlined with dashes rather than dots.
             if title.startswith(words["appendix"]):
                 doc.blocks.append(
                     Block("section", text=doc.index.get("APPENDIX") or sentence_case(title))
@@ -297,7 +281,6 @@ def parse_guide(text: str, lang: str) -> Document:
         stripped = line.strip()
         nxt = lines[i + 1] if i + 1 < len(lines) else ""
 
-        # ---- appendix marker -------------------------------------------------
         if stripped.startswith(words["appendix"]) and not line.startswith(" "):
             flush()
             title = doc.index.get("APPENDIX") or sentence_case(stripped)
@@ -306,7 +289,6 @@ def parse_guide(text: str, lang: str) -> Document:
             i += 1
             continue
 
-        # ---- underlined subsections -----------------------------------------
         if stripped and (DOT_RULE.match(nxt) or (in_appendix and DASH_RULE.match(nxt))):
             m = SUBSECTION.match(stripped) or APPENDIX_SUB.match(stripped)
             if m:
@@ -317,7 +299,6 @@ def parse_guide(text: str, lang: str) -> Document:
                 i += 2
                 continue
 
-        # ---- references list -------------------------------------------------
         if stripped.startswith(words["references"]) and not line.startswith(" "):
             flush()
             items: List[str] = []
@@ -340,13 +321,11 @@ def parse_guide(text: str, lang: str) -> Document:
             doc.blocks.append(Block("refs", text=stripped, lines=items))
             continue
 
-        # ---- horizontal rule -------------------------------------------------
         if DASH_RULE.match(line):
             flush()
             i += 1
             continue
 
-        # ---- lists: "- item" / "1. step", with their indented continuation ---
         item = LIST_ITEM.match(line)
         indent = len(line) - len(line.lstrip(" "))
         if item and not code:
@@ -377,7 +356,6 @@ def parse_guide(text: str, lang: str) -> Document:
         if lst:
             flush_list()
 
-        # ---- a heading line of its own, in capitals -----------------------------
         if (stripped and not line.startswith(" ") and MINOR_HEAD.match(stripped)
                 and sum(c.isalpha() for c in stripped) >= 4 and not nxt.startswith("    ")
                 or stripped and not line.startswith(" ") and MINOR_HEAD.match(stripped)
@@ -387,7 +365,6 @@ def parse_guide(text: str, lang: str) -> Document:
             i += 1
             continue
 
-        # ---- code (indented 4+, or aligned in columns) vs prose -----------------
         if stripped and (line.startswith("    ") or (ALIGNED.search(stripped) and not para)):
             flush_para()
             code.append(line[4:] if line.startswith("    ") else line)
@@ -410,10 +387,6 @@ def parse_guide(text: str, lang: str) -> Document:
     return doc
 
 
-# ---------------------------------------------------------------------------
-# LaTeX rendering
-# ---------------------------------------------------------------------------
-
 _ESCAPES = {
     "\\": r"\textbackslash{}",
     "&": r"\&", "%": r"\%", "$": r"\$", "#": r"\#",
@@ -430,7 +403,7 @@ def tex_escape(s: str) -> str:
     pdfLaTeX: what the file contains is what gets typeset.
     """
     out = []
-    s = s.replace("--", "-\x00-")          # a CLI option: two hyphens, not an en dash
+    s = s.replace("--", "-\x00-")
     for c in s:
         if c == "\x00":
             out.append("{}")
@@ -452,9 +425,10 @@ def render_inline(s: str) -> str:
         else:
             out.append(tex_escape(part))
     text = "".join(out)
-    # Straight double quotes render as two right-quotes in LaTeX; pair them up.
+
     def _quotes(m):
         return "``" + m.group(1) + "''"
+
     return re.sub(r'"([^"]*)"', _quotes, text)
 
 
@@ -494,7 +468,7 @@ PREAMBLE = r"""%% Generated by tools/guide_to_latex.py from {source} — do not 
 }}
 
 \setlist[itemize]{{leftmargin=1.4em,itemsep=2pt,topsep=3pt}}
-\hypersetup{{pdftitle={{CADMIA}},pdfauthor={{Pablo Daniel Alvarez Hernandez}}}}
+\hypersetup{{pdftitle={{CADMIA}},pdfauthor={{Pablo Daniel Álvarez Hernández}}}}
 
 \begin{{document}}
 """
@@ -537,7 +511,6 @@ def render_latex(doc: Document, lang: str, source: str) -> str:
         elif b.kind == "minor":
             out.append(f"\n\\subsubsection*{{{render_inline(sentence_case(b.text))}}}\n")
         elif b.kind == "para":
-            # a blank line ends the paragraph: with a single newline LaTeX runs them all together
             out.append(render_inline(b.text) + "\n\n")
         elif b.kind == "list":
             ordered = b.items and b.items[0][0][0].isdigit()

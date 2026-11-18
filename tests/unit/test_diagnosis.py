@@ -67,10 +67,6 @@ def healthy(tmp_path):
     return p
 
 
-# ─────────────────────────────────────────────
-# symptom extraction
-# ─────────────────────────────────────────────
-
 def test_diverging_cation_symptoms(diverging):
     diag = diagnose(diverging)
     assert diag.engine == "orca"
@@ -101,9 +97,6 @@ def test_healthy_output_no_symptoms(healthy):
     assert diag.energy_hartree == pytest.approx(-1709.16)
 
 def test_energy_prefers_final_over_scf_trace(tmp_path):
-    # ORCA: FINAL SINGLE POINT ENERGY includes the dispersion correction, so it
-    # differs from the last SCF iteration — diagnose must report the final one
-    # (consistent with benchmark/stability).
     p = tmp_path / "disp.out"
     p.write_text(_HEALTHY_ORCA.replace(
         "FINAL SINGLE POINT ENERGY      -1709.16000000",
@@ -121,10 +114,6 @@ def test_diagnosis_json_roundtrip(diverging):
     assert len(data["symptoms"]) == len(diag.symptoms)
     assert data["scf_trace_tail"][-1] == pytest.approx(-1722.9)
 
-
-# ─────────────────────────────────────────────
-# helpers
-# ─────────────────────────────────────────────
 
 def test_scf_trace_orca():
     trace = _scf_trace(_DIVERGING_ORCA.splitlines(), "orca")
@@ -144,8 +133,9 @@ ORBITAL ENERGIES
    1   0.0000      -0.200000        -5.4423
 """.splitlines()
     homo, lumo = _frontier_ev(lines, "orca")
-    assert homo == pytest.approx(-10.8846)   # max(alpha_HOMO, beta_HOMO)
-    assert lumo == pytest.approx(-5.4423)    # min(alpha_LUMO, beta_LUMO)
+    assert homo == pytest.approx(-10.8846)
+    assert lumo == pytest.approx(-5.4423)
+
 
 def test_frontier_gaussian_closed_shell():
     lines = [
@@ -156,10 +146,6 @@ def test_frontier_gaussian_closed_shell():
     assert homo == pytest.approx(-0.33523 * 27.2114, abs=1e-3)
     assert lumo == pytest.approx(-0.15 * 27.2114, abs=1e-3)
 
-
-# ─────────────────────────────────────────────
-# LLM suggestions (FakeProvider)
-# ─────────────────────────────────────────────
 
 class FakeProvider(Provider):
     name = "fake"
@@ -186,10 +172,6 @@ def test_suggest_fixes_bad_language(diverging):
     with pytest.raises(ValueError, match="Unsupported language"):
         suggest_fixes(diagnose(diverging), language="de", provider=FakeProvider())
 
-
-# ─────────────────────────────────────────────
-# CLI: cadmia diagnose
-# ─────────────────────────────────────────────
 
 def test_cli_diagnose_no_llm(diverging, tmp_path):
     from click.testing import CliRunner
@@ -234,10 +216,6 @@ def test_cli_diagnose_without_key_degrades(diverging, monkeypatch):
     assert "scf_not_converged" in result.output
 
 
-# ─────────────────────────────────────────────
-# CP-SCF response failure (analytic Hessian)
-# ─────────────────────────────────────────────
-
 _CPSCF_ORCA = """\
                                  O   R   C   A
 
@@ -272,8 +250,6 @@ def test_cpscf_failure_is_reported_and_geometry_data_survives(tmp_path):
 
     codes = {s.code for s in d.symptoms}
     assert "cpscf_not_converged" in codes
-    # The reference SCF converged and its numbers are still usable: that is the whole
-    # point of separating this symptom from a generic error termination.
     assert d.scf_converged is True
     assert d.energy_hartree == pytest.approx(-1709.16)
     assert d.gap_ev == pytest.approx(5.714, abs=1e-3)
@@ -284,18 +260,12 @@ def test_healthy_output_has_no_cpscf_symptom(healthy):
     assert "cpscf_not_converged" not in {s.code for s in diagnose(healthy).symptoms}
 
 
-# ─────────────────────────────────────────────
-# Batch mode
-# ─────────────────────────────────────────────
-
 def test_cli_diagnose_batch_reports_each_and_skips_the_llm(diverging, healthy, tmp_path,
                                                            monkeypatch):
     from click.testing import CliRunner
     from cadmia.cli import main
     import cadmia.llm.diagnostician as diag_mod
 
-    # The provider is available: the batch must still not call it, or triaging a campaign
-    # would fan out into one paid request per output.
     monkeypatch.setattr(diag_mod, "get_provider", lambda config=None: FakeProvider())
     out = tmp_path / "batch.json"
     result = CliRunner().invoke(main, ["diagnose", str(diverging), str(healthy),
@@ -321,10 +291,6 @@ def test_cli_diagnose_single_file_json_stays_an_object(diverging, tmp_path):
     assert isinstance(json.loads(out.read_text(encoding="utf-8")), dict)
 
 
-# ─────────────────────────────────────────────
-# Imaginary frequencies
-# ─────────────────────────────────────────────
-
 def _orca_with_freqs(*freqs: float) -> str:
     """A converged ORCA output carrying a vibrational block with the given frequencies."""
     modes = "\n".join(f"   {i}:   {f:>10.2f} cm**-1" for i, f in enumerate(freqs))
@@ -349,7 +315,6 @@ def test_several_imaginary_frequencies_are_critical(tmp_path):
 
 
 def test_one_imaginary_frequency_is_only_a_warning(tmp_path):
-    # A first-order saddle point is a legitimate transition state, not a broken run.
     p = tmp_path / "ts.out"
     p.write_text(_orca_with_freqs(0, 0, 0, 0, 0, 0, -410.7, 220.1, 315.9))
     d = diagnose(p)
@@ -368,16 +333,10 @@ def test_a_clean_minimum_reports_zero_and_stays_healthy(tmp_path):
 
 
 def test_no_frequencies_is_a_fact_not_a_symptom(healthy):
-    # A single point has no frequencies by design; flagging that would mark every SCF-only
-    # run (CDFT included) as unhealthy.
     d = diagnose(healthy)
     assert d.n_imaginary is None
     assert d.healthy
 
-
-# ─────────────────────────────────────────────
-# Geometry optimization convergence
-# ─────────────────────────────────────────────
 
 def _orca_opt(converged: bool, cycles: int = 3) -> str:
     """A normally-terminated ORCA optimization that did or did not converge."""
@@ -392,8 +351,6 @@ def _orca_opt(converged: bool, cycles: int = 3) -> str:
 
 
 def test_optimization_out_of_cycles_is_critical_despite_normal_termination(tmp_path):
-    # The exact trap: ORCA gives up, skips Freq, and still prints TERMINATED NORMALLY, so
-    # every other check passes and the unconverged energy flows into rank/analyze.
     p = tmp_path / "stalled.out"
     p.write_text(_orca_opt(converged=False, cycles=54))
     d = diagnose(p)
@@ -412,7 +369,6 @@ def test_converged_optimization_is_clean(tmp_path):
 
 
 def test_single_point_has_no_optimization_to_judge(healthy):
-    # No optimization in the file at all — must not be reported as a failed one.
     from cadmia.agents import validation_agent
     assert validation_agent.run(healthy).checks["geometry_optimization"].status == "skip"
     assert diagnose(healthy).healthy

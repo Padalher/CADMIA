@@ -10,7 +10,7 @@ import numpy as np
 
 from cadmia.core import Structure
 
-from cadmia.core.elements import (  # re-exported for backward compatibility
+from cadmia.core.elements import (
     PERIODIC_TABLE, ATOMIC_NUMBER_TO_SYMBOL, SYMBOL_TO_ATOMIC_NUMBER, VALID_SYMBOLS,
     hill_formula,
 )
@@ -45,24 +45,29 @@ def comment_info(comment: str) -> dict:
     """The ``key=value`` pairs of a comment line (extended XYZ, or CADMIA's older lines)."""
     try:
         tokens = shlex.split(comment)
-    except ValueError:                      # an unbalanced quote: read it word by word
+    except ValueError:
         tokens = comment.split()
     return dict(t.split("=", 1) for t in tokens if "=" in t and not t.startswith("="))
 
 
-def extxyz_columns(info: dict) -> List[Tuple[str, str]]:
-    """The per-atom columns a ``Properties=`` value declares after species and position."""
+def extxyz_columns(info: dict) -> List[tuple]:
+    """The per-atom columns a ``Properties=`` value declares after species and position.
+
+    Each is ``(name, type)``, or ``(name, type, width)`` when the column holds more than one
+    value per atom (``forces:R:3``).
+    """
     fields = info.get("Properties", "").split(":")
-    cols = [(fields[i], fields[i + 1]) for i in range(0, len(fields) - 2, 3)]
-    return [c for c in cols if c[0] not in ("species", "pos")]
+    cols = [(fields[i], fields[i + 1], int(fields[i + 2])) for i in range(0, len(fields) - 2, 3)]
+    return [c[:2] if c[2] == 1 else c for c in cols if c[0] not in ("species", "pos")]
 
 
-def extxyz_comment(info: dict, columns: Iterable[Tuple[str, str]] = ()) -> str:
+def extxyz_comment(info: dict, columns: Iterable[tuple] = ()) -> str:
     """Comment line of an extended XYZ block, format ``extxyz-cadmia-1``.
 
     ``energy`` goes first after the format, in Hartree, because readers take the first number
     called energy. Values with spaces are quoted; ``None`` values are left out. *columns* are
-    the extra per-atom columns as ``(name, type)``, type ``S``, ``R`` or ``I``.
+    the extra per-atom columns as ``(name, type)`` or ``(name, type, width)``, type ``S``,
+    ``R`` or ``I``; the width is 1 when omitted.
     """
     from cadmia import __version__
     info = {**info, "program": f"CADMIA {__version__}"}
@@ -73,19 +78,21 @@ def extxyz_comment(info: dict, columns: Iterable[Tuple[str, str]] = ()) -> str:
         if value is None:
             continue
         text = ("T" if value else "F") if isinstance(value, bool) else str(value)
-        if key == "label":                  # viewers split the line on spaces and skip quotes
-            text = re.sub(r"[\s\"'=]+", "_", text)
+        if key == "label":
+            text = re.sub(r"[\s\"'=\\]+", "_", text)
         if not text or any(c.isspace() or c in "\"'=" for c in text):
             text = '"' + text.replace('"', "'") + '"'
         parts.append(f"{key}={text}")
-    props = _BASE_PROPERTIES + "".join(f":{name}:{kind}:1" for name, kind in columns)
+    props = _BASE_PROPERTIES + "".join(f":{c[0]}:{c[1]}:{c[2] if len(c) > 2 else 1}"
+                                       for c in columns)
     return " ".join(parts + [f"Properties={props}"])
 
 
 def extxyz_block(atoms: Iterable[str], positions, info: dict,
                  columns: Optional[dict] = None) -> str:
     """One extended XYZ block. *columns* maps a column name to ``(type, values)``; a missing
-    real value is written ``nan``, never 0."""
+    real value is written ``nan``, never 0. A value that is itself a sequence (a force vector)
+    makes a column of that width, and every atom must then give the same number of values."""
     atoms = list(atoms)
     columns = columns or {}
 
@@ -94,9 +101,18 @@ def extxyz_block(atoms: Iterable[str], positions, info: dict,
             return "nan" if v is None or v != v else f"{float(v):.6f}"
         return str(v)
 
-    lines = [str(len(atoms)), extxyz_comment(info, [(n, k) for n, (k, _) in columns.items()])]
+    def cells(kind, v):
+        values = list(v) if isinstance(v, (list, tuple, np.ndarray)) else [v]
+        return "".join(f" {cell(kind, x)}" for x in values)
+
+    def width(vals):
+        first = vals[0] if len(vals) else None
+        return len(first) if isinstance(first, (list, tuple, np.ndarray)) else 1
+
+    lines = [str(len(atoms)),
+             extxyz_comment(info, [(n, k, width(vals)) for n, (k, vals) in columns.items()])]
     for i, (sym, pos) in enumerate(zip(atoms, positions)):
-        extra = "".join(f" {cell(k, vals[i])}" for k, vals in columns.values())
+        extra = "".join(cells(k, vals[i]) for k, vals in columns.values())
         x, y, z = (float(c) for c in pos)
         lines.append(f"{sym:<3} {x:14.8f} {y:14.8f} {z:14.8f}{extra}")
     return "\n".join(lines) + "\n"
@@ -200,7 +216,6 @@ def parse_xyz(filepath: str | Path) -> Structure:
         raise FileNotFoundError(f"XYZ file not found: {path}")
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     structure, cursor = _parse_xyz_block(lines, 0, path)
-    # Taking the first block of a trajectory would hand back its starting geometry.
     if any(line.strip() for line in lines[cursor:]):
         raise ValueError(
             f"{path}: lines follow the {len(structure.atoms)} atoms the header declares — a "

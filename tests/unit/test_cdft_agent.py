@@ -16,15 +16,10 @@ from cadmia.agents.cdft_agent import (
     _r,
 )
 
-# Real Gaussian 16 data for Al2TiO5 (8 atoms) — N / N+1 / N-1 SCF outputs.
 _DATA = Path(__file__).resolve().parent.parent / "fixtures" / "1tial_cdft"
 _HAS_DATA = (_DATA / "N.out").exists() and (_DATA / "N+1.out").exists() and (_DATA / "N-1.out").exists()
 _requires_data = pytest.mark.skipif(not _HAS_DATA, reason="1tial_cdft reference data not present")
 
-
-# ─────────────────────────────────────────────
-# _classify
-# ─────────────────────────────────────────────
 
 def test_classify_electrophilic():
     assert _classify(0.5) == "electrophilic"
@@ -40,14 +35,9 @@ def test_classify_none_is_unknown():
     assert _classify(None) == "unknown"
 
 def test_classify_threshold_boundary():
-    # |Δf| exactly at threshold is NOT ambiphilic (strict <)
     assert _classify(0.02) == "electrophilic"
     assert _classify(-0.02) == "nucleophilic"
 
-
-# ─────────────────────────────────────────────
-# _r (rounding helper)
-# ─────────────────────────────────────────────
 
 def test_r_rounds():
     assert _r(0.123456789) == 0.123457
@@ -58,10 +48,6 @@ def test_r_none():
 def test_r_custom_digits():
     assert _r(0.123456, 2) == 0.12
 
-
-# ─────────────────────────────────────────────
-# _detect_engine
-# ─────────────────────────────────────────────
 
 def test_detect_engine_orca(tmp_path):
     f = tmp_path / "orca.out"
@@ -81,10 +67,6 @@ def test_detect_engine_real_file_is_gaussian():
     assert _detect_engine(_DATA / "N.out") == "gaussian"
 
 
-# ─────────────────────────────────────────────
-# _file_hash
-# ─────────────────────────────────────────────
-
 def test_file_hash_deterministic(tmp_path):
     a = tmp_path / "a.txt"
     a.write_text("hello")
@@ -98,10 +80,6 @@ def test_file_hash_differs_by_content(tmp_path):
     b = tmp_path / "b.txt"; b.write_text("world")
     assert _file_hash(a) != _file_hash(b)
 
-
-# ─────────────────────────────────────────────
-# run() — integration with real data
-# ─────────────────────────────────────────────
 
 @pytest.fixture
 def real_result() -> CDFTResult:
@@ -175,8 +153,7 @@ def test_run_top_site_matches_reference(real_result):
 def test_run_acid_base_classification(real_result):
     """Top sites are labeled as Lewis acid (Al) / Lewis base (O), consistent with character."""
     top = real_result.sites[0]
-    assert top.acid_base == "lewis_acid"   # Al(5) electrophilic center accepts electrons
-    # every site's acid/base label must agree with its electrophilic/nucleophilic character
+    assert top.acid_base == "lewis_acid"
     _map = {"electrophilic": "lewis_acid", "nucleophilic": "lewis_base", "ambiphilic": "amphoteric"}
     for s in real_result.sites:
         assert s.acid_base == _map.get(s.character, s.acid_base)
@@ -185,7 +162,6 @@ def test_run_acid_base_classification(real_result):
 @_requires_data
 def test_run_acid_base_summary(real_result):
     ab = real_result.acid_base
-    # strongest Lewis acid is a metal cation (Al), strongest base is oxygen — correct for an oxide
     assert ab["strongest_acid_site"]["atom_symbol"] == "Al"
     assert ab["strongest_base_site"]["atom_symbol"] == "O"
     assert ab["n_acid_sites"] >= 1 and ab["n_base_sites"] >= 1
@@ -212,7 +188,7 @@ def test_run_softness_key_is_labeled_ev_inv(real_result):
     gd = real_result.global_descriptors
     assert "softness_Ha" not in gd
     assert gd["softness_eV_inv"] == pytest.approx(1.0 / gd["hardness_eV"], abs=1e-4)
-    assert gd["softness_eV_inv"] == pytest.approx(0.125, abs=0.005)   # eV^-1, not 3.402 Ha^-1
+    assert gd["softness_eV_inv"] == pytest.approx(0.125, abs=0.005)
 
 
 @_requires_data
@@ -220,7 +196,6 @@ def test_run_exports_electrodonating_accepting_powers(real_result):
     """ω⁻ and ω⁺ (GCV) are computed anyway; they must reach the global JSON."""
     gd = real_result.global_descriptors
     assert "omega_minus_eV" in gd and "omega_plus_eV" in gd
-    # ω⁺ − ω⁻ = μ (electronic chemical potential) — the GCV identity
     assert gd["omega_plus_eV"] - gd["omega_minus_eV"] == pytest.approx(gd["mu_eV"], abs=1e-2)
 
 
@@ -251,10 +226,6 @@ def test_run_rejects_a_non_native_output_instead_of_silently_misparsing_it(tmp_p
         cdft_agent.run(path_n=str(other), path_np1=str(other), path_nm1=str(other))
 
 
-# ─────────────────────────────────────────────
-# to_dict / to_json
-# ─────────────────────────────────────────────
-
 @_requires_data
 def test_to_json_is_valid_and_complete(real_result):
     data = json.loads(real_result.to_json())
@@ -269,5 +240,3 @@ def test_to_json_is_valid_and_complete(real_result):
 @_requires_data
 def test_to_dict_matches_to_json(real_result):
     assert real_result.to_dict() == json.loads(real_result.to_json())
-
-

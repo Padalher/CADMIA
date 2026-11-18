@@ -16,10 +16,6 @@ from cadmia.io.cube import parse_cube
 _CUBE = Path(__file__).resolve().parents[1] / "fixtures" / "test_small.cube"
 
 
-# ─────────────────────────────────────────────
-# Politzer-Murray statistics on the isosurface
-# ─────────────────────────────────────────────
-
 def _grid(values, field_type, step=0.5, origin=(0.0, 0.0, 0.0), atoms=None):
     """A cubic grid of *step* Å per side."""
     atoms = atoms or [("H", (0.0, 0.0, 0.0))]
@@ -43,7 +39,7 @@ def sphere():
     On a sphere z is uniform in [−R, R] (Archimedes), so the exact answers are: area 4πR²,
     mean 0, half the area positive, sigma²± = R²/12, Pi = MPI/eV = R/2.
     """
-    ax = np.arange(-2.6, 2.6, _STEP) + _STEP / 2       # no grid plane exactly at z = 0
+    ax = np.arange(-2.6, 2.6, _STEP) + _STEP / 2
     x, y, z = np.meshgrid(ax, ax, ax, indexing="ij")
     rho = _ISO * np.exp(_R - np.sqrt(x ** 2 + y ** 2 + z ** 2))
     atoms = [("O", (0.0, 0.0, 1.0)), ("Ti", (0.0, 0.0, -1.0))]
@@ -90,15 +86,15 @@ def test_mep_extremes_lie_on_the_surface_and_name_their_atom(sphere):
 def test_mep_vacuum_spikes_and_nuclear_cusps_stay_out(sphere):
     mep_grid, rho_grid = sphere
     spiked = mep_grid.data.copy()
-    spiked[rho_grid.data < _ISO / 50] = 99.0             # vacuum, far outside the surface
-    spiked[rho_grid.data > _ISO * 50] = 99.0             # interior, near the nuclei
+    spiked[rho_grid.data < _ISO / 50] = 99.0
+    spiked[rho_grid.data > _ISO * 50] = 99.0
     st = analyze_mep(_grid(spiked, "mep", _STEP, mep_grid.origin, [("H", (0, 0, 0))]),
                      rho_grid, isovalue=_ISO)
     assert st.surface_vmax == pytest.approx(_R, rel=2e-3)
 
 
 def test_mep_without_a_surface_on_the_grid_is_an_error_not_the_interior():
-    rho = np.full((4, 4, 4), 0.01)                        # all inside: the isovalue never crossed
+    rho = np.full((4, 4, 4), 0.01)
     with pytest.raises(ValueError, match="does not cross the grid"):
         analyze_mep(_grid(np.zeros((4, 4, 4)), "mep"), _grid(rho, "density"), isovalue=0.001)
 
@@ -128,7 +124,7 @@ def test_analyze_mep_basic_stats():
     stats = analyze_mep(grid)
     assert isinstance(stats, MEPStats)
     assert stats.vmin <= stats.vmean <= stats.vmax
-    assert str(stats)  # __str__ renders
+    assert str(stats)
 
 
 def test_write_mep_report(tmp_path):
@@ -144,8 +140,6 @@ def test_cli_electronic_mep_stdout():
     expected = analyze_mep(grid)
     result = CliRunner().invoke(main, ["electronic", "mep", str(_CUBE)])
     assert result.exit_code == 0
-    # Assert the numbers reach stdout: `assert result.output.strip()` also passed on a
-    # truncated traceback, which is exactly what a CLI smoke test must not do.
     assert f"{expected.vmin:.6f}" in result.output
     assert f"{expected.vmax:.6f}" in result.output
 

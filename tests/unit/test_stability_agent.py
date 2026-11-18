@@ -27,7 +27,7 @@ def _gauss(path: Path, atoms, energy, thermo=None, freqs=(120.0, 250.0, 400.0), 
     lines.append(f" SCF Done:  E(RB3LYP) = {energy:.8f}     A.U. after   10 cycles")
     lines.append(" Alpha  occ. eigenvalues --  -0.30000")
     lines.append(" Alpha virt. eigenvalues --  -0.10000")
-    if thermo:   # (zpe, h_corr, g_corr) added to E, as Gaussian prints the sums
+    if thermo:
         zpe, h, g = thermo
         lines += [
             " Frequencies --  " + "  ".join(f"{f:.4f}" for f in freqs),
@@ -41,7 +41,7 @@ def _gauss(path: Path, atoms, energy, thermo=None, freqs=(120.0, 250.0, 400.0), 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def _al2tio5(path, e):  # 1 Ti, 2 Al, 5 O = 8 atoms
+def _al2tio5(path, e):
     _gauss(path, [("Ti", 0, 0, 0), ("Al", 1, 0, 0), ("Al", -1, 0, 0),
                   ("O", 2, 0, 0), ("O", -2, 0, 0), ("O", 0, 2, 0),
                   ("O", 0, -2, 0), ("O", 0, 0, 2)], e)
@@ -72,7 +72,6 @@ def test_auto_stoichiometry_balances(oxides):
     r = compute_stability(mixed, [tio2, al2o3])
     assert r.balanced is True
     coeffs = {ref.formula: ref.coefficient for ref in r.references}
-    # Al2TiO5 = 1·TiO2 + 1·Al2O3
     assert coeffs.get("O2Ti") == 1 or coeffs.get("TiO2") == 1
     assert all(c == 1 for c in (ref.coefficient for ref in r.references))
 
@@ -80,9 +79,9 @@ def test_auto_stoichiometry_balances(oxides):
 def test_relative_stability_value(oxides):
     mixed, tio2, al2o3 = oxides
     r = compute_stability(mixed, [tio2, al2o3])
-    expected = (-150.0 - (-100.0) - (-49.9)) * _HARTREE_TO_KCAL  # -0.1 Ha → negative
+    expected = (-150.0 - (-100.0) - (-49.9)) * _HARTREE_TO_KCAL
     assert r.e_rel_kcal == pytest.approx(expected, abs=1e-3)
-    assert r.e_rel_kcal < 0           # mixed more stable than pure oxides
+    assert r.e_rel_kcal < 0
     assert r.e_rel_eV_per_atom == pytest.approx(r.e_rel_eV / 8, abs=1e-9)
 
 
@@ -95,7 +94,7 @@ def test_explicit_coefficients(oxides):
 
 def test_unbalanced_stoichiometry_warns(oxides):
     mixed, tio2, al2o3 = oxides
-    r = compute_stability(mixed, [tio2, al2o3], coefficients=[1, 2])  # wrong
+    r = compute_stability(mixed, [tio2, al2o3], coefficients=[1, 2])
     assert r.balanced is False
     assert any("balance" in w.lower() or "stoich" in w.lower() for w in r.warnings)
 
@@ -125,8 +124,8 @@ def series(tmp_path):
 
 def test_series_infers_n_from_stoichiometry(series):
     n1, n2, n3, tio2, al2o3 = series
-    r = compute_series_stability([n3, n1, n2])  # unordered on purpose
-    assert [m.n for m in r.members] == [1, 2, 3]  # sorted by n
+    r = compute_series_stability([n3, n1, n2])
+    assert [m.n for m in r.members] == [1, 2, 3]
     assert r.members[2].formula == "Al6O15Ti3"
 
 
@@ -134,11 +133,9 @@ def test_series_fragmentation_and_second_order(series):
     n1, n2, n3, tio2, al2o3 = series
     r = compute_series_stability([n1, n2, n3])
     by_n = {m.n: m for m in r.members}
-    # E_f(2) = e1 + e1 - e2 = +5 Ha ; E_f(3) = e2 + e1 - e3 = +5 Ha
     assert by_n[2].e_f_kcal == pytest.approx(5.0 * _HARTREE_TO_KCAL, abs=1e-3)
     assert by_n[3].e_f_kcal == pytest.approx(5.0 * _HARTREE_TO_KCAL, abs=1e-3)
-    assert by_n[1].e_f_kcal is None                # n=1 has no n-1
-    # Δ²E(2) = e1 + e3 - 2 e2 = 0 ; edges undefined
+    assert by_n[1].e_f_kcal is None
     assert by_n[2].delta2_kcal == pytest.approx(0.0, abs=1e-3)
     assert by_n[1].delta2_kcal is None and by_n[3].delta2_kcal is None
 
@@ -147,11 +144,9 @@ def test_series_binding_energy_needs_monomers(series):
     n1, n2, n3, tio2, al2o3 = series
     r = compute_series_stability([n1, n2, n3], reference_outs=[tio2, al2o3])
     by_n = {m.n: m for m in r.members}
-    # E_b(1) = e1/1 - (e_tio2 + e_al2o3) = -150 - (-149.9) = -0.1 Ha
     assert by_n[1].e_b_kcal == pytest.approx(-0.1 * _HARTREE_TO_KCAL, abs=1e-3)
-    # E_b(2) = e2/2 - (-149.9) = -152.5 + 149.9 = -2.6 Ha
     assert by_n[2].e_b_kcal == pytest.approx(-2.6 * _HARTREE_TO_KCAL, abs=1e-3)
-    assert by_n[1].e_b_kcal < 0   # bound relative to pure oxides
+    assert by_n[1].e_b_kcal < 0
 
 
 def test_series_binding_energy_skipped_without_monomers(series):
@@ -189,8 +184,6 @@ def test_persist_stability_result(tmp_path, oxides):
         assert conn.execute("SELECT COUNT(*) FROM run_log WHERE agent='stability'").fetchone()[0] == 1
 
 
-# ── The energy basis ────────────────────────────────────────────────
-
 _TIO2_ATOMS = [("Ti", 0, 0, 0), ("O", 1.8, 0, 0), ("O", -1.8, 0, 0)]
 _AL2O3_ATOMS = [("Al", 0, 0, 0), ("Al", 2, 0, 0), ("O", 1, 0, 0), ("O", 1, 1, 0), ("O", 1, -1, 0)]
 _AL2TIO5_ATOMS = [("Ti", 0, 0, 0), ("Al", 1, 0, 0), ("Al", -1, 0, 0), ("O", 2, 0, 0),
@@ -209,7 +202,6 @@ def oxides_with_freq(tmp_path):
 def test_stability_defaults_to_zero_point_corrected_energy(oxides_with_freq):
     r = compute_stability(*oxides_with_freq[:1], list(oxides_with_freq[1:]))
     assert r.energy_basis == "E0"
-    # E0: -0.1 Ha electronic + (0.030 - 0.010 - 0.015) ZPE = -0.095 Ha
     assert r.e_rel_kcal == pytest.approx(-0.095 * _HARTREE_TO_KCAL, abs=1e-3)
     assert r.e_mixed_hartree == pytest.approx(-149.970)
     by_basis = r.e_rel_by_basis_kcal
@@ -223,12 +215,12 @@ def test_stability_defaults_to_zero_point_corrected_energy(oxides_with_freq):
 def test_stability_never_mixes_bases_when_one_output_lacks_frequencies(tmp_path):
     mixed, tio2, al2o3 = tmp_path / "m.out", tmp_path / "t.out", tmp_path / "a.out"
     _gauss(mixed, _AL2TIO5_ATOMS, -150.0, thermo=(0.030, 0.040, 0.010))
-    _gauss(tio2, _TIO2_ATOMS, -100.0)                                  # single point only
+    _gauss(tio2, _TIO2_ATOMS, -100.0)
     _gauss(al2o3, _AL2O3_ATOMS, -49.9, thermo=(0.015, 0.020, 0.002))
     r = compute_stability(mixed, [tio2, al2o3])
     assert r.energy_basis == "E"
     assert r.e_rel_kcal == pytest.approx(-0.100 * _HARTREE_TO_KCAL, abs=1e-3)
-    assert r.e_mixed_hartree == pytest.approx(-150.0)                 # E, not E0, for all terms
+    assert r.e_mixed_hartree == pytest.approx(-150.0)
     assert set(r.e_rel_by_basis_kcal) == {"E"}
     assert any("falls back to the electronic energy E" in w for w in r.warnings)
 
@@ -249,10 +241,9 @@ def test_series_family_binding_energy_uses_the_series_own_monomer(tmp_path):
     r = compute_series_stability(paths)
     by_n = {m.n: m for m in r.members}
     assert by_n[1].e_b_family_kcal is None
-    # (2·(-150) - (-305))/2 = +2.5 Ha ; (3·(-150) - (-460))/3 = +10/3 Ha
     assert by_n[2].e_b_family_kcal == pytest.approx(2.5 * _HARTREE_TO_KCAL, abs=1e-3)
     assert by_n[3].e_b_family_kcal == pytest.approx(10 / 3 * _HARTREE_TO_KCAL, abs=1e-3)
-    assert r.energy_basis == "E"     # synthetic outputs carry no frequencies
+    assert r.energy_basis == "E"
 
 
 def test_persisted_stability_records_its_energy_basis(tmp_path, oxides_with_freq):
@@ -270,8 +261,6 @@ def test_persisted_stability_records_its_energy_basis(tmp_path, oxides_with_freq
     with get_connection(db) as conn:
         assert conn.execute("SELECT energy_basis FROM stability").fetchone()[0] == "E0"
 
-
-# ── Imaginary modes, multiplicity, temperature, coefficients ───────
 
 def test_stability_flags_imaginary_modes_and_records_them_per_term(tmp_path):
     mixed, tio2, al2o3 = tmp_path / "m.out", tmp_path / "t.out", tmp_path / "a.out"
@@ -307,7 +296,7 @@ def test_stability_warns_when_g_comes_from_different_temperatures(tmp_path):
     assert any("different temperatures" in w
                for w in compute_stability(mixed, [tio2, al2o3], energy="G").warnings)
     assert not any("different temperatures" in w
-                   for w in compute_stability(mixed, [tio2, al2o3]).warnings)   # E0: no T
+                   for w in compute_stability(mixed, [tio2, al2o3]).warnings)
 
 
 def test_wrong_number_of_coefficients_is_an_error_not_a_number(oxides):
@@ -334,28 +323,24 @@ def test_series_never_mixes_bases_when_one_cluster_lacks_frequencies(tmp_path):
     r = compute_series_stability([n1, n2])
     assert r.energy_basis == "E"
     by_n = {m.n: m for m in r.members}
-    assert by_n[1].e_hartree == pytest.approx(-49.9)          # E, not E0, also for n = 1
+    assert by_n[1].e_hartree == pytest.approx(-49.9)
     assert any("falls back to the electronic energy E" in w for w in r.warnings)
 
-
-# ── Symmetry from the geometry ─────────────────────────────────────
 
 def test_g_is_corrected_when_the_engine_missed_the_symmetry(tmp_path):
     """The toy Al2TiO5 is C2v (σ 2); an engine that printed σ 1 left G too low by RT·ln 2."""
     import math
     mixed, tio2, al2o3 = tmp_path / "m.out", tmp_path / "t.out", tmp_path / "a.out"
     _gauss(mixed, _AL2TIO5_ATOMS, -150.0, thermo=(0.030, 0.040, 0.010), sigma=1)
-    _gauss(tio2, _TIO2_ATOMS, -100.0, thermo=(0.010, 0.015, 0.000), sigma=2)     # D∞h, right
-    _gauss(al2o3, _AL2O3_ATOMS, -49.9, thermo=(0.015, 0.020, 0.002), sigma=4)    # D2h, right
+    _gauss(tio2, _TIO2_ATOMS, -100.0, thermo=(0.010, 0.015, 0.000), sigma=2)
+    _gauss(al2o3, _AL2O3_ATOMS, -49.9, thermo=(0.015, 0.020, 0.002), sigma=4)
     r = compute_stability(mixed, [tio2, al2o3], energy="G", reference_labels=["TiO2", "Al2O3"])
     rt_ln2 = 0.0019872043 * 298.15 * math.log(2)
     assert r.e_rel_kcal == pytest.approx(-0.092 * _HARTREE_TO_KCAL + rt_ln2, abs=2e-3)
     assert r.symmetry["mixed"]["point_group"] == "C2v" and r.symmetry["mixed"]["engine_sigma"] == 1
     assert any("differs from the one the engine used" in w for w in r.warnings)
-    assert r.e_rel_by_basis_kcal["E0"] == pytest.approx(-0.095 * _HARTREE_TO_KCAL, abs=1e-3)  # σ-free
+    assert r.e_rel_by_basis_kcal["E0"] == pytest.approx(-0.095 * _HARTREE_TO_KCAL, abs=1e-3)
 
-
-# ── Rational coefficients and references of any size ────────
 
 def _copies(atoms, k):
     return [(s, x + 10.0 * i, y, z) for i in range(k) for s, x, y, z in atoms]
@@ -402,12 +387,10 @@ def test_series_matches_references_of_every_size_by_stoichiometry(tmp_path):
     assert by_n[2].de_mix_kcal == pytest.approx(-4.8 * _HARTREE_TO_KCAL, abs=1e-3)
     assert by_n[2].de_mix_eq_kcal == pytest.approx(-2.325 * _HARTREE_TO_KCAL, abs=1e-3)
 
-    r = compute_series_stability([n1, n2], reference_outs=refs[:4])     # no size 4
+    r = compute_series_stability([n1, n2], reference_outs=refs[:4])
     assert r.members[1].de_mix_eq_kcal is None
     assert any("ΔE_mix,eq not computed for n=2" in w for w in r.warnings)
 
-
-# ── Isomers of the same n ─────────────────────────
 
 _CHIRAL_AL2TIO5 = [("Ti", 0.0, 0.0, 0.0), ("Al", 1.7, 0.3, 0.2), ("Al", -0.4, 2.1, 0.5),
                    ("O", 0.3, -0.6, 1.9), ("O", 2.6, 1.4, -0.7), ("O", -1.8, 0.4, -0.9),
@@ -418,8 +401,8 @@ _CHIRAL_AL2TIO5 = [("Ti", 0.0, 0.0, 0.0), ("Al", 1.7, 0.3, 0.2), ("Al", -0.4, 2.
 def isomers(tmp_path):
     """a: achiral, lowest in E0. b: chiral, lowest in G by 0.003 Ha."""
     a, b = tmp_path / "iso_a.out", tmp_path / "iso_b.out"
-    _gauss(a, _AL2TIO5_ATOMS, -150.000, thermo=(0.030, 0.040, 0.010))   # E0 -149.970, G -149.990
-    _gauss(b, _CHIRAL_AL2TIO5, -150.001, thermo=(0.032, 0.042, 0.008))  # E0 -149.969, G -149.993
+    _gauss(a, _AL2TIO5_ATOMS, -150.000, thermo=(0.030, 0.040, 0.010))
+    _gauss(b, _CHIRAL_AL2TIO5, -150.001, thermo=(0.032, 0.042, 0.008))
     return a, b
 
 
@@ -435,7 +418,7 @@ def test_isomers_are_kept_and_the_order_of_the_files_does_not_matter(isomers):
 
 
 def test_the_representative_follows_the_chosen_basis(isomers):
-    assert compute_series_stability(list(isomers)).members[0].label == "iso_a"            # E0
+    assert compute_series_stability(list(isomers)).members[0].label == "iso_a"
     assert compute_series_stability(list(isomers), energy="G").members[0].label == "iso_b"
 
 
@@ -451,7 +434,6 @@ def test_populations_are_off_by_default_and_count_chirality_when_asked(isomers):
     assert weighted == pytest.approx(rows["iso_a"].population * -149.970
                                      + rows["iso_b"].population * -149.969)
     assert r.population_basis == "G" and r.population_temperature_k == 298.15
-    # E0 basis: same g, ΔE0 instead of ΔG; a is lower in E0 by 0.001 Ha
     w_b = 2 * math.exp(-0.001 / (3.166811563e-6 * 298.15))
     assert rows["iso_a"].population_e0 == pytest.approx(1 / (1 + w_b))
     assert rows["iso_b"].population_e0 == pytest.approx(w_b / (1 + w_b))

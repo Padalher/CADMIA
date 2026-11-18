@@ -23,12 +23,10 @@ from cadmia.core import VolumetricGrid
 def fukui_maps(rho_n: VolumetricGrid, rho_np1: VolumetricGrid,
                rho_nm1: VolumetricGrid) -> Dict[str, VolumetricGrid]:
     """Return the Fukui f+, f-, f0 and dual Δf fields from N / N+1 / N-1 density cubes."""
-    f_plus = rho_np1 - rho_n          # alignment checked by __sub__
+    f_plus = rho_np1 - rho_n
     f_minus = rho_n - rho_nm1
     f_zero = (f_plus + f_minus).scaled(0.5)
     dual = f_plus - f_minus
-    # field_type matches the dict key / written filename / CLI label so the volumetric vocabulary
-    # is single-sourced (these are the grid fields, distinct from the condensed Fukui descriptors).
     f_plus.field_type = "f_plus"
     f_minus.field_type = "f_minus"
     f_zero.field_type = "f0"

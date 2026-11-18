@@ -20,7 +20,6 @@ def get_provider(config: Optional[LLMConfig] = None) -> Provider:
         return AnthropicProvider(api_key=config.api_key(), **common)
     if config.provider == "openai":
         from cadmia.llm.openai_compat import OpenAICompatProvider
-        # Local/compatible servers (custom base_url) usually need no API key.
         if config.base_url:
             key = os.environ.get(config.api_key_env(), "").strip()
         else:

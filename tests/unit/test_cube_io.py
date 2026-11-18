@@ -38,8 +38,8 @@ def test_parse_cube_negative_voxel_counts_are_angstrom(tmp_path):
     cube = tmp_path / "ang.cube"
     cube.write_text(
         "comment1\ncomment2\n"
-        "    1    1.000000    0.000000    0.000000\n"   # 1 atom, origin at x=1.0 Å
-        "   -2    0.500000    0.000000    0.000000\n"   # negative count → Angstrom
+        "    1    1.000000    0.000000    0.000000\n"
+        "   -2    0.500000    0.000000    0.000000\n"
         "   -2    0.000000    0.500000    0.000000\n"
         "   -2    0.000000    0.000000    0.500000\n"
         "   22   22.000000    0.100000    0.200000    0.300000\n"
@@ -47,7 +47,6 @@ def test_parse_cube_negative_voxel_counts_are_angstrom(tmp_path):
     )
     grid = parse_cube(cube)
     assert grid.shape == (2, 2, 2)
-    # values kept verbatim, not scaled by BOHR_TO_ANG (~0.529)
     np.testing.assert_allclose(grid.origin, [1.0, 0.0, 0.0], atol=1e-9)
     np.testing.assert_allclose(grid.vx, [0.5, 0.0, 0.0], atol=1e-9)
     np.testing.assert_allclose(grid.structure.positions[0], [0.1, 0.2, 0.3], atol=1e-9)
@@ -66,7 +65,7 @@ def test_grid_subtraction_and_scaling():
 
 def test_grid_arithmetic_requires_alignment():
     a = _grid(np.zeros((2, 2, 2)))
-    b = _grid(np.zeros((2, 2, 3)))   # different shape
+    b = _grid(np.zeros((2, 2, 3)))
     assert not a.same_grid_as(b)
     with pytest.raises(ValueError, match="voxel-aligned"):
         _ = a - b

@@ -16,21 +16,18 @@ from cadmia.calculators.orca_plot_runner import (
 def test_build_script_density():
     s = _build_plot_script("density", ngrid=60)
     lines = s.strip().splitlines()
-    assert lines[0] == "4" and lines[1] == "60"       # grid intervals (cube is the default format)
-    assert lines[2] == "1" and lines[3] == "2"        # type → (scf) electron density
-    assert "y" in lines                               # accept the default scfp density
-    assert lines[-2] == "11" and lines[-1] == "12"    # generate then exit
-    assert "5" not in lines                           # no explicit format step (avoids stdin desync)
+    assert lines[0] == "4" and lines[1] == "60"
+    assert lines[2] == "1" and lines[3] == "2"
+    assert "y" in lines
+    assert lines[-2] == "11" and lines[-1] == "12"
+    assert "5" not in lines
 
 
 def test_build_script_per_axis_grid():
-    # A tuple grid feeds menu 4 as "NX NY NZ" — the uniform-step path on a non-cubic box.
     lines = _build_plot_script("density", ngrid=(118, 101, 88)).strip().splitlines()
     assert lines[0] == "4" and lines[1] == "118 101 88"
 
 
-# orca_plot prints the grid box (bounding box + 7 Bohr margin) on entry; we read it to size a
-# per-axis grid. This is a real ORCA 6.1.1 dump (z axis longer → step would be coarser at fixed N).
 _MENU_DUMP = """
 Resolution     ... 40 40 40
 Boundaries     ...    -7.000000     7.000000 (x direction)
@@ -51,13 +48,12 @@ def test_parse_boundaries_none_when_incomplete():
 
 
 def test_ngrid_for_step_uniform_on_noncubic_box():
-    # x/y = 14 Bohr, z = 15.7385 Bohr; step 0.20 → per-axis N that lands every axis near 0.20.
     b = _parse_boundaries(_MENU_DUMP)
     nx, ny, nz = ngrid_for_step(b, 0.20)
     assert (nx, ny, nz) == (70, 70, 79)
     for lo_hi, n in ((b["x"], nx), (b["z"], nz)):
         step = (lo_hi[1] - lo_hi[0]) / n
-        assert abs(step - 0.20) < 0.01     # every axis within 5% of the target step
+        assert abs(step - 0.20) < 0.01
 
 
 def test_ngrid_for_step_rejects_nonpositive():
@@ -67,19 +63,16 @@ def test_ngrid_for_step_rejects_nonpositive():
 
 
 def test_build_script_density_y_before_generate():
-    # The y/n density-name prompt must be answered before 'generate', or the menu desyncs.
     lines = _build_plot_script("density", ngrid=40).strip().splitlines()
     assert lines.index("y") < lines.index("11")
 
 
 def test_build_script_mep_uses_esp_code():
     lines = _build_plot_script("mep", ngrid=40, density_name="n.scfp").strip().splitlines()
-    assert "43" in lines and "6" not in lines         # electrostatic potential is type 43 in ORCA 6.1
+    assert "43" in lines and "6" not in lines
 
 
 def test_build_script_mep_names_the_density_instead_of_answering_yes():
-    # The MEP entry lists the saved densities and asks for a NAME, not y/n. Answering 'y' leaves
-    # the plot with no density assigned and orca_plot writes no cube.
     lines = _build_plot_script("mep", ngrid=40, density_name="n.scfp").strip().splitlines()
     assert "y" not in lines
     assert lines.index("n.scfp") == lines.index("43") + 1
@@ -95,7 +88,7 @@ def test_build_script_homo_needs_mo_index():
     with pytest.raises(OrcaPlotError, match="mo_index"):
         _build_plot_script("homo")
     s = _build_plot_script("homo", mo_index=41)
-    assert "2" in s.splitlines() and "41" in s.splitlines()   # orbital selection
+    assert "2" in s.splitlines() and "41" in s.splitlines()
 
 
 def test_build_script_rejects_unknown_kind():
@@ -105,7 +98,6 @@ def test_build_script_rejects_unknown_kind():
 
 def test_run_orca_plot_gated_when_missing(tmp_path):
     gbw = tmp_path / "x.gbw"; gbw.write_text("not a real gbw")
-    # 'orca_plot' is not installed in the dev env → clean error, never a crash.
     if orca_plot_available():
         pytest.skip("orca_plot present; gating path not exercised")
     with pytest.raises(OrcaPlotError, match="not found on PATH"):
@@ -128,14 +120,12 @@ def _gbw(tmp_path, name):
 
 
 @pytest.mark.parametrize("args, msg", [
-    (["--adduct", "A", "--cluster", "C"], "all three"),          # Δρ incomplete
-    (["--adduct", "A", "--cluster", "C", "--probe", "P", "--np1", "N1"], "don't mix"),  # Δρ + Fukui
-    (["--gbw", "G", "--np1", "N1"], "both"),                     # only one Fukui side
-    (["--np1", "N1", "--nm1", "M1"], "--gbw"),                   # Fukui without N state
+    (["--adduct", "A", "--cluster", "C"], "all three"),
+    (["--adduct", "A", "--cluster", "C", "--probe", "P", "--np1", "N1"], "don't mix"),
+    (["--gbw", "G", "--np1", "N1"], "both"),
+    (["--np1", "N1", "--nm1", "M1"], "--gbw"),
 ])
 def test_density_cli_mode_inference_errors(monkeypatch, tmp_path, args, msg):
-    # Mode is inferred from the flags; these malformed combos must fail with a clear usage error,
-    # not run orca_plot. Pretend orca_plot exists so we reach the argument validation.
     from click.testing import CliRunner
     from cadmia.cli import main
     monkeypatch.setattr(

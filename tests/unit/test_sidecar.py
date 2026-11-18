@@ -14,7 +14,7 @@ from cadmia.core.sidecar import (artifact_fingerprint, atomic_write_text, check_
 def test_atomic_write_text_roundtrip(tmp_path):
     dest = tmp_path / "sub" / "state.json"
     atomic_write_text(dest, '{"a": 1}')
-    assert dest.read_text(encoding="utf-8") == '{"a": 1}'          # parent dir created
+    assert dest.read_text(encoding="utf-8") == '{"a": 1}'
 
 
 def test_atomic_write_text_replaces_existing_and_leaves_no_tmp(tmp_path):
@@ -22,7 +22,6 @@ def test_atomic_write_text_replaces_existing_and_leaves_no_tmp(tmp_path):
     atomic_write_text(dest, "old")
     atomic_write_text(dest, "new")
     assert dest.read_text(encoding="utf-8") == "new"
-    # no leftover temp files next to the destination
     assert [p.name for p in tmp_path.iterdir()] == ["state.json"]
 
 
@@ -34,10 +33,10 @@ def test_read_json_roundtrip(tmp_path):
 
 def test_read_json_raises_actionable_on_truncated_file(tmp_path):
     dest = tmp_path / "half.json"
-    dest.write_text('{"a": 1, "b":')             # interrupted mid-write
+    dest.write_text('{"a": 1, "b":')
     with pytest.raises(ValueError) as exc:
         read_json(dest)
-    assert "half.json" in str(exc.value)         # names the file and the remedy
+    assert "half.json" in str(exc.value)
     assert "corrupted" in str(exc.value) or "truncated" in str(exc.value)
 
 
@@ -46,7 +45,7 @@ def test_write_json_sidecar_appends_newline(tmp_path):
     assert err is None
     text = (tmp_path / "s.json").read_text(encoding="utf-8")
     assert text.endswith("\n")
-    assert json.loads(text)["a"] == 1      # provenance is added alongside, not instead
+    assert json.loads(text)["a"] == 1
 
 
 def test_file_lock_is_exclusive(tmp_path):
@@ -55,7 +54,7 @@ def test_file_lock_is_exclusive(tmp_path):
     import os
     target = tmp_path / "cadmia_jobs.json"
     fd = os.open(tmp_path / "cadmia_jobs.json.lock", os.O_CREAT | os.O_RDWR)
-    fcntl.flock(fd, fcntl.LOCK_EX)                     # another process holds it
+    fcntl.flock(fd, fcntl.LOCK_EX)
     try:
         with pytest.raises(BlockingIOError):
             with file_lock(target, blocking=False):
@@ -69,11 +68,9 @@ def test_file_lock_releases_on_exit(tmp_path):
     target = tmp_path / "s.json"
     with file_lock(target):
         pass
-    with file_lock(target, blocking=False):           # freed → acquirable again
+    with file_lock(target, blocking=False):
         pass
 
-
-# ── A sidecar must say which code wrote it ──────────────────────────
 
 def test_the_sidecar_records_which_code_wrote_it(tmp_path):
     dest = tmp_path / "prescreen.json"
@@ -96,14 +93,11 @@ def test_a_caller_that_stamps_its_own_provenance_wins(tmp_path):
 
 
 def test_provenance_survives_a_missing_git(tmp_path, monkeypatch):
-    # A tarball install has no checkout to ask; that is not an error.
     monkeypatch.setattr(provenance, "_git_commit", lambda: None)
     assert provenance.software_version() == f"cadmia {__version__}"
 
 
 def test_a_glob_expanded_command_is_truncated(tmp_path):
-    # The shell expands configs/*.xyz before the process sees it: argv can carry a thousand
-    # paths, and repeating them in every sidecar buries the record.
     long_cmd = "cadmia prescreen " + " ".join(f"cfg/c{i:04d}.xyz" for i in range(1144))
     prov = provenance.Provenance.for_run(command=long_cmd)
     assert len(prov.command) < 500
@@ -115,10 +109,6 @@ def test_a_short_command_is_kept_whole(tmp_path):
     prov = provenance.Provenance.for_run(command="cadmia doctor")
     assert prov.command == "cadmia doctor"
 
-
-# ─────────────────────────────────────────────
-# Artifact fingerprint: does the sidecar still describe what is on disk?
-# ─────────────────────────────────────────────
 
 def _xyz(path, comment="cfg"):
     path.write_text(f"1\n{comment}\nH 0.0 0.0 0.0\n", encoding="utf-8")
@@ -192,7 +182,7 @@ def test_verify_reports_leftovers_from_an_earlier_run(tmp_path):
 
 def test_verify_says_nothing_about_a_sidecar_written_before_fingerprints(tmp_path):
     target = tmp_path / "geometry.json"
-    write_json_sidecar(target, json.dumps({"n_configs": 2}))      # no artifacts given
+    write_json_sidecar(target, json.dumps({"n_configs": 2}))
     _xyz(tmp_path / "a.xyz")
     assert verify_sidecar(target) == []
 

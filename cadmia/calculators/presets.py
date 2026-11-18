@@ -56,10 +56,6 @@ PRESETS: Dict[str, CalculationPreset] = {
     ),
     "accurate": CalculationPreset(
         name="accurate",
-        # 'analysis' property set + the recommended ORCA accuracy/efficiency block for hybrid DFT:
-        # def2/J + RIJCOSX (RI-J Coulomb fit + COSX exchange), TightSCF and DefGrid3. AIM/NPA are
-        # NOT ORCA simple-input keywords (QTAIM/NPA are post-processing on the density/.gbw via
-        # Multiwfn / NBO·JANPA), so they are intentionally excluded.
         orca_print_flags=("P_Hirshfeld", "P_Mayer", "P_OrbPopMO_L"),
         orca_simple_keywords=("def2/J", "RIJCOSX", "TightSCF", "DefGrid3", "CHELPG"),
         gaussian_pop=("Hirshfeld", "CHELPG"),
@@ -100,9 +96,6 @@ def apply_preset(params: CalcParams, name: str, *, engine: str = "orca") -> Calc
     if engine == "gaussian":
         if not preset.gaussian_pop:
             return params
-        # _merge_keywords compares whole tokens, so an existing "pop=hirshfeld" does not look
-        # like a duplicate of "pop=(hirshfeld,mbs)" and Gaussian would receive the keyword twice.
-        # Fold both sets into one pop=(...) instead.
         wanted = list(preset.gaussian_pop)
         kept = []
         for token in params.extra_gaussian.split():

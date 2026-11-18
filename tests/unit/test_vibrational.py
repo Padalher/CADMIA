@@ -11,8 +11,8 @@ def test_imaginary_dead_zone_is_symmetric():
     modes = [VibrationalMode(index=i, frequency_cm1=f)
              for i, f in enumerate([-50.0, -5.0, 0.0, 5.0, 250.0])]
     va = VibrationalAnalysis(modes=modes, n_atoms=2)
-    assert [m.frequency_cm1 for m in va.imaginary_modes] == [-50.0]   # −5 is NOT imaginary
-    assert [m.frequency_cm1 for m in va.real_modes] == [250.0]        # +5 is NOT a real mode
+    assert [m.frequency_cm1 for m in va.imaginary_modes] == [-50.0]
+    assert [m.frequency_cm1 for m in va.real_modes] == [250.0]
 
 
 def _orca_freq_output(freq_hi: float = 2396.32, ir_hi: float = 600.20,
@@ -40,7 +40,6 @@ def _orca_freq_output(freq_hi: float = 2396.32, ir_hi: float = 600.20,
         f"   8:      {freq_hi:.2f} cm**-1",
         "",
     ]
-    # NORMAL MODES: 9 cartesian coords (rows) x 9 modes (cols), two column blocks.
     nm = ["------------", "NORMAL MODES", "------------",
           "", "These modes are the Cartesian displacements.", ""]
     block1_header = "      " + "".join(f"{c:>11d}" for c in range(6))
@@ -89,12 +88,9 @@ def test_parses_the_last_vibrational_section(tmp_path):
                  + _orca_freq_output(freq_hi=2000.00, ir_hi=111.10, disp_offset=5.0),
                  encoding="utf-8")
     a = parse_orca_vibrational(p)
-    assert len(a.modes) == 9                                       # not 18: no concatenation
-    assert a.real_modes[-1].frequency_cm1 == pytest.approx(2000.00)  # last, not 2396.32
-    assert a.modes[8].ir_intensity_km_mol == pytest.approx(111.10)   # last, not 600.20
-    # Frequencies, intensities and displacements must all come from the SAME section:
-    # taking them from different blocks would describe two different geometries.
-    # displacements is (n_atoms, 3); the first coordinate carries the offset of the section.
+    assert len(a.modes) == 9
+    assert a.real_modes[-1].frequency_cm1 == pytest.approx(2000.00)
+    assert a.modes[8].ir_intensity_km_mol == pytest.approx(111.10)
     assert a.modes[0].displacements[0][0] == pytest.approx(5.0)
 
 
@@ -103,7 +99,6 @@ def test_parse_frequencies_and_atoms(orca_output):
     assert analysis.n_atoms == 3
     assert len(analysis.modes) == 9
     assert analysis.scaling_factor == pytest.approx(1.0)
-    # Six near-zero translational/rotational modes are filtered out of real_modes.
     assert len(analysis.real_modes) == 3
     assert analysis.real_modes[-1].frequency_cm1 == pytest.approx(2396.32)
 
@@ -113,7 +108,6 @@ def test_ir_intensities_picked_from_correct_column(orca_output):
     by_index = {m.index: m for m in analysis.modes}
     assert by_index[6].ir_intensity_km_mol == pytest.approx(30.50)
     assert by_index[8].ir_intensity_km_mol == pytest.approx(600.20)
-    # Translational modes have no IR data.
     assert by_index[0].ir_intensity_km_mol is None
 
 
@@ -128,9 +122,7 @@ def test_ir_spectrum_peaks_and_scaling(orca_output):
     analysis = parse_orca_vibrational(orca_output)
     spec = compute_ir_spectrum(analysis, scale=0.96, fwhm=16.0)
     assert spec.peak_positions.size == 3
-    # Strongest band is the asymmetric stretch, scaled.
     assert spec.peak_positions[np.argmax(spec.peak_intensities)] == pytest.approx(2396.32 * 0.96)
-    # The curve peaks near the most intense, scaled mode.
     apex = spec.wavenumber_cm1[np.argmax(spec.intensity)]
     assert apex == pytest.approx(2396.32 * 0.96, abs=spec.fwhm_cm1)
 

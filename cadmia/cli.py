@@ -45,7 +45,6 @@ _BANNER_ART = (
     "╚██████╗██║  ██║██████╔╝██║ ╚═╝ ██║██║██║  ██║",
     " ╚═════╝╚═╝  ╚═╝╚═════╝ ╚═╝     ╚═╝╚═╝╚═╝  ╚═╝",
 )
-# (first day, last day) as (month, day), inclusive; the festive dates go first so they win.
 _BANNER_THEMES = (
     ((6, 9), (6, 9), "🎂", ("#5fd7ff", "#00d7ff", "#00afff", "#0087ff", "#0087d7", "#005fd7")),
     ((10, 28), (11, 2), "🌼", ("#ffd700", "#ffaf00", "#ff8700", "#ff0087", "#d7008f", "#8700d7")),
@@ -95,8 +94,6 @@ def _print_banner(today=None) -> None:
     console.print()
 
 
-# Curated shortlist shown on bare `cadmia` so the banner stays on screen; the full
-# (grouped) command list lives in `cadmia --help`.
 _COMMON_COMMANDS = [
     ("pipeline", "run the full study end to end"),
     ("cdft", "reactivity descriptors + reactive-site ranking"),
@@ -150,17 +147,12 @@ def _attach_nuclear_fukui(result, path_np1, path_nm1, path_n, top: int,
     anion, cation = parse_engrad(path_np1), parse_engrad(path_nm1)
     neutral = parse_engrad(path_n) if path_n else None
 
-    # result.sites is ranked by |Δf|, while the gradients are in the calculation's atom order.
-    # Each Φ_A row must name its own nucleus, so the sites are re-indexed by atom_index first.
     by_index = {s.atom_index: s for s in result.sites}
     ordered = [by_index[i] for i in sorted(by_index)]
     if [s.atom_index for s in ordered] != list(range(1, len(ordered) + 1)):
         raise click.UsageError(
             "the CDFT sites are not numbered 1..N, so they cannot be lined up with the "
             "gradients' atom order.")
-    # Counting atoms is not enough: the SCF outputs and the .engrad files are separate runs and
-    # can come from differently ordered .xyz of the same cluster. Compare element by element, or
-    # Phi_A ends up reported against another nucleus.
     from cadmia.core.elements import ATOMIC_NUMBER_TO_SYMBOL
     engrad_symbols = [ATOMIC_NUMBER_TO_SYMBOL.get(z, "?") for z in anion.atomic_numbers]
     if [s.atom_symbol for s in ordered] != engrad_symbols:
@@ -176,11 +168,10 @@ def _attach_nuclear_fukui(result, path_np1, path_nm1, path_n, top: int,
 
     along = None
     if project_normal:
-        # The normals come from the SAME geometry the gradients were computed on, which the
-        # .engrad carries; reading them from a separate .xyz would risk a different frame.
         from cadmia.agents.geometry_agent import _site_normal
+        from cadmia.core.units import BOHR_TO_ANG
 
-        coords = anion.positions_bohr * 0.529177210903
+        coords = anion.positions_bohr * BOHR_TO_ANG
         symbols = [ATOMIC_NUMBER_TO_SYMBOL[z] for z in anion.atomic_numbers]
         axes = np.array([_site_normal(symbols, list(coords), i)[0]
                          for i in range(len(symbols))])
@@ -196,7 +187,6 @@ def _attach_nuclear_fukui(result, path_np1, path_nm1, path_n, top: int,
         if along is not None:
             row["phi_along"] = round(float(along[i]), 6)
         if nf.phi_plus is not None:
-            # Φ⁺ ≠ Φ⁻ at integer N, exactly as f⁺ ≠ f⁻. Reported apart, never averaged.
             row["phi_plus_norm"] = round(float(np.linalg.norm(nf.phi_plus[i])), 6)
             row["phi_minus_norm"] = round(float(np.linalg.norm(nf.phi_minus[i])), 6)
         if nf.phi_dual is not None:
@@ -320,8 +310,6 @@ def cdft_command(
     if not no_table:
         print_cdft_table(result, top=top)
 
-    # One file holds everything: the ranking geometry and analyze read, and the full report's
-    # data and text, which `cadmia report` and correlate read. Their keys do not overlap.
     from cadmia.cdft.report import cdft_report_payload, cdft_report_text, write_cdft_report
     from cadmia.cdft.workflow import run_workflow_from_files
     data, text, wf = result.to_dict(), "", None
@@ -683,7 +671,6 @@ def prescreen_command(configs, charge, multiplicity, gfn, top_n, window_kcal,
         tag = "✓" if it.kept else " "
         rel = f"+{it.rel_kcal:.2f}" if it.rel_kcal is not None else "  —  "
         click.echo(f"  [{tag}] {Path(it.source_xyz).name:40s} {rel:>9s} kcal/mol  {it.reason}")
-    # Candidate report: the survivors selected for DFT, in energy order.
     survivors = sorted(result.survivors, key=lambda x: x.rank or 0)
     if survivors:
         click.echo(f"\nSurvivors for DFT ({len(survivors)}, energy order):")
@@ -765,9 +752,9 @@ def density_command(gbw, np1_gbw, nm1_gbw, adduct_gbw, cluster_gbw, probe_gbw,
     def _echo_cube(label: str, path, field_type: str) -> None:
         s = density_agent.cube_summary(parse_cube(path, field_type=field_type))
         rng = f"[{s['min']:+.3e}, {s['max']:+.3e}]"
-        if field_type in _ELECTRON_FIELDS:   # ∫ in electrons only where it is physically meaningful
+        if field_type in _ELECTRON_FIELDS:
             click.echo(f"  {label:7s} → {path}   ∫={s['volume_integral']:+.3f} e  {rng}")
-        else:                                 # orbital / MEP: the integral is not a count
+        else:
             click.echo(f"  {label:7s} → {path}   {rng}")
 
     if not orca_plot_available(orca_plot_path):
@@ -783,7 +770,6 @@ def density_command(gbw, np1_gbw, nm1_gbw, adduct_gbw, cluster_gbw, probe_gbw,
     fukui_flags = (np1_gbw, nm1_gbw)
 
     try:
-        # Δρ mode — inferred from --adduct/--cluster/--probe (no dedicated flag).
         if any(delta_flags):
             if any(fukui_flags):
                 raise click.UsageError(
@@ -794,7 +780,6 @@ def density_command(gbw, np1_gbw, nm1_gbw, adduct_gbw, cluster_gbw, probe_gbw,
                                                      step=step, orca_plot_path=orca_plot_path)
             _echo_cube("Δρ", dst, "deformation")
             return
-        # Fukui/dual mode — inferred from --np1 + --nm1.
         if any(fukui_flags):
             if not all(fukui_flags):
                 raise click.UsageError("Fukui/dual needs both --np1 (anion) and --nm1 (cation).")
@@ -806,7 +791,6 @@ def density_command(gbw, np1_gbw, nm1_gbw, adduct_gbw, cluster_gbw, probe_gbw,
                 _echo_cube(name, path, name)
             click.echo(f"Fukui/dual maps → {output}/   (∫f± ≈ 1, ∫Δf ≈ 0)")
             return
-        # Species-cube mode.
         if not gbw:
             raise click.UsageError(
                 "provide --gbw (species cubes / Fukui) or --adduct/--cluster/--probe (Δρ).")
@@ -906,7 +890,7 @@ def submit_command(
     )
     print_calculation_result(result)
 
-    state = Path(output) / "cadmia_jobs.json"      # the sidecar submit has always written
+    state = Path(output) / "cadmia_jobs.json"
     if not wait:
         n = len(getattr(result, "jobs", []) or [])
         click.echo(f"Submitted: {n} job(s) queued on '{profile_name}'. Terminal is free.")
@@ -1148,7 +1132,6 @@ def prepare_command(stage, geometries, engine, functional, basis,
                         extra_gaussian=extra_gaussian, scf_maxiter=scf_maxiter,
                         geom_maxiter=geom_maxiter, chelpg_fine=chelpg_fine)
 
-    # Stage owns task + accuracy + basis + output; an explicit --basis/--preset overrides it.
     params, stage_obj = apply_stage(params, stage, engine=engine,
                                     set_preset=preset is None,
                                     set_basis=not basis_explicit)
@@ -1327,8 +1310,6 @@ def profile_add(
 ) -> None:
     """Save a new SLURM profile (local or HPC) to ~/.cadmia/profiles/<name>.yaml."""
     from cadmia.config import HPCProfile
-    # Modules default per backend: clusters use environment modules, a local
-    # workstation usually has the engine on PATH (orca_path / g16), so none.
     if gaussian_module is None:
         gaussian_module = "" if local else "gaussian/16"
     if orca_module is None:
@@ -1612,7 +1593,6 @@ def analyze_command(
             conn.close()
         return ids, target
 
-    # ── Batch mode ──
     if len(paths) > 1:
         if cluster_deformed or probe_deformed:
             raise click.UsageError("--cluster-deformed/--probe-deformed are per-config; "
@@ -1631,7 +1611,6 @@ def analyze_command(
                 json_str, text = _analysis_stage_json(result, ad)
                 dst.write_text(json_str, encoding="utf-8")
             except (ValueError, OSError, KeyError, IndexError) as exc:
-                # One unreadable adduct must not cost the analysis of all the others.
                 failed.append(ad.name)
                 click.echo(f"  ✗ {ad.name}: {type(exc).__name__}: {exc}", err=True)
                 continue
@@ -1651,7 +1630,6 @@ def analyze_command(
                 raise click.ClickException("No adduct could be analyzed.")
         return
 
-    # ── Single mode ──
     try:
         result = analysis_agent.analyze(
             str(paths[0]), cluster, probe_free,
@@ -1947,7 +1925,6 @@ def pipeline_command(
     def on_event(stage: str, msg: str) -> None:
         click.echo(f"  [{stage:<9}] {msg}")
 
-    # On resume the saved level of theory stands unless a level option was given explicitly.
     level_options = ("task", "preset", "functional", "basis", "dispersion", "charge")
     cli_ctx = click.get_current_context()
     explicit = any(cli_ctx.get_parameter_source(o) == click.core.ParameterSource.COMMANDLINE
@@ -2011,7 +1988,7 @@ class _ManyValues(click.Option):
         ret = super().add_to_parser(parser, ctx)
         opts = getattr(parser, "_long_opt", None)
         opt = next((opts[n] for n in self.opts if opts and n in opts), None)
-        if opt is not None:                     # else: plain repeatable option
+        if opt is not None:
             previous = opt.process
 
             def process(value, state):
@@ -2503,8 +2480,6 @@ def doctor_command(db_path) -> None:
     else:
         report(FAIL, "python", f"{py.major}.{py.minor} (>= 3.9 required)")
         failures += 1
-    # Version comes from the installed distribution, not from a `__version__` attribute: Click
-    # drops its own in 9.1, and not every package carries one.
     _DIST = {"yaml": "pyyaml"}
     for mod in ("numpy", "click", "yaml"):
         try:
@@ -2577,7 +2552,6 @@ def doctor_command(db_path) -> None:
                           ("ssh", "HPC submission")):
         found = shutil.which(tool)
         if tool == "orca" and found and Path(found).resolve().stat().st_size < 5_000_000:
-            # /usr/bin/orca on Linux desktops is usually the GNOME screen reader
             report(WARN, tool, f"{found} — looks like the GNOME screen reader, not ORCA QC")
             continue
         report(OK if found else WARN, tool, found or f"not found — {feature} unavailable")
@@ -2594,7 +2568,6 @@ def doctor_command(db_path) -> None:
 
     click.echo("\nDatabase:")
     from cadmia.db.session import resolve_db_path
-    # doctor INSPECTS; it must not announce a creation it is not going to perform.
     target = resolve_db_path(db_path)
     if not target.exists():
         report(OK, str(target), "not created yet — the first command that records a result creates it")
@@ -2716,7 +2689,6 @@ def bonds_command(output_file, top, output) -> None:
     if output and Path(output).suffix.lower() == ".json":
         import json as _json
         from cadmia.core.sidecar import write_json_sidecar
-        # JSON carries the whole analysis; --top is a screen cap, not a filter on the data.
         written, err = write_json_sidecar(output, _json.dumps(result.to_dict(), indent=2))
         if err:
             raise click.ClickException(err)
@@ -2741,16 +2713,40 @@ def bonds_command(output_file, top, output) -> None:
 @click.option("--engine", type=click.Choice(["gaussian", "orca"]), default=None,
               help="Force the engine parser; auto-detected from content when omitted.")
 @click.option("--output", "-o", default=None, type=click.Path(),
-              help="Output .xyz (default: <input>.xyz next to the source).")
+              help="Output .xyz (default: <input>.xyz, or <input>_steps.xyz with --steps, "
+                   "next to the source).")
 @click.option("--comment", default="", help="Comment line for the .xyz (line 2).")
-def xyz_command(input_file, engine, output, comment) -> None:
+@click.option("--steps", "all_steps", is_flag=True,
+              help="Write every step of an optimization, not only the last geometry: extended "
+                   "XYZ, one block per step with its energy (Eh), step number and the forces "
+                   "(eV/Ang) as a column; a step without gradient has nan forces. ORCA, and "
+                   "Gaussian logs that print the Forces table.")
+def xyz_command(input_file, engine, output, comment, all_steps) -> None:
     """Extract a clean .xyz from a Gaussian/ORCA output (engine auto-detected by content)."""
     from cadmia.io import final_energy_from_file, structure_from_file
 
+    if all_steps:
+        from cadmia.io.steps import parse_steps, steps_extxyz
+
+        if comment:
+            raise click.UsageError("--comment does not apply to --steps.")
+        if Path(input_file).suffix.lower() == ".xyz":
+            raise click.UsageError("--steps needs a Gaussian/ORCA output, not an .xyz.")
+        try:
+            result = parse_steps(input_file, engine=engine)
+        except (ValueError, OSError) as exc:
+            raise click.ClickException(f"cannot read the steps of {input_file}: {exc}") from exc
+        out = Path(output) if output else Path(input_file).with_name(
+            f"{Path(input_file).stem}_steps.xyz")
+        try:
+            out.write_text(steps_extxyz(result, Path(input_file).stem), encoding="utf-8")
+        except OSError as exc:
+            raise click.ClickException(f"cannot write {out}: {exc}") from exc
+        with_forces = sum(s.forces_eh_bohr is not None for s in result.steps)
+        click.echo(f"{len(result.steps)} steps ({with_forces} with forces) → {out}")
+        return
     structure = structure_from_file(input_file, engine=engine)
     energy = final_energy_from_file(input_file, engine=engine)
-    # Carry the converged energy into the comment (line 2) by default, as ORCA's own .xyz does;
-    # an explicit --comment wins. rank re-reads energy from the .out, so this is a label, not a source.
     if not comment and energy is not None:
         comment = f"E = {energy:.8f} Eh"
     out = Path(output) if output else Path(input_file).with_suffix(".xyz")
@@ -2812,8 +2808,6 @@ def rank_command(sources, output, window_kcal, top_n, dedup_rmsd, cluster_ref,
     """
     from cadmia.agents import rank_agent
 
-    # .out/.log/etc. are inputs; a single .xyz argument is the output name (rank never
-    # takes .xyz as input — those carry no energy), so the two usage forms both work.
     srcs = [s for s in sources if not str(s).lower().endswith(".xyz")]
     xyz_args = [s for s in sources if str(s).lower().endswith(".xyz")]
     out = output
@@ -2844,8 +2838,8 @@ def rank_command(sources, output, window_kcal, top_n, dedup_rmsd, cluster_ref,
         click.echo(f"  {result.n_ranked} output(s) → {result.n_unique} distinct minima "
                    f"(no atom farther than {dedup_rmsd:g} Å); the duplicates are in the "
                    "JSON with the representative they collapsed onto.")
-    cut = result.n_selected != result.n_unique          # window/top actually trimmed something
-    marked = result.n_selected != result.n_ranked        # some output is absent from the .xyz
+    cut = result.n_selected != result.n_unique
+    marked = result.n_selected != result.n_ranked
     if cut:
         crit = " / ".join(c for c in (f"ΔE ≤ {window_kcal:g} kcal/mol" if window_kcal > 0 else "",
                                       f"top {top_n}" if top_n > 0 else "") if c)
@@ -2856,11 +2850,8 @@ def rank_command(sources, output, window_kcal, top_n, dedup_rmsd, cluster_ref,
         click.echo(f"  {mark:>4} {'#':>3}  {'ΔE (kcal/mol)':>13}  {'E (Eh)':>15}  "
                    f"{'Opt':>8}  {'Neg Freq':>8}  output")
         for it in result.ranked:
-            # "—" = the output has no Freq at all; 0 = frequencies computed, true minimum.
             imag = "—" if it.n_imaginary is None else str(it.n_imaginary)
-            # "—" = single point, no optimization to converge in the first place.
             opt = "—" if it.geom_converged is None else ("ok" if it.geom_converged else "NO-CONV")
-            # "≡" = collapsed onto an earlier minimum; "·" = trimmed by the window/top cut.
             flag = "  ✓ " if it.selected else ("  ≡ " if it.duplicate_of else "  · ")
             keep = flag if marked else ""
             click.echo(f"  {keep:>4} {it.rank:>3}  {it.rel_kcal:>13.3f}  {it.energy_hartree:>15.6f}  "
@@ -2890,7 +2881,6 @@ def rank_command(sources, output, window_kcal, top_n, dedup_rmsd, cluster_ref,
     for w in result.warnings:
         click.echo(f"  ⚠  {w}", err=True)
     if result.n_ranked == 0:
-        # A script chaining rank → prepare must not take "nothing ranked" for success.
         raise click.ClickException(f"None of the {result.n_input} output(s) could be ranked "
                                    "(see the warnings above).")
 
@@ -3051,7 +3041,6 @@ def _dispatch_legacy(handler, **kwargs) -> None:
     raise SystemExit(code or 0)
 
 
-# ── electronic (native click group: dos | pdos | ir | mep) ──────────────────
 @main.group("electronic")
 def electronic_group() -> None:
     """Electronic properties: density of states, cube viewers and VMD export."""
@@ -3139,7 +3128,6 @@ def electronic_mep(input_file, density, isovalue, output) -> None:
                      isovalue=isovalue, output=output)
 
 
-# ── structure (native click group: structure | report | plot | compare) ────────────────
 @main.group("structure", invoke_without_command=True)
 @click.option("--report", "-r", "report_path", default=None, type=click.Path(),
               help="Write the full structural report, inside a project, from what the module saved "
@@ -3176,7 +3164,6 @@ def structure_report(input_file, output, fmt, config, details) -> None:
                      format=fmt, config=config, details=details)
 
 
-# Back-compat alias: `cadmia structure structure` still works (hidden in help).
 _structure_alias = copy.copy(structure_report)
 _structure_alias.hidden = True
 structure_group.add_command(_structure_alias, name="structure")
@@ -3248,10 +3235,6 @@ def structure_compare(reference, candidates, as_json) -> None:
                          "reason": "different atom composition"})
             continue
         signature, _, borderline = skeleton(other.atoms, other.positions)
-        # One superposition and one pairing for both numbers. Taking the maximum from an
-        # element-paired comparison and the RMSD from a position-paired one would report a
-        # large RMSD next to a zero deviation whenever the two files order their atoms
-        # differently, and nothing in the output would say why.
         deviations = kabsch_paired_deviations(ref.positions, other.positions,
                                               ref.atoms, other.atoms)
         if deviations.size == 0:

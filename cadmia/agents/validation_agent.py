@@ -13,15 +13,14 @@ from cadmia.agents.cdft_agent import _detect_engine
 from cadmia.io.electronic import _parse_gaussian_spin_sq
 from cadmia.utils.chemistry import bond_distance_range, expected_spin_sq
 
-# Spin contamination thresholds: relative deviation from expected ⟨S²⟩
-_SPIN_WARN_REL    = 0.10   # > 10%  → warning
-_SPIN_FAIL_REL    = 0.25   # > 25%  → fail
-_SPIN_ABS_SINGLET = 0.02   # singlet: any ⟨S²⟩ > 0.02 → warning
+_SPIN_WARN_REL    = 0.10
+_SPIN_FAIL_REL    = 0.25
+_SPIN_ABS_SINGLET = 0.02
 
 
 @dataclass
 class CheckResult:
-    status: str    # "pass" | "fail" | "warning" | "skip"
+    status: str
     message: str
 
     def to_dict(self) -> dict:
@@ -32,7 +31,7 @@ class CheckResult:
 class ValidationReport:
     filepath: str
     engine: str
-    overall: str   # "pass" | "fail" | "warning"
+    overall: str
     checks: Dict[str, CheckResult] = field(default_factory=dict)
 
     def to_json(self, indent: int = 2) -> str:
@@ -50,10 +49,6 @@ class ValidationReport:
     def passed(self) -> bool:
         return self.overall == "pass"
 
-
-# ─────────────────────────────────────────────
-# Reading helpers
-# ─────────────────────────────────────────────
 
 def _read_lines(path: Path) -> List[str]:
     return path.read_text(encoding="utf-8", errors="replace").splitlines()
@@ -75,10 +70,6 @@ def _parse_multiplicity(lines: List[str]) -> Optional[int]:
     return None
 
 
-# ─────────────────────────────────────────────
-# Individual checks
-# ─────────────────────────────────────────────
-
 def _check_termination(lines: List[str], engine: str) -> CheckResult:
     if engine == "gaussian":
         for line in reversed(lines):
@@ -88,7 +79,6 @@ def _check_termination(lines: List[str], engine: str) -> CheckResult:
                 return CheckResult("fail", f"Error termination: {line.strip()}")
         return CheckResult("fail", "No termination marker found — file may be incomplete or truncated.")
 
-    # ORCA
     for line in reversed(lines):
         if "ORCA TERMINATED NORMALLY" in line:
             return CheckResult("pass", "Normal termination (ORCA).")
@@ -112,7 +102,6 @@ def _check_scf_convergence(lines: List[str], engine: str) -> CheckResult:
                 return CheckResult("pass", "SCF converged (energy found in output).")
         return CheckResult("warning", "No explicit SCF convergence marker found.")
 
-    # ORCA
     for line in lines:
         if "SCF NOT CONVERGED" in line.upper():
             return CheckResult("fail", "SCF did not converge (ORCA).")
@@ -133,7 +122,6 @@ def _check_spin_contamination(lines: List[str], engine: str) -> CheckResult:
     s2_expected = expected_spin_sq(mult)
 
     if engine == "gaussian":
-        # Before annihilation: the value after it hides the contamination of the energy itself.
         s2 = _parse_gaussian_spin_sq(lines)
         if s2 is None:
             if mult == 1:
@@ -141,7 +129,6 @@ def _check_spin_contamination(lines: List[str], engine: str) -> CheckResult:
             return CheckResult("skip", "No S**2 block found (multiplicity > 1 without UHF/ROHF).")
         return _evaluate_spin(s2, s2_expected, mult)
 
-    # ORCA
     s2_val = None
     for line in lines:
         if "<S**2>" in line or "Expectation value of <S**2>" in line.lower():
@@ -177,8 +164,6 @@ def _check_frequencies(lines: List[str], engine: str) -> CheckResult:
 
     if engine == "gaussian":
         for line in lines:
-            # "Frequencies --" is also a substring of hpmodes' "Frequencies ---", so a
-            # job with hpmodes reported every frequency twice.
             if re.match(r"\s*Frequencies\s+--\s", line):
                 raw = line.split("--", 1)[-1]
                 for tok in raw.split():
@@ -186,7 +171,7 @@ def _check_frequencies(lines: List[str], engine: str) -> CheckResult:
                         freqs.append(float(tok))
                     except ValueError:
                         pass
-    else:  # ORCA
+    else:
         for line in lines:
             if "cm**-1" in line or "cm-1" in line:
                 m = re.search(r"([-+]?\d+\.\d+)\s+cm", line)
@@ -196,9 +181,6 @@ def _check_frequencies(lines: List[str], engine: str) -> CheckResult:
     if not freqs:
         return CheckResult("skip", "No frequency data in file (SP or non-freq calculation).")
 
-    # The same tolerance io/vibrational.py uses, so `validate` and `analyze` cannot disagree
-    # about the same file. Any f < 0 counted a -3 cm-1 numerical artifact as a saddle point,
-    # while the thermochemistry path already treated it as a translation/rotation residue.
     from cadmia.io.vibrational import _TRANSROT_TOL_CM1
     imaginary = [f for f in freqs if f < -_TRANSROT_TOL_CM1]
     if not imaginary:
@@ -256,7 +238,6 @@ def _check_geometry_optimization(lines: List[str], engine: str) -> CheckResult:
 
     routes = _gaussian_routes(lines)
     if routes and not any(re.search(r"\bopt\b", r, re.IGNORECASE) for r in routes):
-        # A Freq job prints "Berny optimization" and "Step number 1" for its stationarity test.
         return CheckResult("skip", "No geometry optimization in file (no Opt in the route).")
     if "Berny optimization" not in text and "Step number" not in text:
         return CheckResult("skip", "No geometry optimization in file (single point).")
@@ -312,7 +293,6 @@ def _check_bsse(lines: List[str], engine: str) -> CheckResult:
             "fail",
             "No counterpoise correction found — required for adsorption calculations.",
         )
-    # ORCA
     for line in lines:
         if "BSSE" in line or "counterpoise" in line.lower():
             return CheckResult("pass", "BSSE correction found in output (ORCA).")
@@ -321,10 +301,6 @@ def _check_bsse(lines: List[str], engine: str) -> CheckResult:
         "No BSSE correction found — required for adsorption calculations.",
     )
 
-
-# ─────────────────────────────────────────────
-# Main entry point
-# ─────────────────────────────────────────────
 
 def run(
     filepath: str | Path,

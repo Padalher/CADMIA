@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from cadmia.core.units import HARTREE_TO_EV  # re-exported; canonical home is core.units
+from cadmia.core.units import HARTREE_TO_EV
 
 
 @dataclass
@@ -20,8 +20,8 @@ class GlobalElectronic:
     eta_ev: float
     softness: float
     omega_ev: float
-    omega_minus_ev: float   # electrodonating power ω⁻ (Gázquez-Cedillo-Vela)
-    omega_plus_ev: float    # electroaccepting power ω⁺ (Gázquez-Cedillo-Vela)
+    omega_minus_ev: float
+    omega_plus_ev: float
 
 
 def electrodonating_accepting_powers(ip_ev: float, ea_ev: float) -> tuple[float, float]:
@@ -59,7 +59,7 @@ def compute_global_descriptors(homo_ev: float, lumo_ev: float) -> GlobalElectron
     ea = -float(lumo_ev)
     mu = (float(homo_ev) + float(lumo_ev)) / 2.0
     chi = -mu
-    eta = gap                      # η = IP − EA = LUMO − HOMO (no ½, Multiwfn convention)
+    eta = gap
     softness = 1.0 / eta
     omega = (mu**2) / (2.0 * eta)
     omega_minus, omega_plus = electrodonating_accepting_powers(ip, ea)

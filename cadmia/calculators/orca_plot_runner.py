@@ -26,32 +26,20 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 
-# orca_plot interactive menu codes — verified against ORCA 6.1.0.
-# Tunable if a build differs (the whole interaction is just these constants + _build_plot_script).
-_MENU_SET_TYPE = "1"      # 1 → choose plot type
-_MENU_SET_ORBITAL = "2"   # 2 → choose orbital index (MO plots only)
-_MENU_SET_NGRID = "4"     # 4 → set number of grid intervals
-_MENU_GENERATE = "11"     # 11 → generate the plot to file
-_MENU_EXIT = "12"         # 12 → exit
-# Gaussian cube is already the default output format in ORCA 6.x ("the default volumetric
-# output format is Cube"), so we do NOT select it explicitly: the format submenu was a source
-# of stdin desync (an unanswered sub-prompt shifts every later token → runaway grid / hang).
+_MENU_SET_TYPE = "1"
+_MENU_SET_ORBITAL = "2"
+_MENU_SET_NGRID = "4"
+_MENU_GENERATE = "11"
+_MENU_EXIT = "12"
 
-# Plot-type codes under "Enter type of plot" (ORCA 6.1.0 submenu).
 _PLOT_TYPE = {
-    "density": "2",    # (scf) electron density
-    "spin":    "3",    # (scf) spin density
-    "homo":    "1",    # molecular orbitals
-    "lumo":    "1",    # molecular orbitals
-    "mep":     "43",   # electrostatic potential (ORCA 6.1.0; was "6" — that is a TD-DFT menu entry)
+    "density": "2",
+    "spin":    "3",
+    "homo":    "1",
+    "lumo":    "1",
+    "mep":     "43",
 }
-# Selecting a (scf) density first prints "The default name of the density would be: <stem>.scfp"
-# and asks "Is this the one you want (y/n)?" — answer 'y' to accept the default density, otherwise
-# the next token is swallowed by that prompt and the whole menu desyncs.
 _DENSITY_KINDS = {"density", "spin"}
-# The MEP entry does NOT ask y/n: it lists the saved densities and asks "Enter Name for an STATE
-# Density", so it needs the name itself (<stem>.scfp). Answering 'y' there selects nothing and the
-# plot is generated with no density assigned.
 _NAMED_DENSITY_KINDS = {"mep"}
 _VALID_KINDS = tuple(_PLOT_TYPE)
 
@@ -96,11 +84,11 @@ def _build_plot_script(kind: str, *, ngrid: "int | Tuple[int, int, int]" = 80,
     if kind not in _PLOT_TYPE:
         raise OrcaPlotError(f"unknown plot kind {kind!r}; expected one of {_VALID_KINDS}.")
     lines = [
-        _MENU_SET_NGRID, _grid_arg(ngrid),         # grid resolution (cube is the default format)
-        _MENU_SET_TYPE, _PLOT_TYPE[kind],          # plot type
+        _MENU_SET_NGRID, _grid_arg(ngrid),
+        _MENU_SET_TYPE, _PLOT_TYPE[kind],
     ]
     if kind in _DENSITY_KINDS:
-        lines.append("y")                          # accept the default saved density (<stem>.scfp)
+        lines.append("y")
     if kind in _NAMED_DENSITY_KINDS:
         if not density_name:
             raise OrcaPlotError(f"{kind} plot requires density_name (e.g. '<stem>.scfp').")
@@ -231,7 +219,6 @@ def run_orca_plot(
         raise OrcaPlotError(f"orca_plot failed on {gbw.name} (rc={proc.returncode}): "
                             f"{proc.stderr.strip()[:200]}")
 
-    # orca_plot writes <gbw_stem>.<kind>.cube (naming varies); pick the newest .cube it produced.
     produced = sorted(gbw.parent.glob(f"{gbw.stem}*.cube"), key=lambda p: p.stat().st_mtime)
     if not produced:
         raise OrcaPlotError(f"orca_plot produced no .cube for {gbw.name}; check the menu codes "

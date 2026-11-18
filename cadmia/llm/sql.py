@@ -32,28 +32,14 @@ _SYSTEM = (
     "- Energies: energy_au/e_*_au are Hartree, e_*_kcal are kcal/mol, *_eV are eV."
 )
 
-# Statement-level write verbs. `replace` is intentionally absent: it is also a
-# read-only scalar function, and the REPLACE *statement* is already caught by the
-# leading-keyword check (head must be SELECT/WITH).
-# `pragma\w*` (not `pragma`) so the table-valued form `pragma_table_info(...)` cannot slip
-# through: the trailing `_` is a word char, so `\bpragma\b` would not match it. `load_extension`
-# is blocked too. This is defense in depth — the connection is already opened `mode=ro` with a
-# single-statement guard and extensions disabled.
 _FORBIDDEN = re.compile(
     r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma\w*|"
     r"vacuum|trigger|reindex|load_extension)\b",
     re.IGNORECASE,
 )
 
-
-# Wall-clock budget for the generated SELECT. `mode=ro` and the single-statement
-# guard bound what the query can *do*, not what it can cost: a recursive CTE or a
-# cartesian join materializes before fetchmany(limit) ever sees a row. The progress
-# handler is the only way to bound that from Python.
 STATEMENT_TIMEOUT_S = 30.0
 
-# VM instructions between progress-handler calls: small enough to notice the
-# deadline promptly, large enough that the callback is not the bottleneck.
 _PROGRESS_INTERVAL = 10_000
 
 
@@ -96,24 +82,24 @@ def _strip_sql_noise(sql: str) -> str:
     i, n = 0, len(sql)
     while i < n:
         c = sql[i]
-        if c == "-" and i + 1 < n and sql[i + 1] == "-":          # -- line comment
+        if c == "-" and i + 1 < n and sql[i + 1] == "-":
             i += 2
             while i < n and sql[i] != "\n":
                 i += 1
             continue
-        if c == "/" and i + 1 < n and sql[i + 1] == "*":          # /* block comment */
+        if c == "/" and i + 1 < n and sql[i + 1] == "*":
             i += 2
             while i + 1 < n and not (sql[i] == "*" and sql[i + 1] == "/"):
                 i += 1
             i += 2
             out.append(" ")
             continue
-        if c in ("'", '"'):                                        # quoted literal/identifier
+        if c in ("'", '"'):
             quote = c
             i += 1
             while i < n:
                 if sql[i] == quote:
-                    if i + 1 < n and sql[i + 1] == quote:          # '' or "" escape
+                    if i + 1 < n and sql[i + 1] == quote:
                         i += 2
                         continue
                     i += 1

@@ -11,10 +11,9 @@ from cadmia.core.electronic_descriptors import GlobalElectronic
 from cadmia.core.electronic_descriptors import HARTREE_TO_EV
 from cadmia.core.electronic_descriptors import electrodonating_accepting_powers
 
-# E(HOMO) of tetracyanoethylene (TCE) at B3LYP/6-31G* — Multiwfn reference.
-# Used as the zero for the nucleophilicity index N = HOMO(molecule) - HOMO(TCE).
-# Override via homo_tce_ev in compute_finite_difference_descriptors.
-HOMO_TCE_EV: float = -9.1212  # Multiwfn built-in value (B3LYP/6-31G*)
+HOMO_TCE_EV: float = -9.1212
+"""eV: HOMO energy of tetracyanoethylene (TCE), the reference of the Domingo nucleophilicity
+index; verified against Multiwfn."""
 
 
 @dataclass
@@ -23,28 +22,20 @@ class FukuiResult:
 
     atoms: List[str]
     labels: List[str]
-    # Core Fukui functions
-    f_plus: Optional[List[float]]          # electrophilic f+
-    f_minus: Optional[List[float]]         # nucleophilic f-
-    f_zero: Optional[List[float]]          # radical f0 = (f+ + f-)/2
-    dual: Optional[List[float]]            # CDD = f+ - f-
-    # Local softnesses (S * f)
-    local_softness_plus: Optional[List[float]]   # s+ = S * f+
-    local_softness_minus: Optional[List[float]]  # s- = S * f-
-    local_electrophilicity: Optional[List[float]]  # ω * f+  (e·eV)
-    # --- extended descriptors (default None, populated by full workflow) ---
-    softness_zero: Optional[List[float]] = None          # s0 = S * f0
-    local_nucleophilicity: Optional[List[float]] = None  # N_index * f-  (e·eV)
-    relative_electrophilicity: Optional[List[float]] = None  # s+/s-
-    relative_nucleophilicity: Optional[List[float]] = None   # s-/s+
-    # η·f0. NOT a local hardness: η is a global constant here, so this is f0 rescaled and
-    # its per-atom ranking is identical to f0 by construction. The consistent definitions
-    # of local hardness give η(r) = η, and the η·f(r) form is the one the literature
-    # discarded as a site descriptor. Kept for continuity with Multiwfn output, under a
-    # name that does not invite reading it as a physical property.
-    f_zero_scaled_by_hardness: Optional[List[float]] = None   # η * f0  (eV·e)
-    donicity: Optional[List[float]] = None               # IP * f-  (eV·e)
-    accepting_capacity: Optional[List[float]] = None     # EA * f+  (eV·e)
+    f_plus: Optional[List[float]]
+    f_minus: Optional[List[float]]
+    f_zero: Optional[List[float]]
+    dual: Optional[List[float]]
+    local_softness_plus: Optional[List[float]]
+    local_softness_minus: Optional[List[float]]
+    local_electrophilicity: Optional[List[float]]
+    softness_zero: Optional[List[float]] = None
+    local_nucleophilicity: Optional[List[float]] = None
+    relative_electrophilicity: Optional[List[float]] = None
+    relative_nucleophilicity: Optional[List[float]] = None
+    f_zero_scaled_by_hardness: Optional[List[float]] = None
+    donicity: Optional[List[float]] = None
+    accepting_capacity: Optional[List[float]] = None
 
 
 @dataclass
@@ -61,16 +52,15 @@ class FiniteDifferenceCDFT:
     hardness_ev: float
     softness: float
     omega_ev: float
-    omega_minus_ev: float   # electrodonating power ω⁻ (Gázquez-Cedillo-Vela)
-    omega_plus_ev: float    # electroaccepting power ω⁺ (Gázquez-Cedillo-Vela)
-    # --- optional fields populated when HOMO/LUMO values are provided ---
+    omega_minus_ev: float
+    omega_plus_ev: float
     homo_n_ev: Optional[float] = None
     homo_np1_ev: Optional[float] = None
     homo_nm1_ev: Optional[float] = None
     lumo_n_ev: Optional[float] = None
-    nucleophilicity_ev: Optional[float] = None      # HOMO(N) - HOMO(TCE)
+    nucleophilicity_ev: Optional[float] = None
     nucleophilicity_hartree: Optional[float] = None
-    homo_tce_ev: Optional[float] = None             # reference value used
+    homo_tce_ev: Optional[float] = None
 
 
 def compute_finite_difference_descriptors(
@@ -98,10 +88,6 @@ def compute_finite_difference_descriptors(
     if hardness_ev <= 0.0:
         raise ValueError("Finite-difference hardness must be positive: IP must exceed EA.")
 
-    # η > 0 is satisfied trivially even when EA < 0, so it does not check the one assumption
-    # everything drawn from the N+1 state rests on: that the anion is BOUND. With a basis without
-    # diffuse functions an unbound anion is confined artificially, E(N+1) comes out plausible, and
-    # f+, Δf, ω+, s+ and the nuclear Φ+ are all computed from a state that does not exist.
     if ea_ev <= 0.0:
         warnings.warn(
             f"Electron affinity is {ea_ev:.3f} eV: the N+1 state is NOT bound, so everything "
@@ -163,8 +149,6 @@ def _validate_lengths(atoms, labels, *charge_sets):
 def _warn_if_not_normalized(values: Optional[List[float]], name: str) -> None:
     if values is None:
         return
-    # Condensed Fukui values sum to 1 WITH SIGN (charge conservation); individual atoms may be
-    # negative (common with Mulliken), so the signed sum — not Σ|f| — is the normalization check.
     total = float(np.sum(values))
     if abs(total - 1.0) > 0.01:
         warnings.warn(
@@ -203,6 +187,8 @@ def compute_condensed_fukui(
     - ``hardness_ev``: enables η·f0 (local hardness)
     - ``ip_ev``: enables IP·f- (donicity)
     - ``ea_ev``: enables EA·f+ (accepting capacity)
+    - ``softness_override``: global softness in hartree⁻¹ that replaces the one of
+      ``global_descriptors`` when forming s+, s-, s0
     """
     _validate_lengths(atoms, labels, charges_N, charges_Np1, charges_Nm1)
     q_n = np.asarray(charges_N, dtype=float)
@@ -236,9 +222,6 @@ def compute_condensed_fukui(
     donicity = None
     accepting_capacity = None
 
-    # Descriptors that require global softness / omega
-    # softness_override / omega_ev_override take priority over global_descriptors
-    # (used to pass FD-based values instead of Koopmans approximations)
     _need_s_omega = global_descriptors is not None or softness_override is not None
     if _need_s_omega:
         S = (softness_override if softness_override is not None
@@ -259,7 +242,6 @@ def compute_condensed_fukui(
             zero = np.asarray(f_zero, dtype=float)
             softness_zero = _as_list(S * zero)
 
-        # Relative electrophilicity/nucleophilicity
         if local_softness_plus is not None and local_softness_minus is not None:
             sp = np.asarray(local_softness_plus, dtype=float)
             sm = np.asarray(local_softness_minus, dtype=float)
@@ -276,22 +258,18 @@ def compute_condensed_fukui(
                     stacklevel=2,
                 )
 
-    # Local nucleophilicity N * f-
     if nucleophilicity_ev is not None and f_minus is not None:
         minus = np.asarray(f_minus, dtype=float)
         local_nucleophilicity = _as_list(float(nucleophilicity_ev) * minus)
 
-    # η·f0 — see the field's comment: it is f0 rescaled, not a local hardness
     if hardness_ev is not None and f_zero is not None:
         zero = np.asarray(f_zero, dtype=float)
         f_zero_scaled_by_hardness = _as_list(float(hardness_ev) * zero)
 
-    # Donicity IP * f-
     if ip_ev is not None and f_minus is not None:
         minus = np.asarray(f_minus, dtype=float)
         donicity = _as_list(float(ip_ev) * minus)
 
-    # Accepting capacity EA * f+
     if ea_ev is not None and f_plus is not None:
         plus = np.asarray(f_plus, dtype=float)
         accepting_capacity = _as_list(float(ea_ev) * plus)

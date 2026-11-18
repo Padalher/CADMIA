@@ -19,9 +19,6 @@ from cadmia.agents.calculation_agent import (
     _collect_inputs,
 )
 
-# ─────────────────────────────────────────────
-# Fixtures
-# ─────────────────────────────────────────────
 
 @pytest.fixture
 def sample_profile() -> HPCProfile:
@@ -36,7 +33,7 @@ def sample_profile() -> HPCProfile:
         orca_module="orca/5.0.4",
         orca_path="/opt/orca/5.0.4",
         max_time="12:00:00",
-        nprocs=8 if False else None,   # not a param — just for reference
+        nprocs=8 if False else None,
     )
 
 
@@ -60,10 +57,6 @@ def sample_profile_clean() -> HPCProfile:
 def simple_params() -> CalcParams:
     return CalcParams(nprocs=4, mem_gaussian_gb=8, mem_orca_mb_core=1000)
 
-
-# ─────────────────────────────────────────────
-# HPCProfile
-# ─────────────────────────────────────────────
 
 def test_profile_creation(sample_profile_clean):
     p = sample_profile_clean
@@ -125,10 +118,6 @@ def test_profile_extra_sbatch(tmp_path):
     loaded = HPCProfile.load("x", directory=tmp_path)
     assert loaded.extra_sbatch == ["--qos=high", "--mail-type=END"]
 
-
-# ─────────────────────────────────────────────
-# SLURM script generation
-# ─────────────────────────────────────────────
 
 @pytest.fixture
 def profile_for_slurm():
@@ -213,10 +202,6 @@ def test_slurm_invalid_engine_raises(profile_for_slurm, simple_params):
         write_slurm_script("/w/in.gjf", "/w/in.log",
                            "turbomole", simple_params, profile_for_slurm)
 
-
-# ─────────────────────────────────────────────
-# HPCRunner — SSH command construction (mocked)
-# ─────────────────────────────────────────────
 
 from cadmia.calculators.hpc_runner import HPCRunner, HPCConnectionError
 
@@ -327,10 +312,6 @@ def test_runner_list_jobs(runner):
     assert jobs[1]["state"] == "queued"
 
 
-# ─────────────────────────────────────────────
-# _engine_from_input, _collect_inputs
-# ─────────────────────────────────────────────
-
 _GAUSSIAN_INPUT = ("%chk=m.chk\n%nprocshared=8\n%mem=16GB\n#PBE0/def2-TZVP Opt\n"
                    "\nm\n\n0 1\nO   0.00   0.00   0.00\n\n")
 _ORCA_INPUT = ("! PBE0 def2-TZVP D4 Opt\n\n# m\n\n%pal nprocs 8 end\n"
@@ -402,10 +383,6 @@ def test_collect_inputs_empty_dir_raises(tmp_path):
         _collect_inputs(tmp_path)
 
 
-# ─────────────────────────────────────────────
-# CalculationResult serialisation
-# ─────────────────────────────────────────────
-
 def test_calculation_result_save_load(tmp_path):
     rec = JobRecord(
         label="mol", engine="gaussian",
@@ -460,7 +437,6 @@ def test_calculation_result_n_done_failed():
     assert cr.n_failed == 1
 
 
-
 def test_input_stems_keep_the_origin_through_rank_skeleton_labels():
     from cadmia.agents.calculation_agent import _input_stems
     from cadmia.core import Structure
@@ -481,4 +457,4 @@ def test_input_stems_keep_the_origin_through_rank_skeleton_labels():
                           "skeleton": "reference"})
     geom = extxyz_comment({"label": "renamed_by_hand", "probe": "CO2"})
     assert _input_stems(source, [block(new)]) == ["site3_eta1_p30"]
-    assert _input_stems(Path("mine.xyz"), [block(geom)]) == ["mine"]    # only rank blocks rename
+    assert _input_stems(Path("mine.xyz"), [block(geom)]) == ["mine"]

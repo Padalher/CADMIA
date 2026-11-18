@@ -19,8 +19,6 @@ import numpy as np
 
 from cadmia.core.units import BOHR_TO_ANG
 
-# Alias kept for the callers that already import this name. The VALUE now comes from core.units:
-# two constants that disagree in the 10th decimal are harmless numerically and a trap to maintain.
 BOHR_TO_ANGSTROM = BOHR_TO_ANG
 
 
@@ -30,9 +28,9 @@ class EngradResult:
 
     n_atoms:        int
     energy_hartree: float
-    gradient:       np.ndarray      # (N, 3) in Eh/bohr — ∂E/∂R, NOT the force
+    gradient:       np.ndarray
     atomic_numbers: List[int]
-    positions_bohr: np.ndarray      # (N, 3)
+    positions_bohr: np.ndarray
     source_file:    str
 
     def force(self) -> np.ndarray:

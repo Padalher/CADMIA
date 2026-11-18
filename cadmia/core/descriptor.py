@@ -17,7 +17,7 @@ _SCOPES = {"global", "atom", "bond", "structure", "adsorption", "grid"}
 @dataclass
 class Descriptor:
     name:           str
-    value:          Optional[Any] = None      # float | str | bool | None
+    value:          Optional[Any] = None
     unit:           Optional[str] = None
     scope:          str = "global"
     atom_index:     Optional[int] = None

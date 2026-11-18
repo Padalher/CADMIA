@@ -1,7 +1,6 @@
 """Element data — canonical periodic table for the CADMIA core (foundational, no deps)."""
 from __future__ import annotations
 
-# Index = atomic number (Z); index 0 is a placeholder so PERIODIC_TABLE[Z] == symbol.
 PERIODIC_TABLE = (
     "", "H", "He", "Li", "Be", "B", "C", "N", "O", "F",
     "Ne", "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K",

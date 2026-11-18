@@ -117,7 +117,7 @@ def test_parse_cube_angstrom_units_negative_count(tmp_path):
         "  0.005  0.006  0.007  0.008\n"
     )
     grid = parse_cube(cube)
-    np.testing.assert_allclose(grid.vx[0], 1.0, rtol=1e-9)   # stays in Å, not 0.529
+    np.testing.assert_allclose(grid.vx[0], 1.0, rtol=1e-9)
     assert grid.data.shape == (2, 2, 2)
 
 

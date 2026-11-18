@@ -14,10 +14,8 @@ def _touch(d: Path, name: str) -> Path:
 
 def test_tidy_moves_only_accessory_files(tmp_path):
     stem = "job1"
-    # essentials that must stay
     keep = [f"{stem}.inp", f"{stem}.out", f"{stem}.gbw",
             f"{stem}.densities", f"{stem}.densitiesinfo"]
-    # accessory that must move
     move = [f"{stem}.bibtex", f"{stem}.property.txt", f"{stem}.chelpg.xyz",
             f"{stem}.pc_chelpg", f"{stem}.vpot", f"{stem}.xyz"]
     for n in keep + move:
@@ -34,7 +32,6 @@ def test_tidy_moves_only_accessory_files(tmp_path):
 
 
 def test_tidy_densities_never_moved(tmp_path):
-    # orca_plot reads the density from these — they must never be tucked away.
     assert ".densities" not in AUX_SUFFIXES
     assert ".densitiesinfo" not in AUX_SUFFIXES
 
@@ -42,7 +39,7 @@ def test_tidy_densities_never_moved(tmp_path):
 def test_tidy_noop_when_nothing_to_move(tmp_path):
     _touch(tmp_path, "job.out")
     assert tidy_job_outputs(tmp_path, "job") == []
-    assert not (tmp_path / "aux").exists()   # aux/ only created when needed
+    assert not (tmp_path / "aux").exists()
 
 
 def test_tidy_only_touches_matching_stem(tmp_path):
@@ -73,13 +70,13 @@ def test_the_users_own_xyz_is_not_tucked_away(tmp_path):
 
     (tmp_path / "cfg.xyz").write_text("1\n\nH 0 0 0\n", encoding="utf-8")
     time.sleep(0.01)
-    (tmp_path / "cfg.inp").write_text("! PBE0\n", encoding="utf-8")   # written after the xyz
+    (tmp_path / "cfg.inp").write_text("! PBE0\n", encoding="utf-8")
     (tmp_path / "cfg.bibtex").write_text("x", encoding="utf-8")
 
     moved = tidy_job_outputs(tmp_path, "cfg")
     assert "cfg.xyz" not in moved
     assert (tmp_path / "cfg.xyz").exists()
-    assert "cfg.bibtex" in moved                   # a real byproduct still moves
+    assert "cfg.bibtex" in moved
 
 
 def test_an_engine_written_xyz_is_still_tidied(tmp_path):
@@ -89,7 +86,7 @@ def test_an_engine_written_xyz_is_still_tidied(tmp_path):
 
     (tmp_path / "opt.inp").write_text("! PBE0 Opt\n", encoding="utf-8")
     time.sleep(0.01)
-    (tmp_path / "opt.xyz").write_text("1\n\nH 0 0 0\n", encoding="utf-8")   # newer than the input
+    (tmp_path / "opt.xyz").write_text("1\n\nH 0 0 0\n", encoding="utf-8")
 
     moved = tidy_job_outputs(tmp_path, "opt")
     assert "opt.xyz" in moved

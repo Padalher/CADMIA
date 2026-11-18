@@ -29,8 +29,6 @@ def _never_touch_the_real_database(tmp_path, monkeypatch):
     original = session.resolve_db_path
 
     def _sandboxed(explicit=None, start=None):
-        # A test that passes `start` is testing the resolver itself, so it gets the real one.
-        # The CLI never passes it, so every command still lands in the sandbox.
         if start is not None:
             return original(explicit, start)
         return Path(explicit) if explicit else sandbox

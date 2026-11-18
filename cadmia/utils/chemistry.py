@@ -10,7 +10,6 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-# Covalent radii in Å (Cordero 2008)
 COVALENT_RADII: dict[str, float] = {
     "H":  0.31, "He": 0.28,
     "Li": 1.28, "Be": 0.96, "B":  0.84, "C":  0.76, "N":  0.71, "O":  0.66, "F":  0.57, "Ne": 0.58,
@@ -32,9 +31,8 @@ COVALENT_RADII: dict[str, float] = {
     "Tl": 1.45, "Pb": 1.46, "Bi": 1.48, "Po": 1.40, "At": 1.50, "Rn": 1.50,
 }
 
-# Tolerance factors for acceptable interatomic distance ranges
-_MIN_FACTOR = 0.65   # < 65% of summed radii → clash
-_MAX_FACTOR = 2.00   # > 200% → non-interacting (not reported as error)
+_MIN_FACTOR = 0.65
+_MAX_FACTOR = 2.00
 
 
 def covalent_radius(element: str) -> Optional[float]:
@@ -60,12 +58,9 @@ def expected_spin_sq(multiplicity: int) -> float:
     s = (multiplicity - 1) / 2.0
     return s * (s + 1)
 
-# The skeleton of an oxide cluster needs a tighter cutoff than a probe molecule's own bonds:
-# in a metal-oxide cluster, real bonds reach about d/(r_i+r_j) = 1.0 and non-bonded contacts
-# start well above, so 1.20 falls in an empty gap. At 1.3 a metal···metal contact starts
-# counting as a bond, which flips the verdict for no chemical reason.
+
 _SKELETON_CUTOFF = 1.20
-_SKELETON_MARGIN = 0.08   # ratios this close to the cutoff make the verdict unsafe
+_SKELETON_MARGIN = 0.08
 
 
 def skeleton(atoms: List[str], positions: np.ndarray) -> Tuple[tuple, Counter, bool]:

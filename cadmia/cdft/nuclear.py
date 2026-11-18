@@ -24,19 +24,22 @@ import numpy as np
 
 from cadmia.io.engrad import EngradResult
 
-_GEOMETRY_TOL_BOHR = 1e-4   # the three states must be single points on ONE geometry
+_GEOMETRY_TOL_BOHR = 1e-4
+_RESIDUAL_WEIGHT_WARN_FRACTION = 0.10
+"""Dimensionless: warn when the residual force of the neutral weighs more than this fraction of Φ⁽²⁾."""
+_RESIDUAL_FORCE_WARN_EH_PER_BOHR = 1e-2
+"""Eh/bohr: warn when the largest residual force on any nucleus of the neutral exceeds this."""
 
 
 @dataclass
 class NuclearFukuiResult:
     """Nuclear Fukui function Φ_A and, with the neutral, Φ⁺, Φ⁻ and Φ⁽²⁾."""
 
-    phi:            np.ndarray            # (N, 3) central difference, Eh/bohr per electron
-    phi_plus:       Optional[np.ndarray] = None   # F(N+1) - F(N), needs the neutral
-    phi_minus:      Optional[np.ndarray] = None   # F(N) - F(N-1)
-    phi_dual:       Optional[np.ndarray] = None   # (N,3) ∂²F/∂N², the nuclear analogue
-                                                  # of the dual descriptor; needs the neutral
-    magnitude:      Optional[np.ndarray] = None   # (N,) ‖Φ_A‖
+    phi:            np.ndarray
+    phi_plus:       Optional[np.ndarray] = None
+    phi_minus:      Optional[np.ndarray] = None
+    phi_dual:       Optional[np.ndarray] = None
+    magnitude:      Optional[np.ndarray] = None
     warnings:       List[str] = None
 
     def __post_init__(self) -> None:
@@ -83,7 +86,7 @@ def nuclear_fukui(
     _check_same_geometry(anion, cation, "anion vs cation", warnings)
 
     f_plus, f_minus = anion.force(), cation.force()
-    phi = 0.5 * (f_plus - f_minus)          # central difference over ΔN = 2
+    phi = 0.5 * (f_plus - f_minus)
 
     phi_p = phi_m = None
     if neutral is not None:
@@ -93,26 +96,18 @@ def nuclear_fukui(
         phi_p = f_plus - f_0
         phi_m = f_0 - f_minus
 
-    # ∂²F_A/∂N² = F(N+1) - 2F(N) + F(N-1) = Φ⁺ - Φ⁻, a third
-    # derivative of E — ∂³E/∂N²∂R_A — the nuclear analogue of the dual descriptor, and it
-    # falls out of the same three gradients at no extra cost.
     phi_dual = (phi_p - phi_m) if phi_p is not None else None
 
     if neutral is not None and phi_dual is not None:
-        # The residual force cancels in the central difference but enters Φ⁽²⁾ with weight −2,
-        # so what matters is not its absolute size but its size NEXT TO Φ⁽²⁾. An absolute 1e-2
-        # cut lets a 5e-3 residual through unremarked while it still supplies a fifth of the
-        # number. Over a geometry that is not the functional's own minimum, ‖2F(N)‖ can be
-        # most of ‖Φ⁽²⁾‖.
         scale = float(np.linalg.norm(phi_dual, axis=1).mean())
         weight = (2.0 * float(np.linalg.norm(f_0, axis=1).mean()) / scale) if scale > 0 else 0.0
-        if weight > 0.10:
+        if weight > _RESIDUAL_WEIGHT_WARN_FRACTION:
             warnings.append(
                 f"the neutral is not a stationary point: its residual force contributes about "
                 f"{weight:.0%} of Φ⁽²⁾ (max {residual:.2e} Eh/bohr). Φ⁽²⁾ there measures the "
                 "relaxation the geometry still owes as much as the response to charge — "
                 "re-optimize at this level of theory before reading it.")
-        elif residual > 1e-2:
+        elif residual > _RESIDUAL_FORCE_WARN_EH_PER_BOHR:
             warnings.append(
                 f"the neutral state carries a residual force of {residual:.2e} Eh/bohr: its "
                 "geometry is not a stationary point, so Φ mixes the charge response with "

@@ -46,12 +46,6 @@ class WorkflowStage:
     description:   str = ""
 
 
-# The recommended accuracy/efficiency block for hybrid DFT on these clusters.
-# Frequencies are only meaningful on a geometry optimized at the SAME level, and the level
-# includes the SCF threshold and the integration grid, not just the basis: running the _TIGHT
-# `freq` on a geometry optimized with bare _RIJ yields spurious small imaginary modes.
-# Hence the screening pair screen-opt/screen-freq shares _RIJ, and the
-# production pair opt/freq shares _TIGHT.
 _RIJ = ("RIJCOSX", "def2/J")
 _TIGHT = _RIJ + ("TightSCF", "DefGrid3")
 

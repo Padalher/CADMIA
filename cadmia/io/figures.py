@@ -11,7 +11,7 @@ import functools
 from pathlib import Path
 
 FIGURE_FORMATS = ("png", "svg", "pdf")
-FIGURE_WIDTHS_IN = {"single": 3.4, "double": 6.5}      # one- and two-column journal widths
+FIGURE_WIDTHS_IN = {"single": 3.4, "double": 6.5}
 _DPI = 300
 _STYLE = {"font.size": 8, "axes.titlesize": 8, "legend.fontsize": 7, "legend.title_fontsize": 7,
           "axes.linewidth": 0.8, "lines.linewidth": 1.2,

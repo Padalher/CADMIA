@@ -10,6 +10,10 @@ from cadmia.core.elements import ATOMIC_NUMBER_TO_SYMBOL, SYMBOL_TO_ATOMIC_NUMBE
 from cadmia.core.units import BOHR_TO_ANG
 from cadmia.io.xyz import get_atom_labels
 
+_CUBE_HEADER_LINES = 6
+_CUBE_COMMENT_LINES = 2
+_CUBE_VALUES_PER_ROW = 6
+
 
 def _parse_axis(line: str, name: str) -> tuple[int, np.ndarray]:
     """Return the signed voxel count and the raw (unconverted) step vector.
@@ -40,10 +44,10 @@ def parse_cube(filepath: str | Path, field_type: str = "other") -> VolumetricGri
         raise FileNotFoundError(f"Cube file not found: {path}")
 
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    if len(lines) < 6:
+    if len(lines) < _CUBE_HEADER_LINES:
         raise ValueError(f"Cube file too short: {path}")
 
-    parts = lines[2].split()
+    parts = lines[_CUBE_COMMENT_LINES].split()
     if len(parts) < 4:
         raise ValueError("Invalid cube atom-count/origin line.")
     try:
@@ -53,16 +57,15 @@ def parse_cube(filepath: str | Path, field_type: str = "other") -> VolumetricGri
         raise ValueError("Invalid cube atom-count/origin values.") from exc
 
     n_atoms = abs(nat_raw)
-    nx_s, vx = _parse_axis(lines[3], "x")
-    ny_s, vy = _parse_axis(lines[4], "y")
-    nz_s, vz = _parse_axis(lines[5], "z")
-    # Positive voxel counts → coordinates in Bohr (convert to Å); negative → already Å.
+    nx_s, vx = _parse_axis(lines[_CUBE_COMMENT_LINES + 1], "x")
+    ny_s, vy = _parse_axis(lines[_CUBE_COMMENT_LINES + 2], "y")
+    nz_s, vz = _parse_axis(lines[_CUBE_COMMENT_LINES + 3], "z")
     to_ang = BOHR_TO_ANG if nx_s >= 0 else 1.0
     nx, ny, nz = abs(nx_s), abs(ny_s), abs(nz_s)
     origin *= to_ang
     vx, vy, vz = vx * to_ang, vy * to_ang, vz * to_ang
 
-    atom_start = 6
+    atom_start = _CUBE_HEADER_LINES
     atom_end = atom_start + n_atoms
     if len(lines) < atom_end:
         raise ValueError(f"Cube file expected {n_atoms} atom lines.")
@@ -88,9 +91,6 @@ def parse_cube(filepath: str | Path, field_type: str = "other") -> VolumetricGri
     if nat_raw < 0:
         if data_start >= len(lines):
             raise ValueError("Cube MO file missing orbital-index line.")
-        # That line starts with how many orbitals the file holds. With more than one their
-        # values are INTERLEAVED voxel by voxel, so reading the first grid-worth of numbers
-        # returns a mixture of orbitals and nothing says so.
         try:
             n_orbitals = int(lines[data_start].split()[0])
         except (IndexError, ValueError):
@@ -170,10 +170,9 @@ def write_cube(grid: VolumetricGrid, filepath: str | Path, comment: str = "") ->
             raise ValueError(f"cannot write cube: unknown element symbol {sym!r}")
         lines.append(f"{z:5d} {float(z):12.6f} {pos[0]:12.6f} {pos[1]:12.6f} {pos[2]:12.6f}")
 
-    # Gaussian cube data order: x outer, y middle, z inner; 6 values per line.
     flat = np.asarray(grid.data, dtype=float).reshape(-1)
-    for start in range(0, flat.size, 6):
-        chunk = flat[start:start + 6]
+    for start in range(0, flat.size, _CUBE_VALUES_PER_ROW):
+        chunk = flat[start:start + _CUBE_VALUES_PER_ROW]
         lines.append("".join(f"{v:13.5e}" for v in chunk))
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

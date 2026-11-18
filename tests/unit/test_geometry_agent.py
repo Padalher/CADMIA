@@ -33,9 +33,6 @@ from cadmia.agents.geometry_agent import (
     run,
 )
 
-# ─────────────────────────────────────────────
-# Probe geometry correctness
-# ─────────────────────────────────────────────
 
 def test_h2_eta1_bond_length():
     pg = _h2_eta1()
@@ -66,9 +63,7 @@ def test_co2_linear():
     c  = np.array(pg.coords[0][1:])
     o1 = np.array(pg.coords[1][1:])
     o2 = np.array(pg.coords[2][1:])
-    # C at origin
     assert np.allclose(c, 0.0)
-    # O–C–O angle = 180°
     v1 = (o1 - c) / np.linalg.norm(o1 - c)
     v2 = (o2 - c) / np.linalg.norm(o2 - c)
     angle = math.degrees(math.acos(np.dot(v1, v2)))
@@ -133,7 +128,6 @@ def test_co2_all_modes_bond_lengths():
         c = np.array(next(a[1:] for a in pg.coords if a[0] == "C"))
         for atom in (a for a in pg.coords if a[0] == "O"):
             o = np.array(atom[1:])
-            # in o_down the far O is 2 bonds from C; check nearest-neighbour topology instead
             d = np.linalg.norm(o - c)
             assert abs(d - 1.160) < 1e-6 or abs(d - 2 * 1.160) < 1e-6
 
@@ -179,7 +173,7 @@ def test_no_co2_mode_puts_a_non_binding_atom_ahead_of_the_binding_atom():
     for pg in _BUILTIN_PROBES["CO2"]:
         binder_z = next(a[3] for a in pg.coords if a[0] == pg.binding_atom)
         if pg.orientation == "bidentate":
-            continue   # by design the two O lead: it is the O,O-bound carbonate precursor
+            continue
         assert all(a[3] >= binder_z - 1e-9 for a in pg.coords), pg.orientation
 
 
@@ -198,13 +192,6 @@ def test_builtin_probe_mode_counts():
     }
 
 
-# ─────────────────────────────────────────────
-# _place_probe
-# ─────────────────────────────────────────────
-
-# Angles are measured in the site's local frame. These unit tests pin the placement geometry
-# itself, so they feed the cartesian frame explicitly: with it, "polar=0" is +z again and the
-# expected values below stay the ones you can work out by hand.
 _Z_FRAME = (np.array([0.0, 0.0, 1.0]),
             np.array([1.0, 0.0, 0.0]),
             np.array([0.0, 1.0, 0.0]))
@@ -249,13 +236,8 @@ def test_place_probe_eta2_bond_perpendicular_to_approach():
     h1 = placed[0][1]
     h2 = placed[1][1]
     bond = h2 - h1
-    # Bond vector should be perpendicular to approach (+z), so z-component ≈ 0
     assert abs(float(bond[2])) < 1e-8
 
-
-# ─────────────────────────────────────────────
-# XYZ I/O
-# ─────────────────────────────────────────────
 
 def test_write_read_xyz_roundtrip(tmp_path):
     from cadmia.io.xyz import comment_info, extxyz_block, extxyz_columns
@@ -269,7 +251,7 @@ def test_write_read_xyz_roundtrip(tmp_path):
     for orig, read in zip(coords, c2):
         assert np.allclose(orig, read, atol=1e-7)
     info = comment_info(comment)
-    assert info["label"] == "test_molecule"                 # viewers split labels on spaces
+    assert info["label"] == "test_molecule"
     assert extxyz_columns(info) == [("group", "S")]
     assert p.read_text().splitlines()[-1].split()[-1] == "probe"
 
@@ -287,10 +269,6 @@ def test_geometry_writes_extended_xyz_with_groups(simple_cluster_xyz, simple_cdf
     assert parse_xyz(f).structure_id == f.stem
 
 
-# ─────────────────────────────────────────────
-# Full run()
-# ─────────────────────────────────────────────
-
 @pytest.fixture
 def simple_cluster_xyz(tmp_path) -> Path:
     """Minimal 3-atom TiO2 cluster in a temp .xyz file."""
@@ -303,7 +281,6 @@ def simple_cluster_xyz(tmp_path) -> Path:
 @pytest.fixture
 def simple_cdft_json(tmp_path) -> Path:
     """Minimal CDFTResult-like JSON with two sites."""
-    # atom_index is 1-based (as emitted by the CDFT Agent): 1=Ti, 2=first O.
     data = {
         "cluster": "ti2o",
         "sites": [
@@ -327,17 +304,11 @@ def test_run_returns_geometry_result(simple_cluster_xyz, simple_cdft_json):
 
 def test_run_generates_configs_for_all_sites(simple_cluster_xyz, simple_cdft_json):
     result = run(simple_cdft_json, simple_cluster_xyz, "NH3", n_sites=2, n_configs=4, polar_angles=[0.0, 30.0])
-    # n_sites=2, NH3 has 2 modes (n_down, tripod), polar=[0,30]. Both NH3 modes are pyramidal,
-    # so polar=0 no longer collapses: there the azimuth is the molecule's own roll about the
-    # normal, and whether the three H face the lattice oxygens or sit between them is a real
-    # degree of freedom. 4 azimuths × 2 polars × 2 modes × 2 sites = 32.
     assert len(result.configs) == 32
 
 
 def test_run_h2_config_count(simple_cluster_xyz, simple_cdft_json):
     result = run(simple_cdft_json, simple_cluster_xyz, "H2", n_sites=1, n_configs=3, polar_angles=[0.0, 45.0])
-    # H2 has 2 modes. eta1 is end-on, so its roll changes nothing and polar=0 still collapses to
-    # one: 1 + 3 = 4. eta2 is side-on, so polar=0 samples the roll too: 3 + 3 = 6. Total 10.
     assert len(result.configs) == 10
 
 
@@ -349,7 +320,6 @@ def test_run_writes_xyz_files(tmp_path, simple_cluster_xyz, simple_cdft_json):
         output_dir=out,
     )
     assert out.exists()
-    # polar=0 → 1 config × 1 mode × 1 site = 1 file
     written = list(out.glob("*.xyz"))
     assert len(written) == len([c for c in result.configs if c.xyz_path is not None])
 
@@ -360,7 +330,6 @@ def test_run_xyz_has_correct_atom_count(tmp_path, simple_cluster_xyz, simple_cdf
     xyz_files = list(out.glob("*.xyz"))
     assert xyz_files
     syms, _, _ = _read_xyz(xyz_files[0])
-    # cluster (3) + NH3 (4) = 7
     assert len(syms) == 7
 
 
@@ -369,7 +338,6 @@ def test_run_placement_distance_in_range(simple_cluster_xyz, simple_cdft_json):
     result = run(simple_cdft_json, simple_cluster_xyz, "H2", n_sites=1, n_configs=1, polar_angles=[0.0])
     dists = {c.placement_dist for c in result.configs}
     for d in dists:
-        # Ti cov radius ~1.60, H cov radius ~0.31, +0.5 → ~2.41; plausible
         assert 1.5 < d < 4.0, f"Unexpected distance {d:.3f} Å"
 
 
@@ -387,11 +355,9 @@ def test_run_places_probe_on_correct_atom_1based(tmp_path, simple_cluster_xyz, s
     assert len(xyz_files) == len(_BUILTIN_PROBES["CO2"])
     for f in xyz_files:
         syms, coords, _ = _read_xyz(f)
-        # First 3 atoms are the cluster; atom 4 (index 3) is the probe's binding atom.
         binding = coords[3]
         ti_origin = coords[0]
         first_o   = coords[1]
-        # Binding atom must be over Ti (x≈y≈0, z>0), and far closer to Ti than to the O.
         assert abs(binding[0]) < 1e-6 and abs(binding[1]) < 1e-6, (
             f"probe placed at {binding} — expected above Ti at the origin (off-by-one regression)"
         )
@@ -427,7 +393,6 @@ def test_run_no_output_dir_no_files(simple_cluster_xyz, simple_cdft_json):
 def test_run_from_dict(simple_cluster_xyz, simple_cdft_json):
     data = json.loads(simple_cdft_json.read_text(encoding="utf-8"))
     result = run(data, simple_cluster_xyz, "CO2", n_sites=1, n_configs=1, polar_angles=[0.0])
-    # CO2 has 4 built-in modes → 1 config per mode at polar=0
     assert len(result.configs) == len(_BUILTIN_PROBES["CO2"])
 
 
@@ -445,12 +410,7 @@ def test_run_cluster_label_override(simple_cluster_xyz, simple_cdft_json):
     assert result.cluster == "my_cluster"
 
 
-# ─────────────────────────────────────────────
-# New built-in probes (CO, N2, O2, H2O)
-# ─────────────────────────────────────────────
-
 def test_builtin_probe_catalog():
-    # At least the project's three plus the new ones must be available.
     for name in ("H2", "CO2", "NH3", "CO", "N2", "O2", "H2O"):
         assert name in _BUILTIN_PROBES
 
@@ -476,7 +436,6 @@ def test_h2o_geometry(builder):
     o, h1, h2 = pg.coords
     assert math.dist(o[1:], h1[1:]) == pytest.approx(0.9572, abs=1e-6)
     assert math.dist(o[1:], h2[1:]) == pytest.approx(0.9572, abs=1e-6)
-    # H–O–H angle from the two O–H vectors.
     v1 = np.array(h1[1:]) - np.array(o[1:])
     v2 = np.array(h2[1:]) - np.array(o[1:])
     ang = math.degrees(math.acos(np.dot(v1, v2) / (np.linalg.norm(v1) * np.linalg.norm(v2))))
@@ -484,10 +443,8 @@ def test_h2o_geometry(builder):
 
 
 def test_h2o_mode_orientations():
-    # o_down: O lone pair toward the surface → H point away (+z).
     o_down = _h2o_o_down()
     assert all(o_down.coords[i][3] > 0 for i in (1, 2))
-    # h_down: H toward the surface (−z).
     h_down = _h2o_h_down()
     assert all(h_down.coords[i][3] < 0 for i in (1, 2))
     assert len(_BUILTIN_PROBES["H2O"]) == 2
@@ -495,14 +452,9 @@ def test_h2o_mode_orientations():
 
 def test_run_with_new_probe(simple_cluster_xyz, simple_cdft_json):
     result = run(simple_cdft_json, simple_cluster_xyz, "CO", n_sites=1, n_configs=1, polar_angles=[0.0])
-    # CO has two modes (c_down, o_down) → two configs at polar=0.
     assert len(result.configs) == 2
     assert result.probe == "CO"
 
-
-# ─────────────────────────────────────────────
-# User-defined probes via probes.yaml
-# ─────────────────────────────────────────────
 
 def test_available_probes_includes_user_yaml(tmp_path):
     yaml_path = tmp_path / "probes.yaml"
@@ -518,7 +470,7 @@ def test_available_probes_includes_user_yaml(tmp_path):
     )
     names = available_probes(yaml_path)
     assert "CH4" in names
-    assert "NH3" in names  # built-ins still present
+    assert "NH3" in names
 
 
 def test_run_with_user_probe(simple_cluster_xyz, simple_cdft_json, tmp_path):
@@ -550,7 +502,6 @@ def test_user_probe_overrides_builtin(simple_cluster_xyz, simple_cdft_json, tmp_
     )
     result = run(simple_cdft_json, simple_cluster_xyz, "H2",
                  n_sites=1, n_configs=1, polar_angles=[0.0], probes_yaml=yaml_path)
-    # Override has a single mode named "custom" (built-in has two: eta1/eta2).
     assert len(result.configs) == 1
     assert "custom" in result.configs[0].orientation
 
@@ -566,10 +517,6 @@ def test_malformed_probe_yaml_raises(simple_cluster_xyz, simple_cdft_json, tmp_p
     with pytest.raises(ValueError, match="non-empty 'modes'"):
         run(simple_cdft_json, simple_cluster_xyz, "BAD", n_sites=1, probes_yaml=yaml_path)
 
-
-# ─────────────────────────────────────────────
-# Local frame
-# ─────────────────────────────────────────────
 
 from cadmia.agents.geometry_agent import (_has_clash, _local_frame, _rodrigues,
                                           _site_frame, _site_normal)
@@ -588,7 +535,6 @@ def _tetra():
 
 
 def test_normal_points_away_from_the_neighbours():
-    # Two neighbours on -x: the normal must lean toward +x, whatever +z says.
     symbols = ["Ti", "O", "O"]
     coords = [np.array([0.0, 0.0, 0.0]),
               np.array([-1.9, 0.0, 0.5]),
@@ -602,7 +548,6 @@ def test_normal_points_away_from_the_neighbours():
 def test_centrosymmetric_site_falls_back_to_the_centroid():
     symbols, coords = _tetra()
     n, source = _site_normal(symbols, coords, 0)
-    # The four neighbour vectors cancel; the centroid is the site itself, so nothing is left.
     assert source in ("centroid", "fallback_z")
     assert abs(float(np.linalg.norm(n)) - 1.0) < 1e-10
 
@@ -641,8 +586,8 @@ def test_normal_rotates_with_the_cluster():
 
 
 @pytest.mark.parametrize("probe_geom", [
-    _h2_eta1,        # axial: was already invariant
-    _h2_eta2,        # the rest have internal structure to orient, and were NOT
+    _h2_eta1,
+    _h2_eta2,
     _co2_side_on,
     _co2_eta1_c,
     _nh3_n_down,
@@ -692,10 +637,6 @@ def test_clash_filter_catches_an_overlapping_probe():
     assert not _has_clash(symbols, coords, [("H", np.array([2.5, 0.0, 0.0]))])
 
 
-# ─────────────────────────────────────────────
-# Starting-geometry clash floor and push-out (A1)
-# ─────────────────────────────────────────────
-
 def _worst_contact(path: Path, n_cluster: int) -> float:
     """Closest probe–cluster contact in a written config, in summed-covalent-radii units."""
     symbols, coords, _ = _read_xyz(path)
@@ -706,7 +647,7 @@ def _worst_contact(path: Path, n_cluster: int) -> float:
 def test_clash_floor_is_stricter_than_the_optimized_geometry_criterion():
     """0.65 x (r_i + r_j) let an H sit 0.69 A from an oxygen; the starting floor is 0.80."""
     symbols, coords = ["O"], [np.array([0.0, 0.0, 0.0])]
-    r_sum = 0.31 + 0.66     # Cordero H + O
+    r_sum = 0.31 + 0.66
     assert _has_clash(symbols, coords, [("H", np.array([0.70 * r_sum, 0.0, 0.0]))])
     assert _has_clash(symbols, coords, [("H", np.array([0.79 * r_sum, 0.0, 0.0]))])
     assert not _has_clash(symbols, coords, [("H", np.array([0.85 * r_sum, 0.0, 0.0]))])
@@ -759,7 +700,7 @@ def test_an_orientation_with_no_room_is_dropped_and_reported(
     Forcing the budget to zero is the cheapest way to reach that branch: a site genuinely
     walled in on every side needs a cluster far larger than this fixture.
     """
-    monkeypatch.setattr(geometry_agent, "_PUSHOUT_MAX", 0.0)
+    monkeypatch.setattr(geometry_agent, "_PUSHOUT_MAX_ANG", 0.0)
     result = run(simple_cdft_json, simple_cluster_xyz, "CO2", n_sites=2)
     assert result.n_rejected_clash > 0
     assert result.n_pushed_out == 0
@@ -776,9 +717,6 @@ def test_pushed_out_distance_is_recorded_in_the_sidecar(
     assert data["n_pushed_out"] == result.n_pushed_out
     assert [c for c in data["configs"] if c["pushed_out_A"] > 0]
 
-    # Subtracting the push-out has to give back the distance the site/mode started from,
-    # the same for every orientation of that pair — otherwise the record does not say
-    # what was actually added.
     nominal = {}
     for c in data["configs"]:
         key = (c["site_atom_idx"], c["orientation"].split("_p")[0])
@@ -786,10 +724,6 @@ def test_pushed_out_distance_is_recorded_in_the_sidecar(
         nominal.setdefault(key, base)
         assert base == pytest.approx(nominal[key], abs=1e-9)
 
-
-# ─────────────────────────────────────────────
-# The cluster reader validates its input (A3)
-# ─────────────────────────────────────────────
 
 def test_read_xyz_rejects_a_header_that_lies_about_the_atom_count(tmp_path):
     """A truncated cluster used to seed the whole sampling, silently."""
@@ -839,7 +773,6 @@ def test_the_azimuth_origin_survives_a_tie_between_equidistant_neighbours():
     (n0, t1_0, t2_0), _ = _site_frame(symbols, coords, 0)
     (n1, t1_1, t2_1), _ = _site_frame(symbols, [R @ c for c in coords], 0)
 
-    # the whole frame must be carried along by the rotation, tie or no tie
     assert np.allclose(R @ n0, n1, atol=1e-9)
     assert np.allclose(R @ t1_0, t1_1, atol=1e-9)
     assert np.allclose(R @ t2_0, t2_1, atol=1e-9)
@@ -852,7 +785,7 @@ def test_a_site_whose_symbol_disagrees_with_the_xyz_is_skipped(tmp_path):
     cluster.write_text("2\n\nTi 0.0 0.0 0.0\nO 1.8 0.0 0.0\n", encoding="utf-8")
     cdft = tmp_path / "cdft.json"
     cdft.write_text(json.dumps({"sites": [
-        {"atom_index": 1, "atom_symbol": "O", "rank": 1},   # the .xyz says Ti
+        {"atom_index": 1, "atom_symbol": "O", "rank": 1},
     ]}), encoding="utf-8")
 
     res = geometry_agent.run(cdft_json=str(cdft), cluster_xyz=str(cluster), probe="H2",
@@ -868,7 +801,6 @@ def test_the_top_sites_are_taken_by_rank_not_by_list_position(tmp_path):
     cluster = tmp_path / "c.xyz"
     cluster.write_text("3\n\nTi 0.0 0.0 0.0\nO 1.8 0.0 0.0\nAl 0.0 1.9 0.0\n", encoding="utf-8")
     cdft = tmp_path / "cdft.json"
-    # stored in atom order; the most reactive site is atom 3
     cdft.write_text(json.dumps({"sites": [
         {"atom_index": 1, "atom_symbol": "Ti", "rank": 3},
         {"atom_index": 2, "atom_symbol": "O", "rank": 2},
@@ -890,8 +822,8 @@ def test_polar_zero_collapses_only_for_an_axial_probe(simple_cluster_xyz, simple
     end_on = [c for c in axial.configs if c.orientation.startswith("eta1")]
     side_on = [c for c in axial.configs if c.orientation.startswith("eta2")]
 
-    assert len(end_on) == 1        # rolling a diatomic about its own axis changes nothing
-    assert len(side_on) == 4       # rolling a side-on one does
+    assert len(end_on) == 1
+    assert len(side_on) == 4
 
 
 def test_no_sites_limit_means_every_site(simple_cluster_xyz, simple_cdft_json):
@@ -906,8 +838,6 @@ def test_no_sites_limit_means_every_site(simple_cluster_xyz, simple_cdft_json):
     assert len({c.site_atom_idx for c in narrowed.configs}) == 1
 
 
-# ── Regression tests: geometry edge cases ──────────────────────────────
-
 def test_metal_metal_pairs_do_not_tilt_the_normal_of_a_metal_site():
     """With Cordero radii and the 1.30 factor, Ti···Ti counts as a neighbour out to 4.16 Å,
     while non-bonded M···M in an oxide sit at 2.8–3.5 Å."""
@@ -916,13 +846,12 @@ def test_metal_metal_pairs_do_not_tilt_the_normal_of_a_metal_site():
     from cadmia.agents.geometry_agent import _site_normal
 
     symbols = ["Ti", "O", "Ti"]
-    coords = [np.array([0.0, 0.0, 0.0]),        # the site
-              np.array([0.0, 1.9, 0.0]),        # a real Ti–O bond
-              np.array([3.2, 0.0, 0.0])]        # a non-bonded Ti at 3.2 Å
+    coords = [np.array([0.0, 0.0, 0.0]),
+              np.array([0.0, 1.9, 0.0]),
+              np.array([3.2, 0.0, 0.0])]
 
     normal, source = _site_normal(symbols, coords, 0)
     assert source == "neighbours"
-    # only the oxygen votes, so the normal is exactly opposite to it
     assert np.allclose(normal, [0.0, -1.0, 0.0], atol=1e-9)
 
 
@@ -931,8 +860,8 @@ def test_hydrogen_starts_further_from_an_oxygen_than_from_a_metal():
     from cadmia.utils.chemistry import covalent_radius
 
     r_o, r_h = covalent_radius("O"), covalent_radius("H")
-    assert r_o + r_h + 0.5 < 1.6            # the old distance, inside transfer range
-    assert r_o + r_h + 1.0 > 1.9            # the new one, a hydrogen-bond distance
+    assert r_o + r_h + 0.5 < 1.6
+    assert r_o + r_h + 1.0 > 1.9
 
 
 def test_two_polar_angles_that_round_the_same_get_different_names(tmp_path):
@@ -992,7 +921,6 @@ def test_a_second_run_into_the_same_directory_reports_the_leftovers(
     assert any("left over from an earlier run" in w for w in result.warnings)
     assert any("leftover_from_an_earlier_run.xyz" in w for w in result.warnings)
 
-    # And the sidecar lists only what this run wrote, with a fingerprint over exactly those.
     data = _json.loads(Path(result.output_json).read_text(encoding="utf-8"))
     listed = {Path(p).name for p in data["artifact_paths"]}
     assert "leftover_from_an_earlier_run.xyz" not in listed
@@ -1002,8 +930,8 @@ def test_a_second_run_into_the_same_directory_reports_the_leftovers(
 def test_extxyz_comment_puts_energy_first_and_marks_missing_values():
     from cadmia.io.xyz import comment_info, extxyz_block, extxyz_comment
     line = extxyz_comment({"label": "a", "rel_energy": "0.000", "energy": "-1.5", "x": None})
-    assert line.split()[:2] == ["format=extxyz-cadmia-1", "energy=-1.5"]   # readers take the first
+    assert line.split()[:2] == ["format=extxyz-cadmia-1", "energy=-1.5"]
     assert "x=" not in line and comment_info(line)["program"].startswith("CADMIA ")
     assert line.endswith("Properties=species:S:1:pos:R:3")
     block = extxyz_block(["H"], [[0, 0, 0]], {}, {"q": ("R", [None])})
-    assert block.splitlines()[2].split()[-1] == "nan"                     # never 0
+    assert block.splitlines()[2].split()[-1] == "nan"

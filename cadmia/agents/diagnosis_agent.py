@@ -30,8 +30,8 @@ from cadmia.io.electronic import (
 
 @dataclass
 class Symptom:
-    code:     str            # e.g. scf_not_converged, negative_gap
-    severity: str            # critical | warning
+    code:     str
+    severity: str
     message:  str
     evidence: str = ""
 
@@ -52,8 +52,8 @@ class Diagnosis:
     multiplicity:        Optional[int] = None
     s_squared:           Optional[float] = None
     scf_n_iterations:    Optional[int] = None
-    n_imaginary:         Optional[int] = None   # None = the output carries no frequencies
-    scf_trace_tail:      List[float] = field(default_factory=list)   # last SCF energies (Ha)
+    n_imaginary:         Optional[int] = None
+    scf_trace_tail:      List[float] = field(default_factory=list)
     symptoms:            List[Symptom] = field(default_factory=list)
 
     @property
@@ -69,10 +69,6 @@ class Diagnosis:
         return json.dumps(self.to_dict(), indent=2)
 
 
-# ─────────────────────────────────────────────
-# SCF iteration traces
-# ─────────────────────────────────────────────
-
 _ORCA_ITER_RE = re.compile(r"^\s*(\d+)\s+(-\d+\.\d{4,})")
 _GAUSSIAN_ITER_RE = re.compile(r"^\s*E=\s*(-?\d+\.\d+)")
 
@@ -87,8 +83,6 @@ def _scf_trace(lines: List[str], engine: str) -> List[float]:
         in_block = False
         for line in lines:
             up = line.upper()
-            # D-I-I-S / S-O-S-C-F blocks, each headed by "Iteration  Energy (Eh)  Delta-E".
-            # One SCF may span several blocks, so the trace accumulates across headers.
             if "ITERATION" in up and "DELTA-E" in up:
                 in_block = True
                 continue
@@ -102,16 +96,12 @@ def _scf_trace(lines: List[str], engine: str) -> List[float]:
                 trace.append(float(m.group(2)))
         return trace
 
-    for line in lines:                       # gaussian (scf=verbose outputs)
+    for line in lines:
         m = _GAUSSIAN_ITER_RE.match(line)
         if m:
             trace.append(float(m.group(1)))
     return trace
 
-
-# ─────────────────────────────────────────────
-# Frontier orbitals (lightweight, no Structure required)
-# ─────────────────────────────────────────────
 
 def _frontier_ev(lines: List[str], engine: str):
     """(homo_ev, lumo_ev) from eigenvalues; open shell: HOMO = max(alpha, beta) HOMO."""
@@ -140,11 +130,6 @@ def _frontier_ev(lines: List[str], engine: str):
         is_alpha_virt = "Alpha virt. eigenvalues" in line
         is_beta_occ = "Beta  occ. eigenvalues" in line or "Beta occ. eigenvalues" in line
         is_beta_virt = "Beta virt. eigenvalues" in line
-        # A Gaussian job can print several eigenvalue dumps -- an Opt Freq prints one per step.
-        # Concatenating them takes the HOMO from the last dump and the LUMO from the first,
-        # because the alpha-virtual list starts filling before the final alpha-occupied one
-        # replaces it. Every dump begins with "Alpha occ", so that is where the reset goes; the
-        # official parser in io/electronic.py already does this and diagnose did not.
         if is_alpha_occ and not in_block:
             occ, virt, beta_occ, beta_virt = [], [], [], []
         in_block = is_alpha_occ or is_alpha_virt or is_beta_occ or is_beta_virt
@@ -164,12 +149,8 @@ def _frontier_ev(lines: List[str], engine: str):
             min(lumos) * HARTREE_TO_EV if lumos else None)
 
 
-# ─────────────────────────────────────────────
-# Rules
-# ─────────────────────────────────────────────
-
-_OSCILLATION_HA = 1.0      # amplitude of the last SCF energies considered pathological
-_COLLAPSE_HA = 10.0        # drop below the first iteration considered variational collapse
+_OSCILLATION_HA = 1.0
+_COLLAPSE_HA = 10.0
 _SMALL_GAP_EV = 0.5
 _TRACE_TAIL = 15
 
@@ -196,9 +177,6 @@ def diagnose(filepath: "str | Path", engine: Optional[str] = None) -> Diagnosis:
                 else "error_termination")
         symptoms.append(Symptom(code, "critical", term.message))
 
-    # The response module (orca_scfresp) builds the analytic Hessian; when its CP-SCF
-    # equations fail the run aborts, but the geometry and the reference SCF that precede
-    # it are intact, so the fix is a finer grid / numerical frequencies, not a rerun.
     cpscf = next((line.strip() for line in lines if _is_cpscf_failure(line)), None)
     if detected == "orca" and cpscf:
         symptoms.append(Symptom(
@@ -235,9 +213,6 @@ def diagnose(filepath: "str | Path", engine: Optional[str] = None) -> Diagnosis:
                 f"over the last {len(tail)} iterations.",
                 evidence=f"last energies (Ha): {', '.join(f'{e:.4f}' for e in tail[-5:])}",
             ))
-        # Only on a non-converged SCF: in a healthy run the first-iteration energy is
-        # naturally far above the converged one, and that gap scales with system size,
-        # so the absolute 10 Ha threshold would false-positive on large clusters.
         drop = trace[0] - min(trace)
         if diag.scf_converged is False and drop > _COLLAPSE_HA:
             symptoms.append(Symptom(
@@ -248,8 +223,6 @@ def diagnose(filepath: "str | Path", engine: Optional[str] = None) -> Diagnosis:
             ))
         diag.energy_hartree = trace[-1]
 
-    # Prefer the engine's final energy (includes dispersion and post-SCF terms),
-    # so the value matches what benchmark/stability report; trace[-1] is the fallback.
     final = (_parse_orca_energy(lines) if detected == "orca"
              else _parse_gaussian_energy(lines))
     if final is not None:
@@ -277,9 +250,6 @@ def diagnose(filepath: "str | Path", engine: Optional[str] = None) -> Diagnosis:
                 evidence=f"HOMO {homo:.3f} eV, LUMO {lumo:.3f} eV",
             ))
 
-    # Counted through the Rank Agent's helper so both commands always report the same
-    # number for the same file. None means the output has no frequencies at all, which is
-    # normal for a single point and therefore a fact, not a symptom.
     diag.n_imaginary = _count_imaginary(
         path, SimpleNamespace(frequencies_cm1=_parse_gaussian_frequencies(lines)), detected)
     if diag.n_imaginary == 1:

@@ -38,7 +38,7 @@ def test_cli_xyz_extracts_geometry(tmp_path):
 
 def test_final_energy_from_file_orca():
     e = final_energy_from_file(_ORCA_OUT)
-    assert e == -1710.170304663949  # last FINAL SINGLE POINT ENERGY (converged)
+    assert e == -1710.170304663949
 
 
 def test_final_energy_from_file_xyz_is_none(tmp_path):
@@ -53,7 +53,7 @@ def test_cli_xyz_writes_energy_in_comment(tmp_path):
     assert res.exit_code == 0, res.output
     comment = out.read_text(encoding="utf-8").splitlines()[1]
     assert "-1710.17030466" in comment
-    assert "-1710.17030466" in res.output  # shown at extraction, too
+    assert "-1710.17030466" in res.output
 
 
 def test_cli_xyz_explicit_comment_wins(tmp_path):
@@ -64,11 +64,9 @@ def test_cli_xyz_explicit_comment_wins(tmp_path):
 
 
 def test_geometry_accepts_output_file(tmp_path):
-    # a minimal CDFT ranking pointing at atom 1 of the 8-atom cluster
     cdft = tmp_path / "cdft.json"
     cdft.write_text(json.dumps({
         "cluster": "t", "sites": [
-            # atom 1 of this cluster is Ti — the symbol must match or the site is skipped
             {"atom_index": 1, "atom_symbol": "Ti", "delta_f": 0.2, "rank": 1, "character": "electrophilic"},
         ],
     }), encoding="utf-8")
@@ -78,4 +76,4 @@ def test_geometry_accepts_output_file(tmp_path):
         "--probe", "H2", "--n-sites", "1", "--n-configs", "1", "-o", str(out), "--no-table",
     ])
     assert res.exit_code == 0, res.output
-    assert list(out.glob("*.xyz"))  # at least one adsorption config written
+    assert list(out.glob("*.xyz"))

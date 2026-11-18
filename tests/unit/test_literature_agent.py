@@ -51,10 +51,9 @@ _OPENALEX_PAYLOAD = {
             "authorships": [{"author": {"display_name": "Paul Geerlings"}}],
             "publication_year": 2003,
             "primary_location": {"source": {"display_name": "Chemical Reviews"}},
-            "doi": "https://doi.org/10.1021/cr990029p",   # same DOI → dedupe with Crossref
+            "doi": "https://doi.org/10.1021/cr990029p",
             "cited_by_count": 4800,
             "type": "article",
-            # inverted index → "A review of reactivity"
             "abstract_inverted_index": {"A": [0], "review": [1], "of": [2], "reactivity": [3]},
         }
     ]
@@ -81,7 +80,6 @@ _SEMANTIC_PAYLOAD = {
 def fake_apis(monkeypatch):
     def _fake_get(url, params, *, timeout_s):
         if "crossref" in url and not url.rstrip("/").endswith("works"):
-            # by-DOI endpoint: works/<doi>
             return {"message": _CROSSREF_PAYLOAD["message"]["items"][0]}
         if "crossref" in url:
             return _CROSSREF_PAYLOAD
@@ -99,7 +97,7 @@ def test_crossref_search_normalizes(fake_apis):
     r = refs[0]
     assert r.title == "Conceptual Density Functional Theory"
     assert r.year == 2003
-    assert r.doi == "10.1021/cr990029p"        # normalized (lowercase, no https)
+    assert r.doi == "10.1021/cr990029p"
     assert r.citations == 5000
     assert r.authors == ["P. Geerlings", "F. De Proft"]
 
@@ -113,7 +111,7 @@ def test_run_ranks_by_citations(fake_apis):
 def test_run_dedupes_across_sources(fake_apis):
     result = lit.run("conceptual dft", sources=["crossref", "openalex"], limit=10)
     dois = [r.doi for r in result.references]
-    assert dois.count("10.1021/cr990029p") == 1   # merged across the two APIs
+    assert dois.count("10.1021/cr990029p") == 1
 
 
 def test_fetch_by_doi(fake_apis):
@@ -162,7 +160,7 @@ def test_markdown_render_lists_doi():
     ])
     md = to_markdown(result)
     assert "DOI: 10.1/x" in md
-    assert "et al." in md            # >3 authors truncated
+    assert "et al." in md
     assert "cited by 3" in md
 
 
@@ -178,8 +176,6 @@ def test_dedupe_keeps_richer_record():
     assert len(out) == 1
     assert out[0].citations == 50
 
-
-# ── Semantic Scholar + abstracts + narration ──
 
 def test_semantic_scholar_normalizes(fake_apis):
     refs = lit.search_semantic_scholar("electrophilicity", rows=5)

@@ -28,8 +28,6 @@ def _structure(positions) -> Structure:
     )
 
 
-# Centre first, then ligands. All ideal — √3 exactly, so a rounded 1.732 does not show
-# up as a distortion of the geometry rather than of the code.
 _S3 = math.sqrt(3.0)
 OCTAHEDRON = [[0, 0, 0], [2, 0, 0], [-2, 0, 0], [0, 2, 0], [0, -2, 0], [0, 0, 2], [0, 0, -2]]
 TETRAHEDRON = [[0, 0, 0], [1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]]
@@ -101,15 +99,15 @@ def test_angle_variance_is_nan_for_unknown_geometry():
 def test_tau5_separates_the_two_five_coordinate_geometries():
     tb = _angles(np.array([0.0, 0, 0]), np.asarray(TRIGONAL_BIPYRAMID[1:], dtype=float))
     sp = _angles(np.array([0.0, 0, 0]), np.asarray(SQUARE_PYRAMID[1:], dtype=float))
-    assert tau_5(tb) == pytest.approx(1.0, abs=0.02)     # ideal trigonal bipyramid
-    assert tau_5(sp) == pytest.approx(0.0, abs=0.02)     # ideal square pyramid
+    assert tau_5(tb) == pytest.approx(1.0, abs=0.02)
+    assert tau_5(sp) == pytest.approx(0.0, abs=0.02)
 
 
 def test_tau4_separates_the_two_four_coordinate_geometries():
     td = _angles(np.array([0.0, 0, 0]), np.asarray(TETRAHEDRON[1:], dtype=float))
     sq = _angles(np.array([0.0, 0, 0]), np.asarray(SQUARE_PLANAR[1:], dtype=float))
-    assert tau_4(td) == pytest.approx(1.0, abs=0.02)     # ideal tetrahedron
-    assert tau_4(sq) == pytest.approx(0.0, abs=0.02)     # ideal square planar
+    assert tau_4(td) == pytest.approx(1.0, abs=0.02)
+    assert tau_4(sq) == pytest.approx(0.0, abs=0.02)
 
 
 def test_classify_without_angles_falls_back_to_coordination_number():
@@ -131,10 +129,8 @@ def test_metal_displacement_ratio_is_size_independent():
     small = [[0.2, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]
     large = [[0.4, 0, 0], [2, 0, 0], [-2, 0, 0], [0, 2, 0], [0, -2, 0], [0, 0, 2], [0, 0, -2]]
     ps, pl = _poly(small), _poly(large)
-    # twice the absolute off-centering, but the same relative one
     assert pl.metal_displacement == pytest.approx(2 * ps.metal_displacement, rel=1e-6)
     assert pl.metal_displacement_ratio == pytest.approx(ps.metal_displacement_ratio, rel=1e-6)
-    # and the ratio is actually the normalized quantity, not a placeholder
     assert ps.metal_displacement_ratio > 0.1
     assert ps.metal_displacement_ratio == pytest.approx(
         ps.metal_displacement / ps.mean_bond_length, rel=1e-9)
@@ -144,14 +140,11 @@ def test_ideal_polyhedron_is_centred():
     assert _poly(OCTAHEDRON).metal_displacement_ratio == pytest.approx(0.0, abs=1e-12)
 
 
-# ── volume and quadratic elongation ──
-
 def _ligands(positions):
     return np.asarray(positions[1:], dtype=float)
 
 
 @pytest.mark.parametrize("positions,exact", [
-    # V = k·R³ for the regular polyhedron with centre-to-vertex distance R (here R = 2).
     (OCTAHEDRON, 4 / 3 * 2.0 ** 3),
     (SQUARE_PYRAMID, 2 / 3 * 2.0 ** 3),
     (TRIGONAL_BIPYRAMID, math.sqrt(3) / 2 * 2.0 ** 3),
@@ -211,7 +204,7 @@ def test_elongation_is_never_below_one_for_a_convex_polyhedron():
     elongated[6] = [0.0, 0.0, -2.8]
     p = _poly(elongated)
     assert p.quadratic_elongation > 1.0
-    assert p.bond_length_distortion > 0.0        # here Baur does see it too
+    assert p.bond_length_distortion > 0.0
 
 
 @pytest.mark.parametrize("positions", [SQUARE_PLANAR, TRIANGLE])
@@ -234,12 +227,10 @@ def test_warns_when_ligands_cannot_be_inferred():
     from cadmia.structure.structural.analyzer import analyze_structure
     from cadmia.structure.structural.polyhedra import analyze_polyhedra
 
-    # Two metals bonded to each other and nothing else: there are bonds, but none of
-    # them is metal-ligand, so no ligand element can be inferred.
     s = Structure(atoms=["Ti", "Ti"], positions=np.array([[0.0, 0, 0], [2.5, 0, 0]]),
                   labels=["Ti1", "Ti2"], structure_id="metals", source_file="memory")
     result = analyze_structure(s)
-    if not result.bonds:                     # nothing to warn about if no bond was found
+    if not result.bonds:
         pytest.skip("bond detection found no Ti-Ti bond")
     with pytest.warns(UserWarning, match="no metal-ligand bonds"):
         assert analyze_polyhedra(s, result) == []

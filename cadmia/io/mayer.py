@@ -16,7 +16,6 @@ _HEADER = "MAYER POPULATION ANALYSIS"
 _ATOM_TABLE_HEADER = "ATOM"
 _BOND_HEADER = "Mayer bond orders larger than"
 
-# B(  0-Ti,  1-O ) :   2.0961   (several per line)
 _BOND_RE = re.compile(
     r"B\(\s*(\d+)\s*-\s*([A-Za-z]{1,3})\s*,\s*(\d+)\s*-\s*([A-Za-z]{1,3})\s*\)\s*:\s*(-?\d+\.\d+)"
 )
@@ -26,12 +25,12 @@ _BOND_RE = re.compile(
 class MayerAtom:
     index:  int
     symbol: str
-    na: float   # Mulliken gross atomic population
-    za: float   # total nuclear charge
-    qa: float   # Mulliken gross atomic charge
-    va: float   # Mayer total valence
-    bva: float  # Mayer bonded valence
-    fa: float   # Mayer free valence
+    na: float
+    za: float
+    qa: float
+    va: float
+    bva: float
+    fa: float
 
 
 @dataclass
@@ -64,7 +63,6 @@ def _parse_atom_table(lines: List[str], start: int) -> tuple[List[MayerAtom], in
     i = start
     while i < len(lines):
         parts = lines[i].split()
-        # Expect: index symbol + 6 floats
         if len(parts) == 8 and parts[0].isdigit():
             try:
                 atoms.append(MayerAtom(
@@ -76,9 +74,9 @@ def _parse_atom_table(lines: List[str], start: int) -> tuple[List[MayerAtom], in
                 continue
             except ValueError:
                 break
-        if atoms:           # table ended after at least one row
+        if atoms:
             break
-        i += 1              # still searching for the first data row
+        i += 1
     return atoms, i
 
 
@@ -97,7 +95,6 @@ def parse_mayer(filepath: "str | Path") -> Optional[MayerResult]:
 
     result = MayerResult(source_file=str(path.resolve()))
 
-    # Atom table: find the "ATOM ... FA" header after the block start.
     table_hdr = None
     for i in range(block_start, len(lines)):
         if lines[i].lstrip().startswith(_ATOM_TABLE_HEADER) and "VA" in lines[i] and "FA" in lines[i]:
@@ -106,7 +103,6 @@ def parse_mayer(filepath: "str | Path") -> Optional[MayerResult]:
     if table_hdr is not None:
         result.atoms, _ = _parse_atom_table(lines, table_hdr + 1)
 
-    # Bond-order list.
     for i in range(block_start, len(lines)):
         if _BOND_HEADER in lines[i]:
             m = re.search(r"larger than\s+(-?\d+\.\d+)", lines[i])
@@ -116,7 +112,7 @@ def parse_mayer(filepath: "str | Path") -> Optional[MayerResult]:
             while j < len(lines):
                 found = _BOND_RE.findall(lines[j])
                 if not found:
-                    if result.bonds:            # list ended
+                    if result.bonds:
                         break
                     j += 1
                     continue

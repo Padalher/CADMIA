@@ -10,6 +10,8 @@ from typing import List, Optional, Tuple
 from cadmia.core.units import BOHR_TO_ANG
 
 _FORTRAN_D = re.compile(r'[Dd]')
+_WFN_COEFFS_PER_LINE = 5
+_WFN_HEADER_LINES = 2
 
 
 @dataclass
@@ -24,11 +26,9 @@ class WFNData:
     coords_ang: List[Tuple[float, float, float]]
     nuclear_charges: List[float]
     mo_occupations: List[float]
-    mo_energies: List[float]    # Hartree
+    mo_energies: List[float]
     total_energy: Optional[float]
 
-    # Occupation cutoff separating occupied from virtual MOs (WFN occupations are ~0/1/2,
-    # so 0.01 cleanly excludes numerically-zero virtual occupations).
     _OCC_CUTOFF = 0.01
 
     @property
@@ -60,7 +60,6 @@ def parse_wfn(filepath: str | Path) -> WFNData:
 
     title = lines[0].strip()
 
-    # --- header ---
     header_m = re.search(
         r'(\d+)\s+MOL ORBITALS\s+(\d+)\s+PRIMITIVES\s+(\d+)\s+NUCLEI',
         lines[1],
@@ -71,7 +70,6 @@ def parse_wfn(filepath: str | Path) -> WFNData:
     n_prim = int(header_m.group(2))
     n_nuclei = int(header_m.group(3))
 
-    # --- atoms ---
     atom_re = re.compile(
         r'^\s*([A-Za-z]+)\s+\d+\s+\(CENTRE\s+\d+\)\s+'
         r'([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+CHARGE\s*=\s*([-\d.]+)'
@@ -81,9 +79,9 @@ def parse_wfn(filepath: str | Path) -> WFNData:
     nuclear_charges: List[float] = []
 
     for i in range(n_nuclei):
-        m = atom_re.match(lines[2 + i])
+        m = atom_re.match(lines[_WFN_HEADER_LINES + i])
         if not m:
-            raise ValueError(f"Cannot parse atom line {3+i}: {lines[2+i]!r}")
+            raise ValueError(f"Cannot parse atom line {_WFN_HEADER_LINES + 1 + i}: {lines[_WFN_HEADER_LINES + i]!r}")
         atoms.append(m.group(1).capitalize())
         coords_ang.append((
             float(m.group(2)) * BOHR_TO_ANG,
@@ -92,8 +90,6 @@ def parse_wfn(filepath: str | Path) -> WFNData:
         ))
         nuclear_charges.append(float(m.group(5)))
 
-    # --- MO blocks ---
-    # Skip CENTRE ASSIGNMENTS / TYPE ASSIGNMENTS / EXPONENTS until first 'MO ' line
     mo_re = re.compile(
         r'^MO\s+\d+\s+.*?OCC NO\s*=\s*([-\d.]+)\s+ORB\.\s*ENERGY\s*=\s*([-\d.Ee+Dd-]+)'
     )
@@ -103,18 +99,15 @@ def parse_wfn(filepath: str | Path) -> WFNData:
     mo_energies: List[float] = []
     total_energy: Optional[float] = None
 
-    # Each MO header is followed by exactly ceil(n_prim / 5) coefficient lines
-    n_coef_lines = math.ceil(n_prim / 5)
+    n_coef_lines = math.ceil(n_prim / _WFN_COEFFS_PER_LINE)
 
-    idx = 2 + n_nuclei
+    idx = _WFN_HEADER_LINES + n_nuclei
     while idx < len(lines):
         line = lines[idx]
         mo_m = mo_re.match(line)
         if mo_m:
             mo_occupations.append(float(mo_m.group(1)))
-            # MO energy may use Fortran D notation
             mo_energies.append(float(_FORTRAN_D.sub('E', mo_m.group(2))))
-            # Skip coefficient lines
             idx += n_coef_lines + 1
             continue
 

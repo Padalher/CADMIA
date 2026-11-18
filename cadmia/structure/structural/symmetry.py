@@ -20,15 +20,15 @@ import numpy as np
 
 from cadmia.core.elements import atomic_number
 
-DEFAULT_TOLERANCE = 0.01   # Å
+DEFAULT_TOLERANCE = 0.01
 _MAX_ORDER = 6
 
 
 @dataclass
 class Symmetry:
     point_group: str
-    sigma: int            # rotational symmetry number: order of the proper-rotation subgroup
-    chiral: bool          # no improper operation (mirror, inversion, S2n)
+    sigma: int
+    chiral: bool
     tolerance: float
 
 
@@ -52,8 +52,6 @@ def _mirror(u: np.ndarray) -> np.ndarray:
 
 
 def _candidate_axes(x: np.ndarray, inertia_axes: np.ndarray) -> List[np.ndarray]:
-    # Cost: O(N²) candidate axes, each tested with O(N²) matching: ~1 s at 40 atoms. Prune
-    # by the degeneracy of the inertia tensor if clusters of hundreds of atoms need it.
     vectors = list(inertia_axes.T) + list(x)
     n = len(x)
     for i in range(n):
@@ -73,22 +71,22 @@ def _candidate_axes(x: np.ndarray, inertia_axes: np.ndarray) -> List[np.ndarray]
 def detect_symmetry(atoms: Sequence[str], positions, tol: float = DEFAULT_TOLERANCE) -> Symmetry:
     """Schoenflies point group (molecular groups up to order-6 axes), σ and chirality."""
     x = np.asarray(positions, dtype=float)
-    masses = np.array([atomic_number(a) or 1 for a in atoms], dtype=float)   # any per-element weight is invariant
+    masses = np.array([atomic_number(a) or 1 for a in atoms], dtype=float)
     x = x - (masses[:, None] * x).sum(axis=0) / masses.sum()
     groups = [np.array([i for i, a in enumerate(atoms) if a == e]) for e in sorted(set(atoms))]
     if len(atoms) == 1:
         return Symmetry("Kh", 1, False, tol)
     inertia = sum(m * (r @ r * np.eye(3) - np.outer(r, r)) for m, r in zip(masses, x))
     moments, principal = np.linalg.eigh(inertia)
-    if moments[0] < 1e-6 * moments[-1]:                       # linear: C∞ axis
+    if moments[0] < 1e-6 * moments[-1]:
         if _maps(x, groups, -np.eye(3), tol):
             return Symmetry("D∞h", 2, False, tol)
         return Symmetry("C∞v", 1, False, tol)
     axes = _candidate_axes(x, principal)
 
-    rotations = []          # (order, axis)
-    mirrors = []            # normals
-    s2n = []                # (2n, axis)
+    rotations = []
+    mirrors = []
+    s2n = []
     for u in axes:
         order = next((n for n in range(_MAX_ORDER, 1, -1)
                       if _maps(x, groups, _rotation(u, 2 * np.pi / n), tol)), 1)
@@ -109,7 +107,7 @@ def detect_symmetry(atoms: Sequence[str], positions, tol: float = DEFAULT_TOLERA
 def _schoenflies(rotations, mirrors, s2n, inversion) -> str:
     c3 = sum(1 for order, _ in rotations if order == 3)
     c4 = sum(1 for order, _ in rotations if order == 4)
-    if c3 >= 2:                                     # cubic groups
+    if c3 >= 2:
         if c4:
             return "Oh" if inversion else "O"
         if inversion:

@@ -26,7 +26,7 @@ def report_paths_mode() -> str:
     try:
         import yaml
         data = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8")) or {}
-    except Exception:                       # no file, unreadable, or no PyYAML: the default
+    except Exception:
         return "relative"
     return "absolute" if str(data.get("report_paths", "")).strip().lower() == "absolute" else "relative"
 

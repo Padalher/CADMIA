@@ -36,11 +36,11 @@ def test_soft_mode_diverges_harmonically_and_stays_bounded_with_grimme():
     nus = (1e-2, 1e-4, 1e-6)
     harmonic = [vibrational_entropy([nu], 298.15) for nu in nus]
     grimme = [vibrational_entropy([nu], 298.15, "grimme") for nu in nus]
-    assert harmonic[2] - harmonic[1] == pytest.approx(8.314462618 * 4.60517, rel=1e-3)  # R·ln 100
-    assert abs(grimme[2] - grimme[1]) < 0.1                        # free-rotor limit (μ' → B_av)
+    assert harmonic[2] - harmonic[1] == pytest.approx(8.314462618 * 4.60517, rel=1e-3)
+    assert abs(grimme[2] - grimme[1]) < 0.1
     assert all(g < h for g, h in zip(grimme, harmonic))
     assert vibrational_entropy([2000.0], 298.15, "grimme") == pytest.approx(
-        vibrational_entropy([2000.0], 298.15), abs=1e-4)            # stiff modes untouched
+        vibrational_entropy([2000.0], 298.15), abs=1e-4)
 
 
 def test_imaginary_modes_never_enter():
@@ -57,6 +57,6 @@ def test_quasi_rrho_gibbs_corrects_harmonic_and_trusts_orca():
     soft = dict(gibbs_free_energy_hartree=-10.0, temperature_kelvin=298.15,
                 frequencies_cm1=[30.0, 900.0])
     g_harm = gibbs_quasi_rrho(_state(entropy_scheme="harmonic", **soft))
-    assert g_harm > -10.0                       # less entropy for the soft mode → higher G
+    assert g_harm > -10.0
     assert gibbs_quasi_rrho(_state(entropy_scheme="grimme", **soft)) == -10.0
-    assert gibbs_quasi_rrho(_state(entropy_scheme=None, **soft)) is None   # unknown → no guess
+    assert gibbs_quasi_rrho(_state(entropy_scheme=None, **soft)) is None

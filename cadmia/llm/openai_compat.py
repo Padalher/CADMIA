@@ -35,8 +35,6 @@ class OpenAICompatProvider(Provider):
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        # max_tokens is the widely-supported field across compatible servers;
-        # OpenAI also accepts it as an alias of max_completion_tokens.
         return {
             "model": self.model,
             "max_tokens": max_tokens or self.max_tokens,

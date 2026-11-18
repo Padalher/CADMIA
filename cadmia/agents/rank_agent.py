@@ -24,11 +24,8 @@ from cadmia.io.xyz import extxyz_block, parse_xyz
 from cadmia.utils.chemistry import classify_skeletons, skeleton
 from cadmia.utils.geometry import kabsch_max_deviation
 
-# Same thresholds prescreen uses: the potential energy surface funnels distinct starting
-# configurations into the same minimum, and different tolerances between the two stages
-# would make "unique" mean two different things in one campaign.
-_DEFAULT_DEDUP_RMSD = 0.20    # Å
-_DEDUP_ENERGY_KCAL = 0.5      # energy tolerance for the dedup pairing
+_DEFAULT_DEDUP_RMSD = 0.20
+_DEDUP_ENERGY_KCAL = 0.5
 
 
 @dataclass
@@ -36,16 +33,16 @@ class RankItem:
     """Energy/geometry summary for one output file."""
     source:         str
     energy_hartree: Optional[float] = None
-    rel_kcal:       Optional[float] = None    # relative to the lowest-energy output
+    rel_kcal:       Optional[float] = None
     rank:           Optional[int] = None
-    selected:       bool = True               # written to the .xyz (passed the window/top cut)
+    selected:       bool = True
     formula:        str = ""
     n_atoms:        int = 0
     engine:         str = ""
-    n_imaginary:    Optional[int] = None      # negative frequencies; None = output has no Freq
-    geom_converged: Optional[bool] = None     # did the Opt converge? None = no Opt in the output
-    duplicate_of:   Optional[str] = None      # source of the representative it collapsed onto
-    cluster_skeleton: Optional[str] = None    # "reference"/"isomer-N"; None = not classified
+    n_imaginary:    Optional[int] = None
+    geom_converged: Optional[bool] = None
+    duplicate_of:   Optional[str] = None
+    cluster_skeleton: Optional[str] = None
     error:          Optional[str] = None
 
 
@@ -72,9 +69,9 @@ class RankResult:
     """Output of the Rank Agent."""
     n_input:     int = 0
     n_ranked:    int = 0
-    n_unique:    int = 0     # distinct minima behind the ranked outputs (after the RMSD dedup)
-    n_unconverged: int = 0   # ranked outputs whose optimization never reached a stationary point
-    n_selected:  int = 0     # unique minima kept within the window/top (written to the .xyz)
+    n_unique:    int = 0
+    n_unconverged: int = 0
+    n_selected:  int = 0
     output_xyz:  Optional[str] = None
     output_json: Optional[str] = None
     items:       List[RankItem] = field(default_factory=list)
@@ -160,7 +157,7 @@ def rank(
     """
     files = [Path(s) for s in sources]
     result = RankResult(n_input=len(files))
-    parsed: List[Tuple[float, str, RankItem]] = []   # (energy, xyz_block_placeholder, item)
+    parsed: List[Tuple[float, str, RankItem]] = []
 
     for f in files:
         item = RankItem(source=str(f))
@@ -176,7 +173,6 @@ def rank(
                 item.error = "no energy found"
                 result.warnings.append(f"{f.name}: no energy found in the output; skipped.")
             else:
-                # keep the structure to render later, once ranks/ΔE are known
                 parsed.append((state.energy_hartree, state.structure, item))
         except (ValueError, OSError) as exc:
             item.error = f"{type(exc).__name__}: {exc}"
@@ -189,9 +185,6 @@ def rank(
         result.warnings.append("No output with a parseable energy; nothing to rank.")
         return result
 
-    # An optimization that gave up still reports a final energy, and the engine still terminates
-    # normally. Ranking it silently puts a non-stationary point in the ordering — and, because
-    # it is still descending, possibly above where it belongs, where the window can cut it.
     result.n_unconverged = sum(1 for _, _, it in parsed if it.geom_converged is False)
     if result.n_unconverged:
         result.warnings.append(
@@ -200,17 +193,12 @@ def rank(
             "order around them is not trustworthy. They are ranked and marked NO-CONV rather "
             "than dropped — reoptimize them before relying on the ranking.")
 
-    # Energies of different compositions are not comparable. Ranking a directory that mixes
-    # probes silently produces ΔE in the tens of thousands of kcal/mol and a meaningless order.
     formulas = sorted({it.formula for _, _, it in parsed if it.formula})
     if len(formulas) > 1:
         result.warnings.append(
             f"outputs span {len(formulas)} different compositions ({', '.join(formulas)}); "
             "their energies are not comparable — rank one species at a time.")
 
-    # The dedup pairs atoms by list position, so outputs of the same molecule written in a
-    # different atom order can never be compared. Staying blind is the safe failure, but it
-    # is not a silent one: duplicates hiding behind a reordering would go undetected.
     orders: dict = {}
     for _, structure, item in parsed:
         orders.setdefault(item.formula, set()).add(tuple(structure.atoms))
@@ -223,10 +211,6 @@ def rank(
     parsed.sort(key=lambda t: t[0])
     e_min = parsed[0][0]
 
-    # Group outputs that relaxed to the same minimum. `parsed` is sorted by energy, so the
-    # first member of a group is always its lowest-energy one: the representative falls out
-    # of the ordering and never has to be chosen. Only representatives are compared, so a
-    # duplicate is pinned to a real minimum, not to another duplicate.
     reps: List[int] = []
     dup_rep: dict = {}
     for pos, (energy, structure, item) in enumerate(parsed):
@@ -237,11 +221,6 @@ def rank(
                     continue
                 if len(structure.atoms) != len(r_structure.atoms):
                     continue
-                # Largest atomic displacement rather than the RMSD: an RMSD averages over
-                # the whole system, so its tolerance loosens as the cluster grows and the
-                # adsorbate — the part that tells two minima apart — weighs ever less.
-                # Atoms pair by ELEMENT, not by list position, so the same structure
-                # written in a different atom order is still recognized as the same one.
                 if kabsch_max_deviation(structure.positions, r_structure.positions,
                                         structure.atoms, r_structure.atoms) <= dedup_rmsd:
                     item.duplicate_of = r_item.source
@@ -250,11 +229,6 @@ def rank(
         if item.duplicate_of is None:
             reps.append(pos)
 
-    # Each skeleton class is its own comparison set: its own zero, its own window, its own
-    # cap. A global cap would let the class that ranks first eat the budget, which is the
-    # defect being fixed rather than a separate one. A duplicate inherits the class of the
-    # minimum it collapsed onto. Without a reference every minimum falls in one nameless
-    # class and the cut is the global one, unchanged.
     classes = _skeleton_classes(cluster_ref, parsed, reps, result.warnings) if cluster_ref else {}
     labels: dict = {pos: classes.get(pos) for pos in reps}
     for pos, r in dup_rep.items():
@@ -268,7 +242,6 @@ def rank(
             result.warnings.append(
                 f"skeleton class {label}: {len(members)} distinct minima, ranked among themselves")
 
-    # `reps` walks `parsed` in energy order, so each group's first member is its lowest.
     class_min = {label: parsed[members[0]][0] for label, members in groups.items()}
     kept_in = {label: 0 for label in groups}
 
@@ -281,18 +254,12 @@ def rank(
         if item.duplicate_of is not None:
             item.selected = False
             continue
-        # Selection cut (window/top) over unique minima. The lowest of each class (ΔE 0)
-        # always passes, so no class is emptied by the cut.
         within_window = window_kcal <= 0 or item.rel_kcal <= window_kcal
         within_top = top_n <= 0 or kept_in[label] < top_n
         item.selected = bool(within_window and within_top)
         if not item.selected:
             continue
         kept_in[label] += 1
-        # The .xyz comment stays minimal: ΔE + absolute energy + provenance, plus the skeleton
-        # class when there is one — the next stage must not have to recompute it. The
-        # imaginary-frequency count is a screening decision shown in the table, not geometry
-        # metadata.
         info = {"label": Path(item.source).stem, "energy": f"{energy:.8f}", "energy_unit": "Eh",
                 "energy_kind": "E", "rank": rk, "rel_energy": f"{item.rel_kcal:.3f}",
                 "rel_energy_unit": "kcal/mol", "charge": structure.charge,
@@ -306,14 +273,10 @@ def rank(
     if out is not None:
         try:
             out.parent.mkdir(parents=True, exist_ok=True)
-            # Atomic, like every other persistent write here: a partial .xyz next to
-            # a sidecar that describes the whole thing is worse than no file.
             atomic_write_text(out, "".join(blocks))
             result.output_xyz = str(out)
         except OSError as exc:
             result.warnings.append(f"could not write {out}: {exc}")
-        # The .xyz feeds the next engine run; the sidecar keeps what the screen decided
-        # (ΔE and the imaginary-frequency count per output), which the geometries cannot carry.
         result.output_json = str(out.with_suffix(".json"))
         written, err = write_json_sidecar(result.output_json, result.to_json(),
                                           artifacts=[out] if result.output_xyz else [])

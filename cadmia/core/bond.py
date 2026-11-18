@@ -10,8 +10,8 @@ class Bond:
     atom_i:   int
     atom_j:   int
     distance: Optional[float] = None
-    order:    Optional[float] = None        # Wiberg / Mayer / NLMO bond order
-    kind:     Optional[str] = None          # covalent | ionic | dative | weak
+    order:    Optional[float] = None
+    kind:     Optional[str] = None
     metadata: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:

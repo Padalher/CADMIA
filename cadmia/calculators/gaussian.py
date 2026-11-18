@@ -6,7 +6,6 @@ from typing import List, Tuple
 
 from cadmia.calculators.params import CalcParams, resolve_multiplicity
 
-# Gaussian keyword mappings
 _DISPERSION_KW = {
     "d3bj": "EmpiricalDispersion=GD3BJ",
     "none": "",
@@ -32,15 +31,10 @@ def _dispersion_keyword(dispersion: str) -> str:
     return _DISPERSION_KW.get(dispersion, "")
 
 
-# ORCA/Turbomole spellings that Gaussian does not recognize. CADMIA's defaults are written
-# in the ORCA vocabulary because ORCA is the primary engine, so the Gaussian writer has to
-# translate rather than pass them through and let l1.exe fail on the route card.
 _GAUSSIAN_NAME = {
-    # Same functional, different name: Gaussian calls PBE0 "PBE1PBE".
     "pbe0":       "PBE1PBE",
     "wb97x-d":    "wB97XD",
     "m06-2x":     "M062X",
-    # The def2 family is internal to Gaussian 16 but spelled without the hyphen.
     "def2-svp":   "Def2SVP",
     "def2-svpp":  "Def2SVPP",
     "def2-tzvp":  "Def2TZVP",
@@ -91,15 +85,10 @@ def write_gjf(
     disp_kw   = _dispersion_keyword(params.dispersion)
     task_kw   = _TASK_KW.get(params.task, "")
     if params.geom_maxiter > 0 and task_kw.startswith("Opt"):
-        # Gaussian carries the step limit inside the Opt keyword, not in a block of its own,
-        # so Opt=Tight has to become Opt=(Tight,MaxCycles=N) rather than gain a second Opt.
         head, _, rest = task_kw.partition(" ")
         inner = "Tight," if head == "Opt=Tight" else ""
         task_kw = " ".join(filter(None, [f"Opt=({inner}MaxCycles={params.geom_maxiter})", rest]))
 
-    # Build route card. The space after '#' is required: Gaussian reads the character right
-    # after it as the print level (N/P/T), so "#PBE1PBE/..." is parsed as print level P plus
-    # a stray "BE1PBE" and dies on the '/' with a syntax error.
     route_parts = [f"# {_gaussian_name(params.functional)}/{_gaussian_name(params.basis)}"]
     if task_kw:
         route_parts.append(task_kw)
@@ -126,7 +115,6 @@ def write_gjf(
         x, y, z = float(pos[0]), float(pos[1]), float(pos[2])
         lines.append(f"{sym:<4} {x:14.8f} {y:14.8f} {z:14.8f}")
 
-    # Gaussian requires two blank lines at the end
     lines += ["", ""]
 
     out.write_text("\n".join(lines), encoding="utf-8")

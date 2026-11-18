@@ -37,15 +37,9 @@ _requires_orca = pytest.mark.skipif(
     reason=f"Real ORCA outputs not present in {_ORCA}",
 )
 
-# Al2TiO5 reference system (1 Ti, 2 Al, 5 O = 8 atoms)
 _N_ATOMS = 8
-# Expected total molecular charge per state (used for the charge-sum invariant)
 _EXPECTED_CHARGE = {_N: 0, _NP1: -1, _NM1: +1}
 
-
-# ─────────────────────────────────────────────
-# Engine detection
-# ─────────────────────────────────────────────
 
 @_requires_orca
 @pytest.mark.parametrize("path", [_N, _NP1, _NM1])
@@ -53,10 +47,6 @@ def test_engine_detected_as_orca(path):
     from cadmia.agents.cdft_agent import _detect_engine
     assert _detect_engine(path) == "orca"
 
-
-# ─────────────────────────────────────────────
-# Charge-sum invariant (the key diagnostic)
-# ─────────────────────────────────────────────
 
 @_requires_orca
 @pytest.mark.parametrize("path", [_N, _NP1, _NM1])
@@ -80,10 +70,6 @@ def test_charge_sum_matches_molecular_charge(path):
         f"Likely the spin-population column was parsed instead of the charge."
     )
 
-
-# ─────────────────────────────────────────────
-# Full CDFT Agent pipeline on ORCA
-# ─────────────────────────────────────────────
 
 @pytest.fixture
 def orca_result():
@@ -135,15 +121,10 @@ def test_cdft_pipeline_persists_to_db(orca_result, tmp_path):
         assert c.execute("SELECT COUNT(*) FROM molecules").fetchone()[0] == 1
 
 
-# ─────────────────────────────────────────────
-# Validation Agent on the ORCA neutral
-# ─────────────────────────────────────────────
-
 @_requires_orca
 def test_validation_on_orca_neutral():
     from cadmia.agents import validation_agent
     report = validation_agent.run(filepath=str(_N))
     assert report.engine == "orca"
     assert report.checks["termination"].status in ("pass", "fail")
-    # A converged SCF must not report a failed convergence check
     assert report.checks["scf_convergence"].status != "fail"

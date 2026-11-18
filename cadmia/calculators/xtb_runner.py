@@ -17,17 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# "TOTAL ENERGY   -123.456789 Eh" in the xtb stdout; also in the xtbopt.xyz comment.
 _ENERGY_RE = re.compile(r"TOTAL ENERGY\s+(-?\d+\.\d+)\s+Eh")
 _XYZ_COMMENT_ENERGY_RE = re.compile(r"energy:\s*(-?\d+\.\d+)")
 
-# Geometry-optimization verdict, as xtb prints it:
-#   *** GEOMETRY OPTIMIZATION CONVERGED AFTER 5 ITERATIONS ***
-#   *** FAILED TO CONVERGE GEOMETRY OPTIMIZATION IN 1 ITERATIONS ***
-# Both patterns are anchored on "GEOMETRY OPTIMIZATION" on purpose: a run that
-# fails to converge the geometry still prints "*** convergence criteria satisfied
-# after N iterations ***" for every SCF cycle, so matching on "converge" alone
-# reads a failed optimization as a successful one.
 _GEOM_CONVERGED_RE = re.compile(r"GEOMETRY\s+OPTIMIZATION\s+CONVERGED", re.IGNORECASE)
 _GEOM_FAILED_RE = re.compile(r"FAILED\s+TO\s+CONVERGE\s+GEOMETRY\s+OPTIMIZATION", re.IGNORECASE)
 
@@ -66,7 +58,6 @@ def _parse_energy(stdout: str, opt_xyz: Path) -> Optional[float]:
     matches = _ENERGY_RE.findall(stdout)
     if matches:
         return float(matches[-1])
-    # Fallback: the optimized .xyz comment line carries "energy: <Eh>".
     if opt_xyz.exists():
         lines = opt_xyz.read_text(encoding="utf-8").splitlines()
         if len(lines) > 1:
@@ -119,14 +110,9 @@ def run_xtb_opt(
     cmd = [xtb_path, str(src), "--opt", "--gfn", str(gfn),
            "--chrg", str(charge), "--uhf", str(max(0, multiplicity - 1))]
     if fix_atoms > 0:
-        # $constrain holds every distance among those atoms (measured: 0.013 A at most on Al2TiO5
-        # + CO2). $fix does not: with the default ANC optimizer it let the cluster move 1.6 A.
         (tmp / "xcontrol").write_text(
             f"$constrain\n force constant=5.0\n atoms: 1-{fix_atoms}\n$end\n", encoding="utf-8")
         cmd += ["--input", "xcontrol"]
-    # Thread control: several xtb builds (e.g. the Ubuntu apt 6.6.1) SIGSEGV with
-    # >1 OpenMP thread, so default to single-threaded and override any inherited
-    # OMP_NUM_THREADS. A small thread stack is the other usual SIGSEGV cause.
     env = dict(os.environ)
     env["OMP_NUM_THREADS"] = str(max(1, threads))
     env["MKL_NUM_THREADS"] = str(max(1, threads))
@@ -145,17 +131,7 @@ def run_xtb_opt(
     if energy is None:
         raise XTBError(f"could not parse xtb energy for {src.name}")
 
-    # Convergence comes from xtb's own verdict, not from the presence of
-    # xtbopt.xyz: xtb writes that file with the last geometry even when the
-    # optimization ran out of cycles (and exits 0 doing so). Absence of a verdict
-    # counts as unconverged — a config wrongly flagged unconverged only adds a
-    # warning, while one wrongly flagged converged sends a geometry that is not a
-    # minimum into the DFT stage silently.
-    # A nonzero exit code with a parseable energy is accepted (xtb reports one for runs
-    # that ran out of cycles) but never as converged: whatever made it fail is reason
-    # enough not to treat the geometry as a minimum.
     converged = proc.returncode == 0 and _parse_convergence(proc.stdout) is True
     if not opt_xyz.exists():
-        # No optimized geometry at all; fall back to the input.
         return XTBResult(energy_hartree=energy, optimized_xyz=src, converged=False)
     return XTBResult(energy_hartree=energy, optimized_xyz=opt_xyz, converged=converged)

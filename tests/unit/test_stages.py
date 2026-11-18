@@ -27,8 +27,6 @@ def _header(inp_path: Path) -> str:
     return inp_path.read_text(encoding="utf-8").splitlines()[0]
 
 
-# --- unit: apply_stage -------------------------------------------------------
-
 def test_stage_tokens_are_the_eight_expected():
     assert set(STAGES) == {"screen-opt", "screen-freq", "opt", "freq",
                            "opt+freq", "char", "cdft", "bsse"}
@@ -37,17 +35,14 @@ def test_stage_tokens_are_the_eight_expected():
 def test_apply_stage_screen_opt_is_bare_opt_in_svp():
     params, stage = apply_stage(CalcParams(), "screen-opt", engine="orca")
     assert params.task == "opt"
-    assert params.basis == "def2-SVP"                   # cheap basis for the screen
+    assert params.basis == "def2-SVP"
     assert "RIJCOSX" in params.extra_orca and "def2/J" in params.extra_orca
-    assert "TightSCF" not in params.extra_orca          # screen stays cheap
-    assert not params.orca_output_flags                 # no analysis
+    assert "TightSCF" not in params.extra_orca
+    assert not params.orca_output_flags
     assert stage.preset == "none"
 
 
 def test_apply_stage_screen_freq_matches_screen_opt_level():
-    # A Freq is only meaningful on a geometry optimized at the SAME level, and the level
-    # includes the SCF threshold and the grid: screen-freq must stay as loose as screen-opt,
-    # or the screen-opt minima come back with spurious imaginary modes.
     freq, _ = apply_stage(CalcParams(), "screen-freq", engine="orca")
     opt, _  = apply_stage(CalcParams(), "screen-opt", engine="orca")
     assert freq.task == "freq"
@@ -64,14 +59,14 @@ def test_apply_stage_production_freq_stays_tight():
 
 def test_apply_stage_optfreq_combines_opt_and_freq():
     params, _ = apply_stage(CalcParams(), "opt+freq", engine="orca")
-    assert params.task == "opt+freq"          # plain Opt: TightOpt never converges a free rotor
+    assert params.task == "opt+freq"
     assert not params.orca_output_flags
 
 
 def test_apply_stage_explicit_basis_kept():
     params, _ = apply_stage(CalcParams(basis="def2-TZVPP"), "screen-opt",
                             engine="orca", set_basis=False)
-    assert params.basis == "def2-TZVPP"                 # explicit --basis wins
+    assert params.basis == "def2-TZVPP"
 
 
 def test_apply_stage_opt_keeps_the_accuracy_block_no_analysis():
@@ -86,26 +81,24 @@ def test_apply_stage_char_carries_full_analysis():
     params, _ = apply_stage(CalcParams(), "char", engine="orca")
     assert params.task == "sp"
     assert set(params.orca_output_flags) == {"P_Hirshfeld", "P_Mayer", "P_OrbPopMO_L"}
-    assert "CHELPG" in params.extra_orca                 # from the analysis preset
+    assert "CHELPG" in params.extra_orca
 
 
 def test_apply_stage_respects_explicit_preset():
     params, _ = apply_stage(CalcParams(), "char", engine="orca", set_preset=False)
-    assert params.task == "sp"                           # stage still owns the task
-    assert not params.orca_output_flags                  # preset skipped (kept explicit)
+    assert params.task == "sp"
+    assert not params.orca_output_flags
 
 
 def test_apply_stage_skips_orca_keywords_for_gaussian():
     params, _ = apply_stage(CalcParams(), "opt", engine="gaussian")
-    assert "RIJCOSX" not in params.extra_orca            # ORCA-only, not added
+    assert "RIJCOSX" not in params.extra_orca
 
 
 def test_get_stage_unknown_raises():
     with pytest.raises(ValueError):
         get_stage("nope")
 
-
-# --- CLI: prepare <stage> ----------------------------------------------------
 
 def test_cli_prepare_stage_screen_opt(water_xyz, tmp_path):
     out = tmp_path / "screen"
@@ -123,7 +116,7 @@ def test_cli_prepare_stage_optfreq(water_xyz, tmp_path):
     header = _header(out / "mol.inp")
     assert "Opt Freq" in header and "def2-TZVP" in header
     assert "TightOpt" not in header
-    for kw in ("RIJCOSX", "def2/J", "TightSCF", "DefGrid3"):   # accuracy block still applies
+    for kw in ("RIJCOSX", "def2/J", "TightSCF", "DefGrid3"):
         assert kw in header
 
 
@@ -156,7 +149,6 @@ def test_cli_prepare_unsupported_extension_fails_cleanly(tmp_path):
 
 
 def test_cli_prepare_basis_override(water_xyz, tmp_path):
-    # screen-opt defaults to def2-SVP; an explicit --basis must win.
     out = tmp_path / "svpover"
     res = CliRunner().invoke(main, ["prepare", "screen-opt", str(water_xyz),
                                     "-o", str(out), "--basis", "def2-TZVP"])
@@ -183,7 +175,6 @@ def test_cli_prepare_stage_cdft_writes_triplet(water_xyz, tmp_path):
 
 
 def test_cli_prepare_no_task_option(water_xyz, tmp_path):
-    # --task was removed; the stage owns the task.
     res = CliRunner().invoke(main, ["prepare", "opt", str(water_xyz),
                                     "-o", str(tmp_path / "o"), "--task", "sp"])
     assert res.exit_code != 0
@@ -191,7 +182,6 @@ def test_cli_prepare_no_task_option(water_xyz, tmp_path):
 
 
 def test_cli_prepare_explicit_preset_overrides_stage(water_xyz, tmp_path):
-    # screen carries no analysis; --preset analysis must add the property block back.
     out = tmp_path / "pov"
     res = CliRunner().invoke(main, ["prepare", "screen-opt", str(water_xyz),
                                     "-o", str(out), "--preset", "analysis"])
@@ -222,7 +212,7 @@ def test_cli_prepare_unknown_stage_errors():
 
 def test_cli_prepare_cdft_command_is_gone():
     res = CliRunner().invoke(main, ["prepare-cdft", "--help"])
-    assert res.exit_code != 0                    # no such command anymore
+    assert res.exit_code != 0
 
 
 def test_gaussian_pop_keywords_are_folded_into_one(tmp_path):
@@ -239,7 +229,7 @@ def test_gaussian_pop_keywords_are_folded_into_one(tmp_path):
     merged = apply_preset(params, "analysis", engine="gaussian").extra_gaussian
 
     assert merged.lower().count("pop=") == 1
-    assert "scf=tight" in merged                       # unrelated keywords survive
+    assert "scf=tight" in merged
     inner = merged.split("pop=(", 1)[1].rstrip(")").lower()
-    assert "hirshfeld" in inner and "chelpg" in inner  # neither request is dropped
-    assert inner.count("hirshfeld") == 1               # and it is not repeated inside
+    assert "hirshfeld" in inner and "chelpg" in inner
+    assert inner.count("hirshfeld") == 1

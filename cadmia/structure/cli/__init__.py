@@ -180,8 +180,6 @@ def _expand_structure_inputs(input_values: list[str]) -> list[Path]:
     for value in input_values:
         path = Path(value)
         if path.exists() and path.is_dir():
-            # A .txt is taken only when named: in a directory it is usually a report, often
-            # the one a previous run wrote there.
             expanded.extend(
                 child
                 for child in sorted(path.iterdir())
@@ -285,7 +283,6 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     structure.set_defaults(func=_cmd_structure)
-
 
     plot = subparsers.add_parser(
         "plot",
@@ -393,8 +390,6 @@ def _cmd_structure(args) -> int:
             in_project = True
             print(f"Module result: {saved}")
     if in_project and not args.output:
-        # results/ already holds the full report; a second copy beside the input would land
-        # outside the project, in a folder nobody asked to write to
         return 0
 
     report_output = _structure_report_output(args.output, input_paths, args.format)
@@ -429,7 +424,6 @@ def _structure_report_output(
         os.path.commonpath([str(path.resolve().parent) for path in input_paths])
     )
     if requested_output:
-        # Like every other command: a relative -o is relative to where the command runs.
         return Path(requested_output)
 
     fmt = output_format or "txt"

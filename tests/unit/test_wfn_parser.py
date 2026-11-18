@@ -22,8 +22,6 @@ def wfn_nm1():
     return parse_wfn(BASE / "N-1.wfn")
 
 
-# --- Total energies (verified against CDFT.txt) ---
-
 def test_energy_n(wfn_n):
     assert wfn_n.total_energy == pytest.approx(-1710.163301887937, rel=1e-10)
 
@@ -36,23 +34,17 @@ def test_energy_nm1(wfn_nm1):
     assert wfn_nm1.total_energy == pytest.approx(-1709.783384654412, rel=1e-10)
 
 
-# --- HOMO energies ---
-
 def test_homo_n(wfn_n):
-    # MO 44 (last occupied, closed-shell)
     assert wfn_n.homo_hartree == pytest.approx(-0.304791, abs=1e-5)
 
 
 def test_homo_np1(wfn_np1):
-    # HOMO is highest-energy occupied MO (not necessarily last in file)
     assert wfn_np1.homo_hartree == pytest.approx(-0.028695, abs=1e-5)
 
 
 def test_homo_nm1(wfn_nm1):
     assert wfn_nm1.homo_hartree == pytest.approx(-0.508138, abs=1e-5)
 
-
-# --- Geometry ---
 
 def test_n_nuclei(wfn_n):
     assert wfn_n.n_nuclei == 8
@@ -65,11 +57,8 @@ def test_atom_symbols(wfn_n):
 
 
 def test_ti_x_coordinate(wfn_n):
-    # Ti bohr coords (2.24006438, ...) × 0.52917721 ≈ 1.185 Å
     assert wfn_n.coords_ang[0][0] == pytest.approx(1.185, abs=0.01)
 
-
-# --- MO counts and occupations ---
 
 def test_n_mo_neutral(wfn_n):
     assert wfn_n.n_mo == 44

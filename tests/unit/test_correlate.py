@@ -12,8 +12,6 @@ from cadmia.cli import main
 from cadmia.core.stats import linregress, _student_t_two_tailed
 
 
-# ── core.stats ──
-
 def test_linregress_perfect_line():
     f = linregress([1, 2, 3, 4], [2, 4, 6, 8])
     assert f.slope == pytest.approx(2.0) and f.intercept == pytest.approx(0.0)
@@ -21,7 +19,7 @@ def test_linregress_perfect_line():
 
 
 def test_linregress_known_intercept():
-    f = linregress([1, 2, 3, 4], [3, 5, 7, 9])   # y = 2x + 1
+    f = linregress([1, 2, 3, 4], [3, 5, 7, 9])
     assert f.slope == pytest.approx(2.0) and f.intercept == pytest.approx(1.0)
 
 
@@ -31,14 +29,12 @@ def test_linregress_constant_x_is_none():
 
 def test_linregress_two_points_has_no_pvalue():
     f = linregress([1, 2], [1, 2])
-    assert f.n == 2 and f.p_value is None      # df = 0
+    assert f.n == 2 and f.p_value is None
 
 
 def test_student_t_matches_table():
     assert _student_t_two_tailed(2.306, 8) == pytest.approx(0.05, abs=1e-3)
 
-
-# ── Correlate Agent ──
 
 def _cdft_json(path: Path, omega_minus, duals):
     atoms = [{"index": i + 1, "element": "X", "dual": d} for i, d in enumerate(duals)]
@@ -67,7 +63,7 @@ def study(tmp_path):
     d = tmp_path / "study"
     d.mkdir()
     om = {"s1": 1.0, "s2": 2.0, "s3": 3.0, "s4": 4.0}
-    dn = {"s1": 0.10, "s2": 0.05, "s3": 0.30, "s4": 0.20}   # weakly related
+    dn = {"s1": 0.10, "s2": 0.05, "s3": 0.30, "s4": 0.20}
     for sid, o in om.items():
         _cdft_json(d / f"{sid}.cdft.json", o, duals=[o * 0.1, o * 0.2])
         _analysis_json(d / f"{sid}.analysis.json", e_ads=-10.0 - o, delta_n=dn[sid], site_index=2)
@@ -81,7 +77,6 @@ def test_correlate_merges_cdft_and_analysis_by_system(study):
     d, exp = study
     systems, _ = correlate_agent.load_descriptor_systems([str(d)])
     assert set(systems) == {"s1", "s2", "s3", "s4"}
-    # both artifacts merged under one id:
     assert correlate_agent.resolve_descriptor("omega_minus", systems["s2"]) == pytest.approx(2.0)
     assert correlate_agent.resolve_descriptor("delta_n", systems["s2"]) == pytest.approx(0.05)
 
@@ -98,18 +93,15 @@ def test_correlate_perfect_fit(study):
 def test_correlate_atom_resolved_site(study):
     d, exp = study
     res = correlate_agent.correlate(str(exp), [str(d)], x="dual@site", y="logk")
-    # dual@site uses site_atom_index=2 → dual = 0.2·ω⁻, still perfectly linear with logk.
     assert res.pairs[0].r2 == pytest.approx(1.0)
 
 
 def test_correlate_scan_ranks_by_r(study):
     d, exp = study
     res = correlate_agent.correlate(str(exp), [str(d)], x="all", y="logk")
-    # omega_minus is perfectly linear with logk → r²≈1 and it sits in the top group.
     assert res.ranked[0].r2 == pytest.approx(1.0)
     om = next(p for p in res.pairs if p.descriptor == "omega_minus")
     assert om.r2 == pytest.approx(1.0)
-    # a constant descriptor (μ is the same for every system) yields an undefined fit, ranked last.
     mu = next(p for p in res.pairs if p.descriptor == "mu")
     assert mu.r is None and mu.note
 
@@ -137,8 +129,6 @@ def test_correlate_warns_on_unmatched(tmp_path, study):
     assert any("GHOST" in w for w in res.warnings)
 
 
-# ── CLI ──
-
 def test_cli_correlate_table(study):
     d, exp = study
     r = CliRunner().invoke(main, ["correlate", "-e", str(exp), "-d", str(d),
@@ -156,8 +146,6 @@ def test_cli_correlate_json_output(tmp_path, study):
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["n_systems_matched"] == 4 and payload["pairs"]
 
-
-# ── --cdft broadcast + observable-from-JSON ──
 
 @pytest.fixture
 def adducts(tmp_path):
@@ -178,10 +166,8 @@ def adducts(tmp_path):
 
 def test_broadcast_enables_dual_at_site(adducts):
     d, cdft = adducts
-    # Without broadcast the cluster CDFT is a separate system → dual@site has no atoms → no fit.
     bare = correlate_agent.correlate(None, [str(d)], x="dual@site", y="e_ads")
     assert bare.pairs[0].n == 0
-    # With --cdft the atoms[] spread to every config → perfect line, no CSV involved.
     res = correlate_agent.correlate(None, [str(d)], x="dual@site", y="e_ads", cdft=str(cdft))
     assert res.pairs[0].n == 3 and res.pairs[0].r2 == pytest.approx(1.0)
 
@@ -191,7 +177,6 @@ def test_broadcast_is_non_destructive(adducts):
     systems, _ = correlate_agent.load_descriptor_systems([str(d)])
     warns = correlate_agent._broadcast_cdft(systems, str(cdft))
     assert not warns
-    # per-config site_atom_index survives; the shared atoms[] were added.
     assert systems["cfg2"]["site_atom_index"] == 2
     assert len(systems["cfg2"]["atoms"]) == 3
 
@@ -205,7 +190,7 @@ def test_observable_from_json_without_csv(adducts):
 def test_scan_skips_the_self_observable(adducts):
     d, _ = adducts
     res = correlate_agent.correlate(None, [str(d)], x="all", y="e_ads")
-    assert all(p.descriptor != "e_ads" for p in res.pairs)   # no trivial e_ads↔e_ads
+    assert all(p.descriptor != "e_ads" for p in res.pairs)
 
 
 def test_missing_observable_and_table_errors(adducts):

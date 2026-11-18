@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
-_HASH_CHUNK_SIZE = 1 << 20   # 1 MiB — avoids reading a whole large output into memory at once
+_HASH_CHUNK_SIZE = 1 << 20
 
 
 def _sha256_file(path: Path) -> str:
@@ -22,8 +22,8 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-_GIT_TIMEOUT_S = 2.0   # a hung git must never block writing a result
-_MAX_COMMAND_CHARS = 400   # a shell glob of thousands of files must not fill the sidecar
+_GIT_TIMEOUT_S = 2.0
+_MAX_COMMAND_CHARS = 400
 
 
 def command_line() -> str:
@@ -41,9 +41,6 @@ def _git_commit() -> Optional[str]:
     produced from an edited tree cannot be regenerated from the commit alone.
     """
     repo = Path(__file__).resolve().parent.parent.parent
-    # `git -C` walks up until it finds a .git, so an installation that lives inside somebody
-    # else's repository — a venv under a versioned $HOME, say — would stamp THAT repo's commit
-    # as the software version. Only a checkout of CADMIA itself has a .git right here.
     if not (repo / ".git").exists():
         return None
 
@@ -54,6 +51,7 @@ def _git_commit() -> Optional[str]:
         except (OSError, subprocess.SubprocessError):
             return None
         return out.stdout.strip() if out.returncode == 0 else None
+
     head = _git("rev-parse", "--short", "HEAD")
     if not head:
         return None
@@ -97,8 +95,6 @@ class Provenance:
         file_hash = _sha256_file(p) if p.exists() else None
         notes = list(warnings or [])
         if file_hash is None:
-            # A provenance with no hash cannot prove which file it describes, which is the whole
-            # point of recording one. Silence would let it pass for a complete record.
             notes.append(f"source file not found when hashing: {p}")
         return cls(
             source_file=str(p),

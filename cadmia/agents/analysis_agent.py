@@ -24,10 +24,10 @@ from cadmia.io.electronic import describe_level_mismatch
 from cadmia.utils.chemistry import covalent_radius, skeleton as _skeleton
 from cadmia.utils.geometry import kabsch_deviations
 
-_BOND_CUTOFF = 1.3        # × sum of covalent radii → counts as an intramolecular bond
-_ACTIVATION_PCT = 5.0     # probe-bond elongation ≥ 5 % flags activation
-_LINEAR_DEG = 175.0       # a free-probe angle this open counts as linear (CO2, N2O…)
-_ACTIVATION_BEND_DEG = 10.0   # bending a linear probe this much flags activation (bent CO2δ−)
+_BOND_CUTOFF = 1.3
+_ACTIVATION_PCT = 5.0
+_LINEAR_DEG = 175.0
+_ACTIVATION_BEND_DEG = 10.0
 
 
 def _electronic_descriptors(state) -> Optional[dict]:
@@ -48,7 +48,7 @@ def _electronic_descriptors(state) -> Optional[dict]:
             out.update(mu_ev=gd.mu_ev, eta_ev=gd.eta_ev, omega_ev=gd.omega_ev,
                        omega_minus_ev=gd.omega_minus_ev, omega_plus_ev=gd.omega_plus_ev)
         except ValueError:
-            pass   # non-positive gap → keep HOMO/LUMO/gap only
+            pass
     dipole = getattr(state, "dipole_debye", None)
     if dipole is not None:
         out["dipole_debye"] = float(np.linalg.norm(np.asarray(dipole, dtype=float)))
@@ -88,9 +88,6 @@ def _parse_bsse_hartree(path: str | Path) -> Optional[float]:
     a ``BSSE correction`` / ``counterpoise`` line. Returns None when absent.
     """
     text = Path(path).read_text(encoding="utf-8", errors="replace")
-    # The LAST match, not the first: an optimization prints one BSSE per step, and the energy
-    # parser takes the last corrected energy. Taking the first here paired the BSSE of step 1
-    # with the energy of step 5.
     hits = re.findall(r"Counterpoise:\s*BSSE energy\s*=\s*([-+]?\d*\.\d+)", text)
     if hits:
         return float(hits[-1])
@@ -117,15 +114,9 @@ def _intramolecular_bonds(
     return bonds
 
 
-
-
 def _formula(atoms: List[str]) -> str:
     return hill_formula(atoms)
 
-
-# ─────────────────────────────────────────────
-# Result
-# ─────────────────────────────────────────────
 
 @dataclass
 class ProbeBond:
@@ -141,84 +132,69 @@ class AnalysisResult:
     cluster:            str
     probe:              str
     config_index:       Optional[int] = None
-    # Path of the adduct output this result came from. The database needs it to find the
-    # configuration row that `geometry` created, instead of inventing an identity of its own.
     adduct_path:        Optional[str] = None
-    site_atom_index:    Optional[int] = None      # 1-based cluster atom the probe binds to
+    site_atom_index:    Optional[int] = None
     site_atom_symbol:   Optional[str] = None
     engine:             str = ""
 
-    cluster_atoms:      List[str] = field(default_factory=list)        # isolated-cluster geometry
+    cluster_atoms:      List[str] = field(default_factory=list)
     cluster_positions:  List[List[float]] = field(default_factory=list)
 
     e_adduct_hartree:   Optional[float] = None
     e_cluster_hartree:  Optional[float] = None
     e_probe_hartree:    Optional[float] = None
-    e_ads_kcal:         Optional[float] = None     # E(adduct) − E(cluster) − E(probe)
+    e_ads_kcal:         Optional[float] = None
 
     bsse_kcal:          Optional[float] = None
-    e_ads_bsse_kcal:    Optional[float] = None      # BSSE-corrected adsorption energy
+    e_ads_bsse_kcal:    Optional[float] = None
 
     e_def_cluster_kcal: Optional[float] = None
     e_def_probe_kcal:   Optional[float] = None
-    e_int_kcal:         Optional[float] = None      # E_ads − E_def(cluster) − E_def(probe)
+    e_int_kcal:         Optional[float] = None
 
-    # Thermochemistry of adsorption (only when all three outputs carry frequencies)
-    delta_h_ads_kcal:   Optional[float] = None      # ΔH_ads = H(adduct) − H(cluster) − H(probe)
-    delta_g_ads_kcal:   Optional[float] = None      # ΔG_ads = G(adduct) − G(cluster) − G(probe)
-    delta_gq_ads_kcal:  Optional[float] = None      # the same with Grimme's quasi-RRHO entropy
-    minus_t_delta_s_kcal: Optional[float] = None    # −TΔS_ads = ΔG_ads − ΔH_ads
+    delta_h_ads_kcal:   Optional[float] = None
+    delta_g_ads_kcal:   Optional[float] = None
+    delta_gq_ads_kcal:  Optional[float] = None
+    minus_t_delta_s_kcal: Optional[float] = None
     temperature_kelvin: Optional[float] = None
 
-    # Electronic properties before (cluster) and after (adduct) adsorption
-    electronic_cluster: Optional[dict] = None       # homo/lumo/gap/mu/eta/omega/dipole
+    electronic_cluster: Optional[dict] = None
     electronic_adduct:  Optional[dict] = None
-    delta_gap_ev:       Optional[float] = None       # gap(adduct) − gap(cluster)
-    delta_dipole_debye: Optional[float] = None       # |μ|(adduct) − |μ|(cluster)
+    delta_gap_ev:       Optional[float] = None
+    delta_dipole_debye: Optional[float] = None
 
-    # Conceptual-DFT charge transfer between the isolated cluster and the free probe
-    # (Parr–Pearson one-parabola, Koopmans μ/η). Predicts direction/amount before contact.
-    charge_transfer:    Optional[dict] = None        # delta_n / e_stab_ev / donor / acceptor / μ,η inputs
+    charge_transfer:    Optional[dict] = None
 
-    # Strongest Mayer bond orders at the binding site, read from the adduct output
-    # (needs ORCA Print[P_Mayer] 1); partner_index is 1-based in the adduct numbering.
     site_mayer_bonds:   List[dict] = field(default_factory=list)
 
-    # Charge transfer on adsorption (population charges, same scheme in all three states)
     charge_scheme:      Optional[str] = None
-    q_transfer_to_probe: Optional[float] = None   # net charge on the probe in the adduct
-                                                  # (negative = cluster → probe donation)
-    delta_q_site:       Optional[float] = None    # q(site in adduct) − q(site in cluster)
+    q_transfer_to_probe: Optional[float] = None
+    delta_q_site:       Optional[float] = None
 
-    # Vibrational signature of the complex (only when the adduct output carries frequencies)
-    adduct_imaginary_modes: Optional[int] = None  # 0 ⇒ true minimum; >0 ⇒ saddle point
-    adduct_ir_bands:    List[dict] = field(default_factory=list)  # strongest IR-active modes
+    adduct_imaginary_modes: Optional[int] = None
+    adduct_ir_bands:    List[dict] = field(default_factory=list)
 
-    # Structural coordination of the binding site before (cluster) → after (adduct)
     site_cn_cluster:    Optional[int] = None
     site_ecn_cluster:   Optional[float] = None
     site_cn_adduct:     Optional[int] = None
     site_ecn_adduct:    Optional[float] = None
-    delta_cn_site:      Optional[int] = None         # CN(adduct) − CN(cluster) at the site
+    delta_cn_site:      Optional[int] = None
     delta_ecn_site:     Optional[float] = None
 
-    # Does the cluster's own bonding change on adsorption? Reorganizing the substrate is
-    # ordinary and belongs in E_ads; it only breaks E_ads if the rearranged cluster turns out
-    # to be a separate minimum of the *free* cluster, which takes its own optimization to know.
     cluster_rearranged: Optional[bool] = None
-    cluster_bond_changes: dict = field(default_factory=dict)   # bond type → Δcount vs isolated
-    cluster_displacement_ang: List[float] = field(default_factory=list)  # per cluster atom, Kabsch
-    delta_r_site_ang:   Optional[float] = None    # displacement of the binding-site atom
+    cluster_bond_changes: dict = field(default_factory=dict)
+    cluster_displacement_ang: List[float] = field(default_factory=list)
+    delta_r_site_ang:   Optional[float] = None
 
     probe_bonds:        List[ProbeBond] = field(default_factory=list)
     max_elongation_pct: Optional[float] = None
-    probe_angles:       List[dict] = field(default_factory=list)   # label, free/adduct/Δ (deg)
-    max_bend_deg:       Optional[float] = None   # largest bend of an angle that was linear free
+    probe_angles:       List[dict] = field(default_factory=list)
+    max_bend_deg:       Optional[float] = None
     activated:          bool = False
 
-    cdft_site_rank:     Optional[int] = None        # rank within the site's own character class
+    cdft_site_rank:     Optional[int] = None
     cdft_site_character: Optional[str] = None
-    cdft_agreement:     Optional[bool] = None       # binding site == strongest site of its character?
+    cdft_agreement:     Optional[bool] = None
 
     warnings:           List[str] = field(default_factory=list)
 
@@ -231,20 +207,12 @@ class AnalysisResult:
         return json.dumps(self.to_dict(), indent=2)
 
 
-# ─────────────────────────────────────────────
-# CDFT cross-reference
-# ─────────────────────────────────────────────
-
 def _load_cdft(cdft_json: "str | Path | dict") -> dict:
     if isinstance(cdft_json, dict):
         return cdft_json
     text = Path(cdft_json).read_text(encoding="utf-8") if Path(str(cdft_json)).exists() else str(cdft_json)
     return json.loads(text)
 
-
-# ─────────────────────────────────────────────
-# Main entry point
-# ─────────────────────────────────────────────
 
 def _adduct_energy_is_cp_corrected(path) -> bool:
     """True when the adduct log reports a counterpoise-corrected energy (Gaussian only)."""
@@ -274,11 +242,10 @@ def _unconverged_roles(named_paths) -> List[str]:
             if geometry_converged(path, engine) is False:
                 failed.append(role)
         except Exception:
-            continue          # unreadable here means the parser above already complained
+            continue
     return failed
 
 
-# Ground-state multiplicity of the free probes that are not singlets.
 _PROBE_GROUND_MULTIPLICITY = {("O", "O"): 3}
 
 
@@ -350,7 +317,6 @@ def analyze(
         cluster_atoms=list(cl_atoms),
         cluster_positions=np.asarray(cluster_state.structure.positions, dtype=float).tolist(),
     )
-    # ── Level-of-theory consistency (E_ads only subtracts comparable energies) ──
     mismatch = describe_level_mismatch(
         {"adduct": adduct, "cluster": cluster, "probe": probe_free})
     if mismatch:
@@ -358,12 +324,6 @@ def analyze(
     result.warnings += spin_and_charge_warnings(
         adduct_state.structure, cluster_state.structure, probe_state.structure)
 
-    # ── Adsorption energy ──
-    # An optimization that ran out of cycles still ends "normally" and still prints a last
-    # FINAL SINGLE POINT ENERGY, which the parser dutifully reads. That energy belongs to
-    # whatever step the run stopped on, not to a minimum, so subtracting it from another
-    # minimum gives a difference of nothing in particular. The check that detects this already
-    # existed in validation_agent and was only being used by `rank`.
     unconverged = _unconverged_roles((("adduct", adduct, engine), ("cluster", cluster, cluster_engine),
                                       ("probe", probe_free, probe_engine)))
 
@@ -379,9 +339,6 @@ def analyze(
     else:
         result.warnings.append("Missing total energy in one of the outputs; E_ads not computed.")
 
-    # ── Adsorption thermochemistry (needs frequencies on all three species) ──
-    # Not from a geometry that is not a minimum, for the same reason as E_ads; and G as
-    # `stability` computes it: corrected to the symmetry number the geometry has, plus Gq.
     from cadmia.agents.stability_agent import detect_symmetries, energy_in_basis
     states = (adduct_state, cluster_state, probe_state)
     detect_symmetries(states)
@@ -418,7 +375,6 @@ def analyze(
             f"{', '.join(missing)}."
         )
 
-    # ── Electronic properties before (cluster) → after (adduct) ──
     result.electronic_cluster = _electronic_descriptors(cluster_state)
     result.electronic_adduct = _electronic_descriptors(adduct_state)
     if (result.electronic_cluster and result.electronic_adduct
@@ -431,11 +387,6 @@ def analyze(
         result.delta_dipole_debye = (result.electronic_adduct["dipole_debye"]
                                      - result.electronic_cluster["dipole_debye"])
 
-    # ── Conceptual-DFT charge transfer: cluster ↔ free probe (before contact) ──
-    # Parr–Pearson (one parabola) from the Koopmans μ/η of each isolated species. This is the
-    # *predicted* direction/amount of electron flow; the population-based Δq(probe) below is the
-    # *observed* redistribution in the optimized adduct. They answer the same question by
-    # different routes and are meant to be read together.
     ecp = _electronic_descriptors(probe_state)
     ecl = result.electronic_cluster
     if (ecl and ecp
@@ -448,7 +399,7 @@ def analyze(
                 label_a="cluster", label_b="probe",
             )
             result.charge_transfer = {
-                "delta_n": round(ct.delta_n, 4),          # >0 ⇒ cluster donates to probe
+                "delta_n": round(ct.delta_n, 4),
                 "e_stab_ev": round(ct.delta_e_ev, 4),
                 "donor": ct.donor,
                 "acceptor": ct.acceptor,
@@ -460,7 +411,6 @@ def analyze(
         except ValueError as exc:
             result.warnings.append(f"CDFT charge transfer not computed: {exc}")
 
-    # ── Probe-atom block and binding site ──
     n_cluster = len(cl_atoms)
     n_probe = len(ad_atoms) - n_cluster
     if n_probe != len(pr_atoms):
@@ -469,9 +419,6 @@ def analyze(
             f"inferred {n_probe} probe atoms in the adduct — verify atom ordering "
             "(cluster first, probe appended)."
         )
-    # The block below indexes probe_block with indices taken from the FREE probe. If the two
-    # counts disagree that is either an IndexError or, worse, distances measured between the
-    # wrong pair of atoms. Warning and carrying on was not enough.
     if 0 < n_probe <= len(ad_atoms) and n_probe == len(pr_atoms):
         probe_block = ad_pos[n_cluster:]
         cluster_block = ad_pos[:n_cluster]
@@ -481,12 +428,7 @@ def analyze(
                 "the binding-site symbol and per-site Δq may be unreliable."
             )
         else:
-            # Matching element order means the two clusters are comparable atom for atom, so
-            # the one remaining question is whether the bonding still matches.
             cl_pos = np.asarray(cluster_state.structure.positions, dtype=float)
-            # How far each cluster atom moved on adsorption. Superposed on the CLUSTER BLOCK
-            # alone: fitting the whole adduct would spread the probe's own displacement over
-            # the cluster atoms and erase the very thing being measured.
             result.cluster_displacement_ang = [
                 round(float(v), 4) for v in kabsch_deviations(cluster_block, cl_pos)]
             sig_ad, bonds_ad, edge_ad = _skeleton(list(cl_atoms), cluster_block)
@@ -511,15 +453,13 @@ def analyze(
                     "Some cluster distances sit close to the bond/no-bond cutoff, so the verdict "
                     "above is not safe on geometry alone; check this one by hand."
                 )
-        # binding site = cluster atom with the smallest distance to any probe atom
         dmat = np.linalg.norm(cluster_block[:, None, :] - probe_block[None, :, :], axis=2)
         site_local = int(np.argmin(dmat.min(axis=1)))
-        result.site_atom_index = site_local + 1   # 1-based, CDFT convention
+        result.site_atom_index = site_local + 1
         if 0 <= site_local < len(result.cluster_displacement_ang):
             result.delta_r_site_ang = result.cluster_displacement_ang[site_local]
         result.site_atom_symbol = cl_atoms[site_local]
 
-        # ── Probe-bond elongation / activation ──
         free_bonds = _intramolecular_bonds(pr_atoms, pr_pos)
         for i, j, l_free in free_bonds:
             l_ad = float(np.linalg.norm(probe_block[i] - probe_block[j]))
@@ -535,8 +475,6 @@ def analyze(
             result.max_elongation_pct = worst.percent
             result.activated = worst.percent >= _ACTIVATION_PCT
 
-        # Bending is the other signature: CO2 is activated as a bent CO2δ− even when its C–O
-        # bonds barely stretch, so a linear probe that bends counts as well.
         neighbours: dict = {}
         for i, j, _ in free_bonds:
             neighbours.setdefault(i, []).append(j)
@@ -555,12 +493,8 @@ def analyze(
         if result.max_bend_deg is not None and result.max_bend_deg >= bend_threshold_deg:
             result.activated = True
 
-        # ── Charge transfer on adsorption ──
         q_ad = adduct_state.charges
         q_cl = cluster_state.charges
-        # The free probe is in this set too: its charges are subtracted from the adduct's below,
-        # so a Hirshfeld probe against a Mulliken adduct would give a transfer that is mostly the
-        # difference between two partition schemes.
         schemes = {s.charge_scheme for s in (adduct_state, cluster_state, probe_state)
                    if s.charges is not None}
         if (q_ad is not None and len(q_ad) == len(ad_atoms)
@@ -572,8 +506,6 @@ def analyze(
                 )
             else:
                 result.charge_scheme = adduct_state.charge_scheme
-                # Net charge on the probe block in the adduct, referenced to the free probe
-                # (≈ its formal charge): negative ⇒ the cluster donates electrons to the probe.
                 q_probe_free = (sum(probe_state.charges)
                                 if probe_state.charges is not None
                                 and len(probe_state.charges) == n_probe else 0.0)
@@ -582,9 +514,6 @@ def analyze(
     else:
         result.warnings.append("Could not isolate the probe block in the adduct; skipped bond/site analysis.")
 
-    # ── BSSE (counterpoise) ──
-    # A Gaussian Counterpoise job returns the corrected energy as the adduct energy, so its E_ads
-    # is corrected whether or not --bsse was asked for; calling it "no BSSE" would be wrong.
     if bsse or _adduct_energy_is_cp_corrected(adduct):
         bsse_ha = _parse_bsse_hartree(adduct)
         if bsse_ha is None and bsse:
@@ -592,9 +521,6 @@ def analyze(
         if bsse_ha is not None:
             result.bsse_kcal = bsse_ha * _HARTREE_TO_KCAL
             if result.e_ads_kcal is not None:
-                # When the log carries a "Counterpoise corrected energy", the parser already
-                # returned THAT as the adduct energy, so E_ads is corrected and adding the BSSE
-                # again would double-count it.
                 already_corrected = _adduct_energy_is_cp_corrected(adduct)
                 result.e_ads_bsse_kcal = (result.e_ads_kcal if already_corrected
                                           else result.e_ads_kcal + result.bsse_kcal)
@@ -608,7 +534,6 @@ def analyze(
                 "--bsse set but no counterpoise BSSE was found: not in the adduct output, and not "
                 "the four `cadmia prepare bsse` outputs (<adduct>_cp_*.out) next to it.")
 
-    # ── Deformation / interaction energies ──
     if cluster_deformed is not None and cluster_state.energy_hartree is not None:
         defc, _ = _parse_output(cluster_deformed)
         if defc.energy_hartree is not None:
@@ -622,12 +547,6 @@ def analyze(
             and result.e_def_probe_kcal is not None):
         result.e_int_kcal = result.e_ads_kcal - result.e_def_cluster_kcal - result.e_def_probe_kcal
 
-    # ── CDFT cross-reference ──
-    # The global Δf rank mixes donors and acceptors (it sorts by |Δf|), so a nucleophilic binding
-    # site that donates into an electrophilic probe would look like a "discrepancy" just because an
-    # unrelated electrophilic site has a larger |Δf|. We instead rank the site within its own
-    # character class (nucleophilic donor / electrophilic acceptor): agreement means it is the
-    # strongest site of that role — the one the probe of the opposite role should pick.
     if cdft_json is not None and result.site_atom_index is not None:
         try:
             cdft = _load_cdft(cdft_json)
@@ -648,8 +567,6 @@ def analyze(
                     char_rank = None
                 role = {"nucleophilic": "donor", "electrophilic": "acceptor"}.get(character, character)
                 if char_rank is None:
-                    # Agreement is undefined, not a discrepancy. An ambiphilic site has no
-                    # donor/acceptor preference, so being the "#1" of that class would say nothing.
                     result.cdft_site_rank = match.get("rank")
                     result.cdft_agreement = None
                     if character == "ambiphilic":
@@ -679,9 +596,8 @@ def analyze(
         except (ValueError, OSError, KeyError) as exc:
             result.warnings.append(f"Could not cross-reference CDFT ranking: {exc}")
 
-    # ── Structural coordination change at the binding site (cluster → adduct) ──
     if result.site_atom_index is not None:
-        idx0 = result.site_atom_index - 1   # site_atom_index is 1-based
+        idx0 = result.site_atom_index - 1
         try:
             from cadmia.structure.structural.summary import (site_coordination,
                                                               structural_summary)
@@ -699,7 +615,6 @@ def analyze(
         except (ValueError, KeyError, OSError, ImportError) as exc:
             result.warnings.append(f"Structural coordination not computed: {exc}")
 
-    # ── Strongest Mayer bonds at the binding site (from the adduct output) ──
     if result.site_atom_index is not None:
         try:
             from cadmia.io.mayer import parse_mayer
@@ -707,7 +622,7 @@ def analyze(
         except (OSError, ValueError):
             mayer = None
         if mayer and mayer.bonds:
-            site0 = result.site_atom_index - 1   # Mayer atom indices are 0-based
+            site0 = result.site_atom_index - 1
             at_site: List[Tuple[int, str, float]] = []
             for b in mayer.bonds:
                 if b.atom_i == site0:
@@ -720,7 +635,6 @@ def analyze(
                 for p, s, o in at_site[:6]
             ]
 
-    # ── Vibrational signature of the complex (from the adduct output, if it has freqs) ──
     try:
         from cadmia.io.vibrational import parse_orca_vibrational
         vib = parse_orca_vibrational(adduct)

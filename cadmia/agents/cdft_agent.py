@@ -12,7 +12,6 @@ from cadmia.cdft.acid_base import classify_acid_base, scaled_threshold, summariz
 from cadmia.cdft.workflow import CDFTInputState, CDFTWorkflowResult, run_cdft_workflow
 from cadmia.io.xyz import extxyz_block
 
-# |Δf| below this threshold → ambiphilic classification
 _AMPHIPHILIC_THRESHOLD = 0.02
 
 
@@ -24,11 +23,11 @@ class SiteDescriptor:
     fukui_plus: Optional[float]
     fukui_minus: Optional[float]
     delta_f: Optional[float]
-    character: str   # "electrophilic" | "nucleophilic" | "ambiphilic" | "unknown"
+    character: str
     rank: int
-    acid_base: str = ""   # "lewis_acid" | "lewis_base" | "amphoteric" | "unknown"
-    cn: Optional[int] = None      # coordination number (None if structure analysis unavailable)
-    ecn: Optional[float] = None   # Hoppe effective coordination number
+    acid_base: str = ""
+    cn: Optional[int] = None
+    ecn: Optional[float] = None
 
 
 @dataclass
@@ -111,7 +110,6 @@ def _detect_engine(filepath: Path) -> str:
     for marker in _GAUSSIAN_MARKERS:
         if marker in content:
             return "gaussian"
-    # No ORCA marker found: Gaussian.
     return "gaussian"
 
 
@@ -148,9 +146,6 @@ def _build_sites(result: CDFTWorkflowResult) -> List[SiteDescriptor]:
     fukui = result.fukui
     structure = result.structure
     coord = _coordination_lookup(structure)
-    # Scaled to the system's mean Fukui per atom: f sums to 1 over N atoms, so a fixed cut is
-    # 16 % of the mean in an 8-atom cluster and 64 % in a 32-atom one, and the fraction of sites
-    # called "ambiphilic" would grow with size for no chemical reason.
     threshold = scaled_threshold(len(fukui.atoms))
 
     sites = []
@@ -174,11 +169,6 @@ def _build_sites(result: CDFTWorkflowResult) -> List[SiteDescriptor]:
             rank=0,
         ))
 
-    # Rank by |Δf| (dual descriptor magnitude), not filtered by electrophilic/nucleophilic
-    # character: this is a screening pass that surfaces the most *reactive* sites regardless of
-    # sign, and the geometry agent then places the probe on the top n for a DFT relaxation that
-    # decides direction. Character is carried per site (`character`/`acid_base`) for the caller
-    # that wants to match a probe's Lewis role. This is deliberate.
     sites.sort(key=lambda s: abs(s.delta_f) if s.delta_f is not None else 0.0, reverse=True)
     for rank, site in enumerate(sites, start=1):
         site.rank = rank
@@ -232,7 +222,6 @@ def _build_global(result: CDFTWorkflowResult) -> dict:
     spin = {}
     if (electronic is not None and electronic.homo_beta_ev is not None
             and (electronic.structure.multiplicity or 1) > 1):
-        # Open shell: gap_eV joins two spin channels (max HOMO, min LUMO); these keep them apart.
         spin = {"gap_alpha_eV": _r(electronic.gap_alpha_ev),
                 "gap_beta_eV":  _r(electronic.gap_beta_ev)}
     return {
@@ -246,9 +235,9 @@ def _build_global(result: CDFTWorkflowResult) -> dict:
         "mu_eV":              _r(fd.mu_ev),
         "chi_eV":             _r(fd.chi_ev),
         "omega_eV":           _r(fd.omega_ev),
-        "omega_minus_eV":     _r(fd.omega_minus_ev),   # electrodonating power ω⁻ (GCV)
-        "omega_plus_eV":      _r(fd.omega_plus_ev),    # electroaccepting power ω⁺ (GCV)
-        "softness_eV_inv":    _r(fd.softness),   # S = 1/η, in eV^-1 (the whole dict is in eV)
+        "omega_minus_eV":     _r(fd.omega_minus_ev),
+        "omega_plus_eV":      _r(fd.omega_plus_ev),
+        "softness_eV_inv":    _r(fd.softness),
         "nucleophilicity_eV": _r(fd.nucleophilicity_ev),
     }
 
@@ -276,9 +265,6 @@ def run(
     p_nm1 = Path(path_nm1)
 
     if engine is None:
-        # CDFT needs a native parser: _detect_engine() never returns a third value and silently
-        # falls back to "gaussian" when the file is neither ORCA nor Gaussian. That is fine for
-        # structure_from_file, but here it would misparse silently, so refuse instead.
         from cadmia.io.electronic import sniff_native_engine
         if not p_n.exists():
             raise FileNotFoundError(f"State-N file for CDFT not found: {p_n}")
@@ -295,8 +281,6 @@ def run(
     state_np1 = loader(p_np1)
     state_nm1 = loader(p_nm1)
 
-    # The workflow warns (unbound anion, spin contamination, Fukui sums); kept on the result so
-    # they reach the table, the JSON and every stage that reads it.
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", RuntimeWarning)
         workflow_result = run_cdft_workflow(state_n, state_np1, state_nm1)

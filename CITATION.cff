@@ -15,8 +15,8 @@ authors:
     affiliation: "División Académica de Ciencias Básicas (DACB), Universidad Juárez Autónoma de Tabasco (UJAT)"
     email: pablo.alvarez@padalher.com
     website: "https://padalher.com"
-version: "0.3.1"
-date-released: 2026-10-27
+version: "0.3.2"
+date-released: 2026-11-16
 license: GPL-3.0-or-later
 repository-code: "https://github.com/Padalher/CADMIA"
 url: "https://github.com/Padalher/CADMIA"

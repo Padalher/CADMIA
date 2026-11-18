@@ -9,16 +9,11 @@ from collections.abc import Iterable, Mapping
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
-# Preferred ordering for the author's Ti-Al-O systems. Any other El-El pair found in the
-# data (e.g. Au-Au, Fe-O, Cu-S) is discovered dynamically and appended after these.
 COORDINATION_ORDER = ["Ti-O", "Al-O", "Ti-Ti", "Al-Al", "Ti-Al"]
 ECN_COLUMNS = [f"{pair}_ECN" for pair in COORDINATION_ORDER]
 ECN_LABEL_STYLES = {"raw", "rounded", "both"}
 
-# A coordination pair is two element symbols joined by '-', e.g. Ti-O, Au-Au, Fe-S.
 _PAIR_RE = re.compile(r"[A-Z][a-z]?-[A-Z][a-z]?")
-# Reversed forms of the preferred pairs canonicalize to their listed orientation
-# (Al-Ti -> Ti-Al, O-Ti -> Ti-O) so each shares a single column.
 _REVERSED_TO_CANONICAL = {
     f"{b}-{a}": pair for pair in COORDINATION_ORDER for a, b in [pair.split("-")]
 }
@@ -29,7 +24,6 @@ _PAIR_LINE_RE = re.compile(
     r"^([A-Z][a-z]?-[A-Z][a-z]?)\s+.*?"
     r"ECN(?:\(active\)|_act)=\s*([-+]?\d*\.?\d+(?:[Ee][-+]?\d+)?)"
 )
-# the column layout of 0.3.1: pair, centers, active, bonds, directed, CN/atom, ECN_act
 _PAIR_ROW_RE = re.compile(r"^([A-Z][a-z]?-[A-Z][a-z]?)\s+(?:\d+\s+){4}[-+\d.]+\s+([-+]?\d*\.?\d+)")
 
 
@@ -349,7 +343,7 @@ def validate_label_options(display_decimals: int, label_style: str) -> None:
 def _write_html(fig, output_path: str | Path) -> Path:
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.write_html(path, include_plotlyjs="cdn", full_html=True)   # as electronic: KB, not MB
+    fig.write_html(path, include_plotlyjs="cdn", full_html=True)
     return path
 
 

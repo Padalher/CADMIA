@@ -41,8 +41,6 @@ def test_reproduces_published_shape_measures():
 
 
 def test_trigonal_prism_reference_has_equal_edges():
-    # The defining property of the reference prism: square lateral faces. Checked directly so the
-    # geometry cannot drift back without the reason being obvious.
     prism = _SHAPES[6]["TPR-6"]
     triangular_edge = np.linalg.norm(prism[0] - prism[1])
     vertical_edge = np.linalg.norm(prism[0] - prism[3])
@@ -50,7 +48,6 @@ def test_trigonal_prism_reference_has_equal_edges():
 
 
 def test_measure_is_invariant_to_rotation_translation_and_scale():
-    # The measure must describe the arrangement, not where it sits or how big it is.
     reference = _SHAPES[6]["OC-6"]
     shift = np.array([3.0, -1.0, 8.0])
     moved = (reference * 2.7) @ _random_rotation(0).T + shift
@@ -58,8 +55,6 @@ def test_measure_is_invariant_to_rotation_translation_and_scale():
 
 
 def test_central_atom_separates_pyramid_from_plane():
-    # Without the centre in the point set these two are the same equilateral triangle, and no
-    # measure over the ligands alone could tell them apart. This is why the centre is included.
     plane = _SHAPES[3]["TP-3"]
     pyramid = _SHAPES[3]["vT-3"]
     assert continuous_shape_measure(CENTER, plane, pyramid) > 1.0
@@ -81,8 +76,6 @@ def test_measure_grows_with_distortion():
 
 
 def test_measure_is_defined_where_the_tabulated_indices_are_not():
-    # A seesaw has no ideal cis angle, so Robinson's sigma^2 is NaN for it; the whole point of
-    # the shape measure is that this environment still gets a number.
     seesaw = _SHAPES[4]["SS-4"]
     result = shape_measures(CENTER, seesaw)
     assert result is not None
@@ -91,7 +84,7 @@ def test_measure_is_defined_where_the_tabulated_indices_are_not():
 
 
 def test_unknown_coordination_number_returns_none_not_nan():
-    assert shape_measures(CENTER, np.eye(3)[:1]) is None          # CN=1, no references
+    assert shape_measures(CENTER, np.eye(3)[:1]) is None
     assert available_shapes(1) == []
 
 
@@ -116,9 +109,9 @@ def _polyhedron(index: int, label: str, neighbors: list[int]) -> Polyhedron:
 def test_connectivity_classifies_corner_edge_and_face():
     polyhedra = [
         _polyhedron(0, "Al1", [10, 11, 12, 13]),
-        _polyhedron(1, "Al2", [13, 20, 21, 22]),          # 1 shared -> corner
-        _polyhedron(2, "Al3", [12, 13, 30, 31]),          # 2 shared with Al1 -> edge
-        _polyhedron(3, "Al4", [11, 12, 13, 40]),          # 3 shared with Al1 -> face
+        _polyhedron(1, "Al2", [13, 20, 21, 22]),
+        _polyhedron(2, "Al3", [12, 13, 30, 31]),
+        _polyhedron(3, "Al4", [11, 12, 13, 40]),
     ]
     links = polyhedra_connectivity(polyhedra)
     kinds = {(link.center_label_a, link.center_label_b): link.kind for link in links}
@@ -131,7 +124,7 @@ def test_connectivity_reports_each_pair_once_and_skips_unshared():
     polyhedra = [
         _polyhedron(0, "Al1", [10, 11, 12]),
         _polyhedron(1, "Al2", [12, 20, 21]),
-        _polyhedron(2, "Al3", [30, 31, 32]),              # shares nothing
+        _polyhedron(2, "Al3", [30, 31, 32]),
     ]
     links = polyhedra_connectivity(polyhedra)
     assert len(links) == 1

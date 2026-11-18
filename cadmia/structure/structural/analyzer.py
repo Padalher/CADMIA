@@ -59,7 +59,6 @@ class StructuralResult:
     ecn_statistics: Dict
     directed_bond_statistics: Dict
     local_environment_statistics: Dict
-    # Metals of the config the analysis ran with, so later stages need not reload the default.
     metal_elements: List[str] = field(default_factory=list)
 
 
@@ -286,19 +285,12 @@ def _directed_bond_stats(
             arr_dist = np.asarray(distances, dtype=float)
             arr_ecn = np.asarray(ecn_values, dtype=float)
             arr_cn = np.asarray(cn_values, dtype=float)
-            # active_ecn: atoms where ECN > 0 toward this neighbor element.
-            # ECN is autoconsistent (Hoppe), computed over every atom — independent
-            # of bond cutoffs. Filtering by CN > 0 would exclude atoms that genuinely
-            # contribute to ECN but have no discrete bond, biasing the average.
             active_ecn = arr_ecn[arr_ecn > 0]
             directed_bond_count = int(arr_cn.sum())
             if central_element == neighbor_element:
                 bond_count = directed_bond_count // 2
             else:
                 bond_count = directed_bond_count
-            # avg_distance_by_element is bond-based: filter by CN > 0 is correct.
-            # effective_avg_distance_by_element is the Hoppe ECN d_av: use all
-            # descriptors that carry the key, regardless of bond count.
             avg_values_active = [
                 float(descriptor.avg_distance_by_element[neighbor_element])
                 for descriptor in central_descriptors
@@ -349,8 +341,8 @@ def analyze_structure(structure: Structure, config=None) -> StructuralResult:
     dist_matrix = distance_matrix(structure.positions)
 
     bonds = []
-    cn_neighbors: dict = defaultdict(list)   # bond-cutoff neighbors → CN
-    ecn_neighbors: dict = defaultdict(list)  # every other atom → ECN
+    cn_neighbors: dict = defaultdict(list)
+    ecn_neighbors: dict = defaultdict(list)
 
     for i in range(structure.n_atoms):
         for j in range(i + 1, structure.n_atoms):
@@ -358,7 +350,6 @@ def analyze_structure(structure: Structure, config=None) -> StructuralResult:
             element_i = structure.atoms[i]
             element_j = structure.atoms[j]
 
-            # --- CN / bonds: bond-type cutoff ---
             if _is_valid_bond(element_i, element_j, d, cfg):
                 bond_type = _canonical_bond_type(element_i, element_j, cfg)
                 if bond_type is not None:
@@ -407,7 +398,6 @@ def analyze_structure(structure: Structure, config=None) -> StructuralResult:
         ecn_distances_all = [d for _, d in ecn_all]
         ecn, effective_avg = _self_consistent_ecn_and_distance(ecn_distances_all, cfg)
 
-        # ECN per element: filter global neighbors by element, self-consistent each
         ecn_distances_by_element: dict = defaultdict(list)
         for neighbor_idx, d in ecn_all:
             ecn_distances_by_element[structure.atoms[neighbor_idx]].append(d)
@@ -415,15 +405,12 @@ def analyze_structure(structure: Structure, config=None) -> StructuralResult:
         ecn_by_element = {}
         avg_distance_by_element = {}
         effective_avg_distance_by_element = {}
-        # avg_distance_by_element uses bond neighbors (CN context)
         for element, values in sorted(distances_by_element_bond.items()):
             avg_distance_by_element[element] = float(np.mean(values))
-        # ECN and effective_avg use global neighbors (ECN context)
         for element, values in sorted(ecn_distances_by_element.items()):
             element_ecn, element_eff_avg = _self_consistent_ecn_and_distance(values, cfg)
             ecn_by_element[element] = element_ecn
             effective_avg_distance_by_element[element] = element_eff_avg
-        # ensure avg_distance_by_element has an entry for any element seen via ECN
         for element, values in sorted(ecn_distances_by_element.items()):
             if element not in avg_distance_by_element:
                 avg_distance_by_element[element] = float(np.mean(values))

@@ -26,7 +26,6 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-# orca_2mkl produces "<stem>.molden.input" for -molden; flags as in ORCA 6.
 _FORMAT_FLAG = {"molden": "-molden", "mkl": "-mkl"}
 _VALID_FORMATS = tuple(_FORMAT_FLAG)
 

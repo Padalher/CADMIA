@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from cadmia.calculators.params import CalcParams
     from cadmia.config import HPCProfile
 
-# SLURM state → CADMIA status mapping
 _SLURM_STATUS = {
     "PENDING":    "queued",
     "RUNNING":    "running",
@@ -28,8 +27,8 @@ _SLURM_STATUS = {
     "OUT_OF_MEMORY": "failed",
 }
 
-_SSH_TIMEOUT  = 30   # seconds per SSH command
-_SCP_TIMEOUT  = 300  # seconds per file transfer
+_SSH_TIMEOUT  = 30
+_SCP_TIMEOUT  = 300
 
 
 def marker_status(text: str) -> Optional[str]:
@@ -54,8 +53,6 @@ class HPCRunner:
 
     def __init__(self, profile: "HPCProfile") -> None:
         self.profile = profile
-
-    # ── SSH helpers ────────────────────────────────────
 
     def _ssh_base(self) -> List[str]:
         """Return base ssh command list (host, port, key as applicable)."""
@@ -90,8 +87,6 @@ class HPCRunner:
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return False
 
-    # ── File transfer ──────────────────────────────────
-
     def upload(self, local_path: Path, remote_path: str, timeout: int = _SCP_TIMEOUT) -> None:
         """Copy *local_path* to *remote_path* on the HPC."""
         target = f"{self.profile.user}@{self.profile.host}:{remote_path}"
@@ -112,8 +107,6 @@ class HPCRunner:
             raise HPCConnectionError(
                 f"scp download failed ({result.returncode}): {result.stderr}"
             )
-
-    # ── SLURM ──────────────────────────────────────────
 
     def mkdir_remote(self, remote_dir: str) -> None:
         """Create directory on HPC (parents included)."""
@@ -142,7 +135,6 @@ class HPCRunner:
         work_dir = remote_work_dir or f"{self.profile.work_dir}/{label}"
         self.mkdir_remote(work_dir)
 
-        # Remote paths
         ext = ".log" if engine == "gaussian" else ".out"
         remote_inp = f"{work_dir}/{input_path.name}"
         remote_out = f"{work_dir}/{label}{ext}"
@@ -157,21 +149,17 @@ class HPCRunner:
         )
         remote_script = f"{work_dir}/{label}.sh"
 
-        # Upload input file and SLURM script
         self.upload(input_path, remote_inp)
 
-        # Write script file via ssh heredoc (avoids tmp file on local)
         safe = script_str.replace("'", "'\\''")
         rc, _, err = self._run_ssh(f"printf '%s' '{safe}' > {remote_script}")
         if rc != 0:
             raise HPCConnectionError(f"Could not write SLURM script to {remote_script}: {err}")
 
-        # Submit
         rc, stdout, stderr = self._run_ssh(f"sbatch {remote_script}")
         if rc != 0:
             raise HPCConnectionError(f"sbatch failed: {stderr}")
 
-        # Parse job id: "Submitted batch job 12345"
         m = re.search(r"Submitted batch job (\d+)", stdout)
         if not m:
             raise HPCConnectionError(f"Could not parse job id from sbatch output: {stdout!r}")
@@ -191,7 +179,6 @@ class HPCRunner:
         if slurm_state:
             return _SLURM_STATUS.get(slurm_state, "unknown")
 
-        # Job no longer in queue — check sacct
         rc, stdout, _ = self._run_ssh(
             f"sacct -j {job_id} -n -o State%20 2>/dev/null | head -1"
         )
@@ -201,8 +188,6 @@ class HPCRunner:
             if mapped != "unknown":
                 return mapped
 
-        # Neither squeue nor sacct know (too new, sacct down, no accounting).
-        # Consult the completion marker the SLURM script appends to the output.
         if output_path:
             rc, stdout, _ = self._run_ssh(
                 f"grep -a CADMIA_DONE {output_path} 2>/dev/null | tail -1"

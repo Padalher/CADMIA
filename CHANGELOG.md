@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-11-16
+
 ### Added
 - The README explains the name: what each word of CADMIA stands for in the code.
 - **Extended XYZ** (`format=extxyz-cadmia-1`, readable by ASE and OVITO) in every `.xyz` that
@@ -14,6 +16,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   column (cluster or probe) in the adducts. Inside a project `cadmia cdft` also writes
   `results/cdft_sites.xyz`: the N-state geometry with the per-atom index, charge, Fukui
   functions, dual descriptor, CN, ECN, site rank and local softness/electrophilicity as columns.
+- `cadmia xyz OUTPUT --steps` writes every step of an optimization (ORCA; Gaussian when the log
+  prints the Forces table) as extended XYZ: `energy` (Eh), `step`, and a `forces` column in
+  eV/Å (`nan` for a step without gradient).
 
 ### Changed
 - The README states the supported platform: Linux. macOS and Windows are not supported.
@@ -22,6 +27,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
   still reads the files written by earlier versions.
 - **Author affiliation:** División Académica de Ciencias Básicas, UJAT (DACB-UJAT) in the citation,
   the guides and the headers of the outputs.
+- The author's name is written with its accents (Pablo Daniel Álvarez Hernández) in the package,
+  the README files and the report headers; questions about the software go to
+  contact@padalher.com.
 
 ### Fixed
 - `cadmia analyze` no longer reports an ambiphilic binding site as agreeing with the CDFT

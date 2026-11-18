@@ -16,15 +16,15 @@ from __future__ import annotations
 from math import exp, log, pi, sqrt
 from typing import Iterable, Optional
 
-_H = 6.62607015e-34       # J·s
-_KB = 1.380649e-23        # J/K
-_C = 2.99792458e10        # cm/s
-_R = 8.314462618          # J/(mol·K)
-_HARTREE_J_MOL = 2625499.6394799   # J/mol per Hartree
+_H = 6.62607015e-34
+_KB = 1.380649e-23
+_C = 2.99792458e10
+_R = 8.314462618
+_HARTREE_J_MOL = 2625499.6394799
 
 GRIMME_NU0_CM1 = 100.0
 GRIMME_ALPHA = 4
-GRIMME_B_AV = 1e-44       # kg·m²
+GRIMME_B_AV = 1e-44
 
 
 def _s_harmonic(nu: float, t: float) -> float:

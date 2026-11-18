@@ -23,18 +23,12 @@ from cadmia.db.repository import (
 
 _TABLES = ["molecules", "calculations", "descriptors",
            "bond_descriptors", "adsorption", "run_log", "stability",
-           # v2 (traceability)
            "projects", "systems", "structures", "structure_files", "files", "provenance",
-           # v2 steps 4–5
            "adsorption_configs", "adsorption_results", "hpc_jobs", "workflow_runs"]
 
 _REAL = Path(__file__).resolve().parent.parent / "fixtures" / "1tial_cdft"
 _HAS_DATA = (_REAL / "N.out").exists()
 
-
-# ─────────────────────────────────────────────
-# session / schema
-# ─────────────────────────────────────────────
 
 def test_init_db_creates_all_tables(tmp_path):
     db = tmp_path / "t.db"
@@ -53,7 +47,6 @@ def test_get_connection_commits(tmp_path):
     init_db(db).close()
     with get_connection(db) as conn:
         log_run(conn, agent="x", action="a", status="ok")
-    # reopen: the commit should have persisted
     with get_connection(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM run_log").fetchone()[0] == 1
 
@@ -68,13 +61,8 @@ def test_get_connection_rolls_back_on_error(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM run_log").fetchone()[0] == 0
 
 
-# ─────────────────────────────────────────────
-# _formula_from_xyz
-# ─────────────────────────────────────────────
-
 def test_formula_hill_order_with_carbon():
     lines = ["O 0 0 0", "H 0 0 1", "C 0 0 2", "H 0 0 3"]
-    # Hill: C first, H second, then alphabetical
     assert _formula_from_xyz(lines) == "CH2O"
 
 def test_formula_without_carbon_is_alphabetical():
@@ -84,10 +72,6 @@ def test_formula_without_carbon_is_alphabetical():
 def test_formula_empty():
     assert _formula_from_xyz([]) == ""
 
-
-# ─────────────────────────────────────────────
-# molecules
-# ─────────────────────────────────────────────
 
 @pytest.fixture
 def conn(tmp_path):
@@ -113,10 +97,6 @@ def test_upsert_molecule_idempotent(conn, xyz_file):
     assert id1 == id2
     assert conn.execute("SELECT COUNT(*) FROM molecules").fetchone()[0] == 1
 
-
-# ─────────────────────────────────────────────
-# calculations & descriptors
-# ─────────────────────────────────────────────
 
 def test_insert_and_get_calculation(conn, xyz_file):
     mol_id = upsert_molecule(conn, xyz_file)
@@ -154,10 +134,6 @@ def test_insert_descriptors_from_cdft(conn, xyz_file):
     assert rows[0]["gap_eV"] == 4.0
 
 
-# ─────────────────────────────────────────────
-# run_log
-# ─────────────────────────────────────────────
-
 def test_log_run_and_filter(conn):
     log_run(conn, agent="cdft", action="run", status="ok", message="m1")
     log_run(conn, agent="validation", action="validate", status="fail", message="m2")
@@ -168,10 +144,6 @@ def test_log_run_and_filter(conn):
     assert all(e["agent"] == "cdft" for e in cdft_only)
 
 
-# ─────────────────────────────────────────────
-# persist_cdft_result (high-level orchestration)
-# ─────────────────────────────────────────────
-
 def test_persist_cdft_result_full_chain(conn):
     ids = persist_cdft_result(conn, _fabricate_cdft(), engine="gaussian",
                               output_path="/tmp/N.out")
@@ -180,7 +152,6 @@ def test_persist_cdft_result_full_chain(conn):
     assert conn.execute("SELECT COUNT(*) FROM descriptors").fetchone()[0] == 2
     assert conn.execute("SELECT COUNT(*) FROM run_log").fetchone()[0] == 1
     assert len(ids["descriptor_ids"]) == 2
-    # molecule reconstructed from sites: 2 atoms, formula O Ti
     mol = conn.execute("SELECT * FROM molecules WHERE id = ?", (ids["molecule_id"],)).fetchone()
     assert mol["n_atoms"] == 2
     assert mol["formula"] == "OTi"
@@ -192,10 +163,6 @@ def test_persist_cdft_result_idempotent_molecule(conn):
     assert conn.execute("SELECT COUNT(*) FROM molecules").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM calculations").fetchone()[0] == 2
 
-
-# ─────────────────────────────────────────────
-# Schema v2: structures mirror, provenance, migration
-# ─────────────────────────────────────────────
 
 def test_upsert_molecule_mirrors_structure(conn, xyz_file):
     mol_id = upsert_molecule(conn, xyz_file, name="ti2o")
@@ -214,13 +181,11 @@ def test_persist_cdft_result_writes_provenance(conn, tmp_path):
                         (ids["provenance_id"],)).fetchone()
     assert prov["source_file"].endswith("N.out")
     assert len(prov["file_hash"]) == 64
-    # calculation and descriptors are linked to the same provenance row
     calc = conn.execute("SELECT provenance_id FROM calculations WHERE id = ?",
                         (ids["calculation_id"],)).fetchone()
     assert calc["provenance_id"] == ids["provenance_id"]
     descs = conn.execute("SELECT provenance_id FROM descriptors").fetchall()
     assert all(d["provenance_id"] == ids["provenance_id"] for d in descs)
-    # structures mirror written too (same id as molecule)
     assert conn.execute("SELECT COUNT(*) FROM structures WHERE id = ?",
                         (ids["molecule_id"],)).fetchone()[0] == 1
 
@@ -252,10 +217,6 @@ def test_init_db_migrates_pre_v2_database(tmp_path):
         conn.close()
 
 
-# ─────────────────────────────────────────────
-# CLI integration: cadmia cdft --db / cadmia validate --db
-# ─────────────────────────────────────────────
-
 @pytest.mark.skipif(not _HAS_DATA, reason="1tial_cdft reference data not present")
 def test_cli_cdft_db_persists(tmp_path):
     from cadmia.cli import main
@@ -285,10 +246,6 @@ def test_cli_validate_db_logs(tmp_path):
     assert len(rows) == 1
     assert rows[0]["status"] == "pass"
 
-
-# ─────────────────────────────────────────────
-# Phase 2 persistence: geometry / calculation / benchmark
-# ─────────────────────────────────────────────
 
 _CLUSTER_XYZ = Path(__file__).resolve().parent.parent / "fixtures" / "Al2TiO5_cluster.xyz"
 
@@ -378,7 +335,7 @@ def test_persist_calculation_result_is_idempotent_on_resume(tmp_path):
     conn = init_db(db)
     try:
         repository.persist_calculation_result(conn, _batch("running"), task="opt")
-        repository.persist_calculation_result(conn, _batch("done"), task="opt")   # resume
+        repository.persist_calculation_result(conn, _batch("done"), task="opt")
         conn.commit()
     finally:
         conn.close()
@@ -386,7 +343,6 @@ def test_persist_calculation_result_is_idempotent_on_resume(tmp_path):
     with get_connection(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM calculations").fetchone()[0] == 1
         assert conn.execute("SELECT COUNT(*) FROM hpc_jobs").fetchone()[0] == 1
-        # the row reflects the *latest* persist, not the first
         assert conn.execute("SELECT status FROM calculations").fetchone()["status"] == "done"
         assert conn.execute("SELECT status FROM hpc_jobs").fetchone()["status"] == "done"
 
@@ -398,13 +354,13 @@ def test_insert_adsorption_result_upserts_on_config(conn):
         conn, structure_id="s1", probe="H2", site_atom_idx=1, config_index=0,
     )
     first  = repository.insert_adsorption_result(conn, cfg, e_ads_kcal=-12.5)
-    second = repository.insert_adsorption_result(conn, cfg, e_ads_kcal=-13.9)   # re-analyze
+    second = repository.insert_adsorption_result(conn, cfg, e_ads_kcal=-13.9)
     assert first == second
     rows = conn.execute(
         "SELECT e_ads_kcal FROM adsorption_results WHERE config_id = ?", (cfg,)
     ).fetchall()
-    assert len(rows) == 1                                   # one row, not two
-    assert rows[0]["e_ads_kcal"] == pytest.approx(-13.9)    # refreshed to the latest
+    assert len(rows) == 1
+    assert rows[0]["e_ads_kcal"] == pytest.approx(-13.9)
 
 
 def test_persist_benchmark_result(tmp_path):
@@ -437,10 +393,6 @@ def test_persist_benchmark_result(tmp_path):
         assert len(log) == 1 and log[0]["status"] == "ok"
 
 
-# ─────────────────────────────────────────────
-# v2 steps 4–5: adsorption split, workflow_runs
-# ─────────────────────────────────────────────
-
 def test_adsorption_config_find_or_create(conn):
     """Identity is cluster + probe + site + orientation."""
     repository.upsert_structure(conn, structure_id="s1", xyz_text="1\nx\nTi 0 0 0\n")
@@ -448,14 +400,14 @@ def test_adsorption_config_find_or_create(conn):
         conn, structure_id="s1", probe="NH3", site_atom_idx=1, config_index=0,
         site_atom_symbol="Ti", orientation="eta1_p20_a120",
     )
-    b = repository.insert_adsorption_config(          # same placement, different sweep ordinal
+    b = repository.insert_adsorption_config(
         conn, structure_id="s1", probe="NH3", site_atom_idx=1, config_index=7,
         orientation="eta1_p20_a120",
     )
-    c = repository.insert_adsorption_config(          # another site
+    c = repository.insert_adsorption_config(
         conn, structure_id="s1", probe="NH3", site_atom_idx=2, orientation="eta1_p20_a120",
     )
-    d = repository.insert_adsorption_config(          # another orientation on the same site
+    d = repository.insert_adsorption_config(
         conn, structure_id="s1", probe="NH3", site_atom_idx=1, orientation="eta1_p40_a120",
     )
     assert a == b, "the sweep ordinal must not create a second row for the same placement"
@@ -549,10 +501,6 @@ def test_cli_cdft_records_workflow_run(tmp_path):
     assert row["status"] == "ok"
     assert "calculation_id" in row["ids_json"]
 
-
-# ─────────────────────────────────────────────
-# The middle of the provenance chain
-# ─────────────────────────────────────────────
 
 def test_prescreen_locates_the_config_geometry_created_instead_of_making_a_new_one(conn, tmp_path):
     cfg_xyz = tmp_path / "H2_site1_eta1_p0_a0.xyz"
@@ -668,7 +616,7 @@ def test_rank_db_records_each_output(tmp_path):
         "rank", str(src), "-o", str(tmp_path / "r.xyz"),
         "--db", "--db-path", str(db),
     ])
-    assert res.exit_code == 1, res.output   # nothing could be ranked
+    assert res.exit_code == 1, res.output
 
     with get_connection(db) as conn:
         rows = conn.execute(
@@ -677,10 +625,6 @@ def test_rank_db_records_each_output(tmp_path):
     assert rows[0]["stage"] == "rank"
     assert rows[0]["source"].endswith("a.out")
 
-
-# ─────────────────────────────────────────────
-# Persist by default
-# ─────────────────────────────────────────────
 
 def test_a_project_database_wins_over_the_global_one(tmp_path, monkeypatch):
     """What decides whether the database serves a project or becomes a drawer."""
@@ -713,7 +657,7 @@ def test_a_project_database_is_adopted_only_if_it_already_exists(tmp_path, monke
     glob_db = tmp_path / "global.db"
     monkeypatch.setattr(session, "DEFAULT_DB", glob_db)
     here = tmp_path / "proyecto"
-    (here / ".cadmia").mkdir(parents=True)          # the folder exists, the database does not
+    (here / ".cadmia").mkdir(parents=True)
     assert session.resolve_db_path(start=here) == glob_db
 
 
@@ -734,8 +678,8 @@ def test_rank_persists_without_being_asked(tmp_path):
     src.write_text("not an output\n", encoding="utf-8")
 
     res = CliRunner().invoke(main, ["rank", str(src), "-o", str(tmp_path / "r.xyz"),
-                                    "--db-path", str(db)])          # no --db flag
-    assert res.exit_code == 1, res.output   # nothing could be ranked
+                                    "--db-path", str(db)])
+    assert res.exit_code == 1, res.output
     with get_connection(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM screening_results").fetchone()[0] == 1
 
@@ -751,7 +695,7 @@ def test_no_db_still_forbids_it(tmp_path):
 
     res = CliRunner().invoke(main, ["rank", str(src), "-o", str(tmp_path / "r.xyz"),
                                     "--no-db", "--db-path", str(db)])
-    assert res.exit_code == 1, res.output   # nothing could be ranked
+    assert res.exit_code == 1, res.output
     with get_connection(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM screening_results").fetchone()[0] == 0
 
@@ -766,6 +710,6 @@ def test_creating_a_database_is_announced(tmp_path):
 
     res = CliRunner().invoke(main, ["rank", str(src), "-o", str(tmp_path / "r.xyz"),
                                     "--db-path", str(db)])
-    assert res.exit_code == 1, res.output   # nothing could be ranked
+    assert res.exit_code == 1, res.output
     assert "creating" in res.output and "brand_new.db" in res.output
     assert db.exists()

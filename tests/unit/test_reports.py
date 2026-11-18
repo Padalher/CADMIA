@@ -37,7 +37,7 @@ def test_write_text_report(config, tmp_path):
     path = write_report(_result(config), tmp_path / "report.txt", config=config)
     content = path.read_text(encoding="utf-8")
     assert f"# CADMIA structure {cadmia.__version__}" in content
-    assert "Pablo Daniel Alvarez Hernandez" in content
+    assert "Pablo Daniel Álvarez Hernández" in content
     assert "Universidad Juarez Autonoma de Tabasco" in content
     assert "CADMIA Structural Report" in content
     assert "=" * 80 + "\nCADMIA Structural Report\n" + "=" * 80 in content
@@ -109,7 +109,7 @@ def test_config_metals_reach_neighborhood_and_rings(tmp_path):
     _, summary = cation_neighbors(structure, result)
     assert set(summary) == {"Al-Al"}
     _, topology = metal_ligand_ring_analysis(structure, result)
-    assert topology.cyclomatic_number != 3        # 3 with the default metals (Ti and Al)
+    assert topology.cyclomatic_number != 3
 
 
 def _toy(atoms, positions):
@@ -124,7 +124,6 @@ def test_neighborhood_and_rings_with_no_metal_one_metal_and_two_fragments():
 
     no_metal = _toy(["O", "O"], [[0, 0, 0], [1.2, 0, 0]])
     one_metal = _toy(["Ti", "O", "O"], [[0, 0, 0], [1.65, 0, 0], [-1.65, 0, 0]])
-    # two Ti2O2 rhombi 10 Å apart: one ring each, two components
     rhomb = [[0, 0, 0], [2.8, 0, 0], [1.4, 1.2, 0], [1.4, -1.2, 0]]
     two = _toy(["Ti", "Ti", "O", "O"] * 2,
                rhomb + [[x + 10.0, y, z] for x, y, z in rhomb])
@@ -175,7 +174,6 @@ def test_text_report_includes_polyhedra_angles(config, tmp_path):
     content = path.read_text(encoding="utf-8")
     assert "Coordination Polyhedra (angles and distortion)" in content
     assert "angle_mean" in content
-    # The Al2TiO5 cluster has metal centers with >= 3 ligands, so an angle is printed.
     assert "No metal center" not in content
 
 
@@ -198,7 +196,6 @@ def test_csv_report_includes_polyhedron_rows(config, tmp_path):
 
 
 def test_csv_report_includes_metal_displacement_ratio(config, tmp_path):
-    # The comparable (size-normalized) off-centering must reach the CSV, not only the JSON.
     path = write_report(_cluster_result(config), tmp_path / "report.csv")
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -215,7 +212,6 @@ def test_text_report_polyhedra_header_has_displacement_ratio(config, tmp_path):
 
 
 def test_text_report_no_polyhedra_for_small_molecule(config, tmp_path):
-    # TiO2 monomer: Ti has only 2 O neighbors (CN 2 < 3) -> no polyhedron.
     path = write_report(_result(config), tmp_path / "report.txt", config=config)
     content = path.read_text(encoding="utf-8")
     assert "Coordination Polyhedra (angles and distortion)" in content
@@ -235,7 +231,7 @@ def test_write_batch_text_report_is_global_by_default(config, tmp_path):
         in content
     )
     assert "# CADMIA structure" in content
-    assert "Pablo Daniel Alvarez Hernandez" in content
+    assert "Pablo Daniel Álvarez Hernández" in content
     assert "Pair Summary by Structure" in content
     lines = content.splitlines()
     header_index = next(

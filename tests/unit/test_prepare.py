@@ -45,11 +45,8 @@ def test_prepare_xyz_to_orca_inp(tmp_path, params):
 def test_prepare_xyz_to_gaussian_input(tmp_path, params):
     xyz = _write_xyz(tmp_path / "mol.xyz")
     out = tmp_path / "inputs"
-    # d3bj, not the d4 default: Gaussian 16 has no native D4 and the writer refuses it.
     inputs, _ = prepare(xyz, replace(params, dispersion="d3bj"), engine="gaussian",
                         output_dir=out)
-    # `.inp` for both engines: Gaussian reads stdin and ignores the extension, so `.gjf`
-    # bought nothing. The engine is recovered from the content, not from the name.
     assert inputs[0].name == "mol.inp"
     assert inputs[0].exists()
     assert "%chk" in inputs[0].read_text(encoding="utf-8")
@@ -120,8 +117,6 @@ def test_prepare_directory_prefers_inputs_warns_on_xyz(tmp_path, params):
     assert any("ignoring" in w and ".xyz" in w for w in warnings)
 
 
-# --- sources that carry a geometry: outputs and concatenated .xyz ------------
-
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 ORCA_OUT     = FIXTURES / "1tial_orca" / "1tial_N_orca.out"
 GAUSSIAN_OUT = FIXTURES / "1tial_cdft" / "N.out"
@@ -142,7 +137,6 @@ def _write_concatenated_xyz(path: Path, stems: list[str]) -> Path:
 
 @pytest.mark.parametrize("source", [ORCA_OUT, GAUSSIAN_OUT])
 def test_prepare_generates_an_input_from_an_engine_output(tmp_path, params, source):
-    # The engine of the source is auto-detected; --engine only picks what we write.
     result = prepare(source, params, engine="orca", output_dir=tmp_path / "o")
     assert [p.name for p in result.generated] == [f"{source.stem}.inp"]
     body = result.generated[0].read_text(encoding="utf-8")
@@ -168,7 +162,6 @@ def test_prepare_concatenated_xyz_yields_one_input_per_block(tmp_path, params):
              "cluster_CO2_site09_eta1_c_p30_a0_xtbopt"]
     ranked = _write_concatenated_xyz(tmp_path / "ranked.xyz", stems)
     result = prepare(ranked, params, engine="orca", output_dir=tmp_path / "o")
-    # The origin stem is kept: it carries site/mode/angles, which is what identifies a candidate.
     assert [p.name for p in result.generated] == [f"{s}.inp" for s in stems]
 
 
@@ -190,7 +183,6 @@ def test_prepare_concatenated_xyz_disambiguates_repeated_stems(tmp_path, params)
 
 
 def test_prepare_single_block_xyz_keeps_the_file_stem(tmp_path, params):
-    # A plain .xyz must not gain a _001 suffix just because the reader is multi-block now.
     xyz = _write_xyz(tmp_path / "mol.xyz")
     result = prepare(xyz, params, engine="orca", output_dir=tmp_path / "o")
     assert [p.name for p in result.generated] == ["mol.inp"]
@@ -210,7 +202,7 @@ def test_prepare_result_separates_generated_from_passed_through(tmp_path, params
     result = prepare([xyz, ready], params, engine="orca", output_dir=tmp_path / "o")
     assert [p.name for p in result.generated] == ["mol.inp"]
     assert result.passed_through == [ready]
-    inputs, warnings = result           # still unpacks for run_local
+    inputs, warnings = result
     assert len(inputs) == 2 and warnings == []
 
 
@@ -237,10 +229,6 @@ def test_prepare_list_of_paths(tmp_path, params):
     assert len(inputs) == 2
 
 
-# ─────────────────────────────────────────────
-# prepare_cdft — three single points from one geometry
-# ─────────────────────────────────────────────
-
 def test_prepare_cdft_writes_three_inputs(tmp_path, params):
     xyz = _write_xyz(tmp_path / "mol.xyz")
     out = tmp_path / "cdft"
@@ -254,9 +242,9 @@ def test_prepare_cdft_charges_and_mults(tmp_path, params):
     xyz = _write_xyz(tmp_path / "mol.xyz")
     inputs, _ = prepare_cdft(xyz, params, engine="orca", output_dir=tmp_path / "o")
     n, anion, cation = (p.read_text(encoding="utf-8") for p in inputs)
-    assert "* xyz 0 1" in n          # neutral: charge 0, singlet
-    assert "* xyz -1 2" in anion     # anion N+1: charge -1, doublet
-    assert "* xyz 1 2" in cation     # cation N-1: charge +1, doublet
+    assert "* xyz 0 1" in n
+    assert "* xyz -1 2" in anion
+    assert "* xyz 1 2" in cation
 
 
 def test_prepare_cdft_custom_charge_and_open_shell(tmp_path):
@@ -265,13 +253,12 @@ def test_prepare_cdft_custom_charge_and_open_shell(tmp_path):
     inputs, _ = prepare_cdft(xyz, params, engine="orca", output_dir=tmp_path / "o",
                              charge=1, mult=2, mult_anion=1, mult_cation=1)
     n, anion, cation = (p.read_text(encoding="utf-8") for p in inputs)
-    assert "* xyz 1 2" in n          # neutral here is the +1 cation, doublet
-    assert "* xyz 0 1" in anion      # +1 electron -> charge 0, singlet
-    assert "* xyz 2 1" in cation     # -1 electron -> charge +2, singlet
+    assert "* xyz 1 2" in n
+    assert "* xyz 0 1" in anion
+    assert "* xyz 2 1" in cation
 
 
 def test_prepare_cdft_auto_multiplicity(tmp_path, params):
-    # water: 10 e- neutral (singlet), 11 anion / 9 cation (both doublet) — by parity
     xyz = _write_xyz(tmp_path / "mol.xyz")
     inputs, warnings = prepare_cdft(xyz, params, engine="orca", output_dir=tmp_path / "o",
                                     mult=None, mult_anion=None, mult_cation=None)
@@ -279,7 +266,6 @@ def test_prepare_cdft_auto_multiplicity(tmp_path, params):
     assert "* xyz 0 1" in n
     assert "* xyz -1 2" in anion
     assert "* xyz 1 2" in cation
-    # water has no transition metals → no high-spin warning
     assert not any("high-spin" in w for w in warnings)
 
 
@@ -293,7 +279,7 @@ def test_prepare_cdft_auto_multiplicity_warns_on_transition_metal(tmp_path, para
 
 def test_prepare_cdft_forces_single_point(tmp_path):
     xyz = _write_xyz(tmp_path / "mol.xyz")
-    params = CalcParams(task="opt")   # should be overridden to sp
+    params = CalcParams(task="opt")
     inputs, _ = prepare_cdft(xyz, params, engine="orca", output_dir=tmp_path / "o")
     for p in inputs:
         text = p.read_text(encoding="utf-8")

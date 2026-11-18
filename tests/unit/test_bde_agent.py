@@ -42,7 +42,6 @@ def water(tmp_path):
 def test_bde_value(water):
     mol, oh, h = water
     r = compute_bde(mol, [oh, h])
-    # BDE = E(OH) + E(H) - E(H2O) = -75.5 - 0.4 - (-76.0) = +0.1 Ha
     assert r.bde_kcal == pytest.approx(0.1 * _HARTREE_TO_KCAL, abs=1e-3)
     assert r.bde_eV == pytest.approx(0.1 * 27.2114, abs=1e-3)
     assert r.bde_kcal > 0
@@ -57,7 +56,6 @@ def test_bde_atoms_conserved(water):
 
 def test_bde_atom_mismatch_warns(water, tmp_path):
     mol, oh, h = water
-    # Fragments that do not add up to H2O (missing one H)
     r = compute_bde(mol, [oh])
     assert r.atoms_conserved is False
     assert any("mismatch" in w.lower() for w in r.warnings)
@@ -65,7 +63,6 @@ def test_bde_atom_mismatch_warns(water, tmp_path):
 
 def test_bde_missing_energy_skips(water, tmp_path):
     mol, oh, h = water
-    # Valid geometry block but no "SCF Done" line -> energy parses as None.
     frag_no_e = tmp_path / "noe.out"
     lines = [
         " Standard orientation:",

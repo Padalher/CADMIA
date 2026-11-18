@@ -14,9 +14,9 @@ from cadmia.core.provenance import Provenance
 
 @dataclass
 class AdsorptionSystem:
-    cluster:            str                       # cluster label / id
-    probe:              str                       # probe label (H2 / CO2 / NH3)
-    site_atom_index:    Optional[int] = None      # 1-based binding-site atom
+    cluster:            str
+    probe:              str
+    site_atom_index:    Optional[int] = None
     site_atom_symbol:   Optional[str] = None
     orientation:        Optional[str] = None
     config_index:       Optional[int] = None
@@ -25,7 +25,7 @@ class AdsorptionSystem:
     e_def_cluster_kcal: Optional[float] = None
     e_def_probe_kcal:   Optional[float] = None
     e_int_kcal:         Optional[float] = None
-    activation:         dict = field(default_factory=dict)   # {activated, max_elongation_pct, bonds}
+    activation:         dict = field(default_factory=dict)
     provenance:         Optional[Provenance] = None
     metadata:           dict = field(default_factory=dict)
 

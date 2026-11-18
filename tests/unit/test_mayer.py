@@ -36,10 +36,6 @@ HIRSHFELD ANALYSIS
 """
 
 
-# ─────────────────────────────────────────────
-# Parser (always-on synthetic block)
-# ─────────────────────────────────────────────
-
 def test_parse_sample_atoms(tmp_path):
     p = tmp_path / "s.out"
     p.write_text(_SAMPLE)
@@ -56,7 +52,7 @@ def test_parse_sample_bonds_multi_per_line(tmp_path):
     p.write_text(_SAMPLE)
     r = parse_mayer(p)
     assert r.threshold == pytest.approx(0.1)
-    assert len(r.bonds) == 3                      # two on line 1, one on line 2
+    assert len(r.bonds) == 3
     b0 = r.bonds[0]
     assert (b0.atom_i, b0.symbol_i, b0.atom_j, b0.symbol_j) == (0, "Ti", 1, "O")
     assert b0.order == pytest.approx(2.0961)
@@ -66,7 +62,6 @@ def test_bonds_stop_at_blank(tmp_path):
     p = tmp_path / "s.out"
     p.write_text(_SAMPLE)
     r = parse_mayer(p)
-    # The HIRSHFELD section must not leak into the bond list.
     assert all(b.symbol_i and b.symbol_j for b in r.bonds)
 
 
@@ -75,10 +70,6 @@ def test_no_mayer_block_returns_none(tmp_path):
     p.write_text("Some calculation output without a Mayer section.\n")
     assert parse_mayer(p) is None
 
-
-# ─────────────────────────────────────────────
-# Real ORCA fixtures
-# ─────────────────────────────────────────────
 
 @pytest.mark.skipif(not _HAS_ORCA, reason="ORCA reference output not present")
 def test_parse_real_orca():
@@ -96,10 +87,6 @@ def test_gaussian_has_no_orca_mayer_block():
     assert parse_mayer(_GAUSSIAN) is None
 
 
-# ─────────────────────────────────────────────
-# Persistence + import hook
-# ─────────────────────────────────────────────
-
 def test_persist_bond_descriptors(tmp_path):
     import sqlite3
     from cadmia.db.session import init_db
@@ -111,7 +98,6 @@ def test_persist_bond_descriptors(tmp_path):
     bonds = _pm(sample).bonds
     db = tmp_path / "db.sqlite"
     conn = init_db(db)
-    # A calculation row is required by the FK.
     ids = repository.persist_imported_calculation(
         conn, atoms=["Ti", "O", "O"], positions=[[0, 0, 0], [1.6, 0, 0], [0, 1.6, 0]],
         name="t", engine="orca",
@@ -125,7 +111,7 @@ def test_persist_bond_descriptors(tmp_path):
         "SELECT bond_order_type, distance_A FROM bond_descriptors ORDER BY bond_order DESC"
     ).fetchall()
     assert rows[0][0] == "mayer"
-    assert rows[0][1] == pytest.approx(1.6, abs=1e-6)   # 0-Ti–1-O distance
+    assert rows[0][1] == pytest.approx(1.6, abs=1e-6)
     conn.close()
 
 
@@ -142,10 +128,6 @@ def test_import_persists_mayer_bonds(tmp_path):
     conn.close()
 
 
-# ─────────────────────────────────────────────
-# CLI: -o decides the format by extension
-# ─────────────────────────────────────────────
-
 def test_bonds_cli_output_json_by_extension(tmp_path):
     import json
 
@@ -160,7 +142,7 @@ def test_bonds_cli_output_json_by_extension(tmp_path):
 
     assert res.exit_code == 0, res.output
     data = json.loads(jpath.read_text(encoding="utf-8"))
-    assert len(data["bonds"]) == 3        # --top caps the screen table, never the data
+    assert len(data["bonds"]) == 3
     assert "JSON → " in res.output
 
 

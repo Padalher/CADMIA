@@ -53,14 +53,14 @@ _HEADER = {
 
 @dataclass
 class NarrationResult:
-    text:     str            # discussion body (no header)
-    section:  str            # ready-to-append markdown section (header + body + footer)
+    text:     str
+    section:  str
     model:    str
     provider: str
 
 
 def narrate_report(
-    report: Any,                      # cadmia.agents.report_agent.Report (or its markdown str)
+    report: Any,
     *,
     language: str = "es",
     provider: Optional[Provider] = None,

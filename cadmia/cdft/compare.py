@@ -14,7 +14,6 @@ from typing import Dict, List, Optional
 
 from cadmia.cdft.multiwfn import parse_multiwfn_cdft
 
-# CADMIA global_fd attribute  ->  (Multiwfn global key, label)
 _GLOBAL_MAP = [
     ("ip_ev",              "vertical_ip",               "IP (eV)"),
     ("ea_ev",              "vertical_ea",               "EA (eV)"),
@@ -22,7 +21,6 @@ _GLOBAL_MAP = [
     ("omega_ev",           "electrophilicity_index",    "ω (eV)"),
     ("nucleophilicity_ev", "nucleophilicity_index",     "N (eV)"),
 ]
-# CADMIA fukui list attribute -> (Multiwfn atom attribute, label)
 _FUKUI_MAP = [
     ("f_plus",  "f_plus",          "f+"),
     ("f_minus", "f_minus",         "f-"),

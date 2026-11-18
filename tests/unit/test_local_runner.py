@@ -19,7 +19,6 @@ _GAUSSIAN_OK = """\
  Normal termination of Gaussian 16
 """
 
-# The fake engine is a #!/bin/sh script, which Windows cannot execute.
 _posix_only = pytest.mark.skipif(sys.platform == "win32", reason="fake engine is a POSIX shell script")
 
 
@@ -32,10 +31,6 @@ def _fake_orca(tmp_path, body="echo 'FINAL SINGLE POINT ENERGY -100.0'"):
     binary.chmod(binary.stat().st_mode | stat.S_IEXEC)
     return binary
 
-
-# ─────────────────────────────────────────────
-# find_engine
-# ─────────────────────────────────────────────
 
 def test_find_engine_explicit_dir(tmp_path):
     binary = _fake_orca(tmp_path)
@@ -51,16 +46,12 @@ def test_find_engine_missing_path(tmp_path):
 
 def test_find_engine_rejects_screen_reader(tmp_path, monkeypatch):
     fake = tmp_path / "orca"
-    fake.write_text("#!/bin/sh\n")          # tiny → GNOME screen reader heuristic
+    fake.write_text("#!/bin/sh\n")
     fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setattr("shutil.which", lambda name: str(fake))
     with pytest.raises(LocalRunnerError, match="screen reader"):
         find_engine("orca")
 
-
-# ─────────────────────────────────────────────
-# run_job
-# ─────────────────────────────────────────────
 
 @_posix_only
 def test_run_job_orca_writes_output(tmp_path):
@@ -99,13 +90,9 @@ def test_run_job_timeout_kills_process_tree(tmp_path):
     ok, _ = run_job(inp, "orca", tmp_path / "slow.out",
                     engine_path=str(binary), timeout_s=1)
     assert not ok
-    time.sleep(2.5)                          # past when the orphan would have written
-    assert not marker.exists()               # grandchild died with the group
+    time.sleep(2.5)
+    assert not marker.exists()
 
-
-# ─────────────────────────────────────────────
-# run_local (agent queue)
-# ─────────────────────────────────────────────
 
 def test_run_local_queue_from_inputs(tmp_path, monkeypatch):
     for name in ("a.inp", "b.inp"):
@@ -151,7 +138,7 @@ def test_run_local_stops_queue_when_engine_missing(tmp_path, monkeypatch):
 
     result = run_local(tmp_path, engine="orca", output_dir=tmp_path)
     assert result.jobs[0].status == "failed"
-    assert len(result.jobs) == 1            # queue stopped, b.inp never attempted
+    assert len(result.jobs) == 1
     assert any("not found" in w for w in result.warnings)
 
 def test_run_local_continues_after_failed_job(tmp_path, monkeypatch):
@@ -187,7 +174,7 @@ def test_run_local_resume_skips_completed_jobs(tmp_path, monkeypatch):
     assert calls == ["a"]
 
     result = run_local(tmp_path, engine="orca", output_dir=tmp_path, validate_outputs=False)
-    assert calls == ["a"]                           # not recomputed
+    assert calls == ["a"]
     assert [j.status for j in result.jobs] == ["done"]
     assert any("already computed" in w for w in result.warnings)
 
@@ -200,7 +187,7 @@ def test_run_local_overwrite_recomputes(tmp_path, monkeypatch):
     run_local(tmp_path, engine="orca", output_dir=tmp_path, validate_outputs=False)
     run_local(tmp_path, engine="orca", output_dir=tmp_path, validate_outputs=False,
               overwrite=True)
-    assert calls == ["a", "a"]                      # forced recompute
+    assert calls == ["a", "a"]
 
 
 def test_run_local_resume_recomputes_when_output_missing(tmp_path, monkeypatch):
@@ -209,9 +196,9 @@ def test_run_local_resume_recomputes_when_output_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(local_runner, "run_job", _counting_run_job(calls))
 
     run_local(tmp_path, engine="orca", output_dir=tmp_path, validate_outputs=False)
-    (tmp_path / "a.out").unlink()                   # output lost after the run
+    (tmp_path / "a.out").unlink()
     run_local(tmp_path, engine="orca", output_dir=tmp_path, validate_outputs=False)
-    assert calls == ["a", "a"]                      # missing output → recompute
+    assert calls == ["a", "a"]
 
 
 def test_calculation_result_load_rejects_corrupt_state(tmp_path):

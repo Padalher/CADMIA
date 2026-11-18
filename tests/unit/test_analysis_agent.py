@@ -69,10 +69,6 @@ _CDFT = {
 }
 
 
-# ─────────────────────────────────────────────
-# Core energetics
-# ─────────────────────────────────────────────
-
 def test_adsorption_energy(triplet):
     cluster, h2, adduct = triplet
     r = analyze(adduct, cluster, h2)
@@ -87,7 +83,7 @@ def test_level_mismatch_warns_on_e_ads(triplet):
     cluster, h2, adduct = triplet
     for f in (cluster, adduct):
         f.write_text(f.read_text(encoding="utf-8") + "\n Standard basis: def2TZVP (5D, 7F)\n")
-    h2.write_text(h2.read_text(encoding="utf-8") + "\n Standard basis: def2SVP (5D, 7F)\n")   # smaller basis
+    h2.write_text(h2.read_text(encoding="utf-8") + "\n Standard basis: def2SVP (5D, 7F)\n")
     r = analyze(adduct, cluster, h2)
     assert any("different levels of theory" in w and "basis" in w for w in r.warnings)
 
@@ -104,7 +100,6 @@ def test_level_match_is_silent(triplet):
 def test_binding_site_is_nearest_cluster_atom(triplet):
     cluster, h2, adduct = triplet
     r = analyze(adduct, cluster, h2)
-    # H2 sits above Ti (z), closer to Ti(0,0,0) than O(1.8,0,0)
     assert r.site_atom_index == 1
     assert r.site_atom_symbol == "Ti"
 
@@ -126,10 +121,6 @@ def test_missing_energy_warns(tmp_path, triplet):
     assert any("E_ads" in w for w in r.warnings)
 
 
-# ─────────────────────────────────────────────
-# Bond elongation / activation
-# ─────────────────────────────────────────────
-
 def test_probe_bond_elongation_and_activation(triplet):
     cluster, h2, adduct = triplet
     r = analyze(adduct, cluster, h2)
@@ -142,7 +133,7 @@ def test_probe_bond_elongation_and_activation(triplet):
     assert r.activated is True
 
 
-@pytest.mark.filterwarnings(       # synthetic geometry: atoms 3 Å apart, no real polyhedra
+@pytest.mark.filterwarnings(
     "ignore:Found .* but no metal-ligand bonds:UserWarning")
 def test_no_activation_when_bond_unchanged(tmp_path):
     cluster = tmp_path / "c.out"
@@ -150,16 +141,11 @@ def test_no_activation_when_bond_unchanged(tmp_path):
     adduct = tmp_path / "a.out"
     _gauss(cluster, [("Ti", 0, 0, 0)], -50.0)
     _gauss(h2, [("H", 0, 0, 0), ("H", 0.74, 0, 0)], -1.17)
-    # H2 physisorbed far away, bond unchanged (0.74)
     _gauss(adduct, [("Ti", 0, 0, 0), ("H", 0, 0, 3.0), ("H", 0.74, 0, 3.0)], -51.18)
     r = analyze(adduct, cluster, h2)
     assert r.activated is False
     assert r.max_elongation_pct == pytest.approx(0.0, abs=0.5)
 
-
-# ─────────────────────────────────────────────
-# BSSE + deformation
-# ─────────────────────────────────────────────
 
 def test_bsse_is_not_added_twice_when_the_energy_is_already_corrected(triplet_cp):
     """Gaussian prints the corrected energy, so E_ads built on it already carries the BSSE.
@@ -173,7 +159,6 @@ def test_bsse_is_not_added_twice_when_the_energy_is_already_corrected(triplet_cp
     assert r.bsse_kcal == pytest.approx(0.0020 * _HARTREE_TO_KCAL, abs=1e-3)
     assert r.e_ads_bsse_kcal == pytest.approx(r.e_ads_kcal, abs=1e-9)
     assert any("already includes the BSSE" in w for w in r.warnings)
-    # And E_ads itself is built on the corrected energy, not on the raw one.
     raw = (-101.20 - (-100.0) - (-1.17)) * _HARTREE_TO_KCAL
     assert r.e_ads_kcal == pytest.approx(raw + 0.0020 * _HARTREE_TO_KCAL, abs=1e-3)
 
@@ -194,18 +179,14 @@ def test_deformation_and_interaction(tmp_path, triplet):
     cluster, h2, adduct = triplet
     cdef = tmp_path / "cdef.out"
     pdef = tmp_path / "pdef.out"
-    _gauss(cdef, [("Ti", 0, 0, 0), ("O", 1.8, 0, 0)], -99.99)   # cluster strained: +0.01 Ha
-    _gauss(pdef, [("H", 0, 0, 0), ("H", 0.82, 0, 0)], -1.165)   # probe strained: +0.005 Ha
+    _gauss(cdef, [("Ti", 0, 0, 0), ("O", 1.8, 0, 0)], -99.99)
+    _gauss(pdef, [("H", 0, 0, 0), ("H", 0.82, 0, 0)], -1.165)
     r = analyze(adduct, cluster, h2, cluster_deformed=cdef, probe_deformed=pdef)
     assert r.e_def_cluster_kcal == pytest.approx(0.01 * _HARTREE_TO_KCAL, abs=1e-2)
     assert r.e_def_probe_kcal == pytest.approx(0.005 * _HARTREE_TO_KCAL, abs=1e-2)
     assert r.e_int_kcal == pytest.approx(
         r.e_ads_kcal - r.e_def_cluster_kcal - r.e_def_probe_kcal, abs=1e-6)
 
-
-# ─────────────────────────────────────────────
-# CDFT cross-reference
-# ─────────────────────────────────────────────
 
 def test_cdft_agreement(triplet):
     cluster, h2, adduct = triplet
@@ -215,11 +196,9 @@ def test_cdft_agreement(triplet):
     assert r.cdft_agreement is True
 
 
-@pytest.mark.filterwarnings(       # synthetic geometry: atoms 3 Å apart, no real polyhedra
+@pytest.mark.filterwarnings(
     "ignore:Found .* but no metal-ligand bonds:UserWarning")
 def test_cdft_nucleophilic_site_is_coherent(tmp_path):
-    # H2 binds near the (only) nucleophilic O (atom 2): even though Ti is the global rank-1 site,
-    # the strongest donor binding a probe is coherent, not a discrepancy (within-character rank 1).
     cluster = tmp_path / "c.out"
     h2 = tmp_path / "h2.out"
     adduct = tmp_path / "a.out"
@@ -234,13 +213,12 @@ def test_cdft_nucleophilic_site_is_coherent(tmp_path):
     assert r.cdft_agreement is True
 
 
-@pytest.mark.filterwarnings(       # synthetic geometry: atoms 3 Å apart, no real polyhedra
+@pytest.mark.filterwarnings(
     "ignore:Found .* but no metal-ligand bonds:UserWarning")
 def test_cdft_discrepancy(tmp_path):
     cluster = tmp_path / "c.out"
     h2 = tmp_path / "h2.out"
     adduct = tmp_path / "a.out"
-    # Two nucleophilic O sites; H2 binds the WEAKER one (atom 3) → genuine within-character discrepancy.
     cdft = {"sites": [
         {"atom_index": 1, "atom_symbol": "Ti", "rank": 1, "character": "electrophilic", "delta_f": 0.30},
         {"atom_index": 2, "atom_symbol": "O", "rank": 2, "character": "nucleophilic", "delta_f": -0.20},
@@ -258,11 +236,9 @@ def test_cdft_discrepancy(tmp_path):
     assert any("character" in w.lower() for w in r.warnings)
 
 
-
-@pytest.mark.filterwarnings(       # synthetic geometry: atoms 3 Å apart, no real polyhedra
+@pytest.mark.filterwarnings(
     "ignore:Found .* but no metal-ligand bonds:UserWarning")
 def test_cdft_ambiphilic_site_is_not_an_agreement(tmp_path):
-    # The only ambiphilic site is trivially "#1 of its class": agreement must stay undefined.
     cluster = tmp_path / "c.out"
     h2 = tmp_path / "h2.out"
     adduct = tmp_path / "a.out"
@@ -291,10 +267,6 @@ def test_to_json_roundtrip(triplet):
     assert d["activated"] is True
     assert d["probe_bonds"][0]["label"] == "H-H"
 
-
-# ─────────────────────────────────────────────
-# Persistence
-# ─────────────────────────────────────────────
 
 def test_persist_analysis_result(tmp_path, triplet):
     from cadmia.db.session import init_db, get_connection
@@ -337,8 +309,6 @@ def test_persist_links_the_result_to_the_configuration_geometry_created(tmp_path
     db = tmp_path / "an2.db"
     conn = init_db(db)
     try:
-        # What `geometry --db` would have written: the configuration, with its real orientation
-        # and the path of the .xyz it produced. The adduct output shares that stem.
         stem = Path(r.adduct_path).stem
         atom_lines = [f"{s} {x:.8f} {y:.8f} {z:.8f}"
                       for s, (x, y, z) in zip(r.cluster_atoms, r.cluster_positions)]
@@ -357,11 +327,11 @@ def test_persist_links_the_result_to_the_configuration_geometry_created(tmp_path
     finally:
         conn.close()
 
-    assert ids["config_id"] == planned          # attached, not re-created
+    assert ids["config_id"] == planned
     with get_connection(db) as conn:
         cfg = conn.execute("SELECT * FROM adsorption_configs WHERE id = ?",
                            (ids["config_id"],)).fetchone()
-        assert cfg["orientation"] == "end_on_p0_a0"      # the real identity survived
+        assert cfg["orientation"] == "end_on_p0_a0"
         res = conn.execute("SELECT * FROM adsorption_results WHERE id = ?",
                            (ids["result_id"],)).fetchone()
         assert res["config_id"] == ids["config_id"]
@@ -395,7 +365,6 @@ def test_persist_does_not_invent_a_configuration_when_there_is_none(tmp_path, tr
     assert ids["result_id"] is None
     with get_connection(db) as conn:
         assert conn.execute("SELECT COUNT(*) FROM adsorption_results").fetchone()[0] == 0
-        # The energetics are still recorded, and the log says why the v2 row is missing.
         assert conn.execute("SELECT COUNT(*) FROM adsorption WHERE id = ?",
                             (ids["adsorption_id"],)).fetchone()[0] == 1
         note = conn.execute(
@@ -404,16 +373,11 @@ def test_persist_does_not_invent_a_configuration_when_there_is_none(tmp_path, tr
         assert "no configuration row matches" in note
 
 
-# ─────────────────────────────────────────────
-# CLI batch mode (--adduct-dir)
-# ─────────────────────────────────────────────
-
 def test_analyze_cli_batch(tmp_path, triplet):
     from click.testing import CliRunner
     from cadmia.cli import main
     cluster, h2, adduct = triplet
     addir = tmp_path / "adducts"; addir.mkdir()
-    # two adduct outputs at different separations → two distinct analyses
     _gauss(addir / "c0.out", [("Ti", 0, 0, 0), ("O", 1.8, 0, 0),
                               ("H", 0, 0, 1.9), ("H", 0, 0, 2.72)], -101.20)
     _gauss(addir / "c1.out", [("Ti", 0, 0, 0), ("O", 1.8, 0, 0),
@@ -428,10 +392,6 @@ def test_analyze_cli_batch(tmp_path, triplet):
     assert len(written) == 2
     assert "Analyzed 2 adduct(s)" in res.output
 
-
-# ─────────────────────────────────────────────
-# Adsorption thermochemistry (ΔG/ΔH from frequencies)
-# ─────────────────────────────────────────────
 
 def _state(energy, *, h=None, g=None, t=None, homo=None, lumo=None, dipole=None, provenance=None):
     import numpy as np
@@ -455,12 +415,12 @@ def test_electronic_properties_cluster_and_adduct(monkeypatch):
     assert r.electronic_cluster["gap_ev"] == pytest.approx(5.0)
     assert r.electronic_adduct["gap_ev"] == pytest.approx(4.7)
     assert r.delta_gap_ev == pytest.approx(-0.3, abs=1e-6)
-    assert "mu_ev" in r.electronic_cluster   # global descriptors filled
+    assert "mu_ev" in r.electronic_cluster
 
 
 def test_dipole_captured_and_delta(monkeypatch):
-    states = {"ad": _state(-101.20, dipole=[3.0, 4.0, 0.0]),   # |μ| = 5.0
-              "cl": _state(-100.00, dipole=[0.0, 0.0, 2.0]),   # |μ| = 2.0
+    states = {"ad": _state(-101.20, dipole=[3.0, 4.0, 0.0]),
+              "cl": _state(-100.00, dipole=[0.0, 0.0, 2.0]),
               "pr": _state(-1.17)}
     order = iter(["ad", "cl", "pr"])
     monkeypatch.setattr(analysis_agent, "_parse_output",
@@ -493,9 +453,7 @@ def test_charge_transfer_on_adsorption(monkeypatch):
     r = analyze("ad", "cl", "pr", probe="H2")
     assert r.charge_scheme == "hirshfeld"
     assert r.site_atom_symbol == "Ti"
-    # probe block sum = -0.1 + -0.2 = -0.3 (cluster donates 0.3 e to the probe)
     assert r.q_transfer_to_probe == pytest.approx(-0.3, abs=1e-6)
-    # site Ti: 0.5 (adduct) − 0.4 (cluster) = +0.1
     assert r.delta_q_site == pytest.approx(0.1, abs=1e-6)
 
 
@@ -566,7 +524,7 @@ def test_delta_g_warns_on_mixed_temperature(monkeypatch):
     """ΔG_ads combining Gibbs energies at different T must warn."""
     states = {"ad": _state(-101.20, g=-101.18, t=298.15),
               "cl": _state(-100.00, g=-100.01, t=298.15),
-              "pr": _state(-1.17,   g=-1.15,   t=350.00)}   # probe thermo at a different T
+              "pr": _state(-1.17,   g=-1.15,   t=350.00)}
     order = iter(["ad", "cl", "pr"])
     monkeypatch.setattr(analysis_agent, "_parse_output",
                         lambda p: (states[next(order)], "orca"))
@@ -578,7 +536,7 @@ def test_delta_g_warns_on_mixed_temperature(monkeypatch):
 def test_delta_g_warns_when_probe_lacks_frequencies(monkeypatch):
     states = {"ad": _state(-101.20, h=-101.10, g=-101.18, t=298.15),
               "cl": _state(-100.00, h=-99.95, g=-100.01),
-              "pr": _state(-1.17)}   # opt only → no thermo
+              "pr": _state(-1.17)}
     order = iter(["ad", "cl", "pr"])
     monkeypatch.setattr(analysis_agent, "_parse_output",
                         lambda p: (states[next(order)], "orca"))
@@ -591,11 +549,9 @@ def test_delta_g_warns_when_probe_lacks_frequencies(monkeypatch):
 def test_structural_coordination_change(triplet):
     cluster, h2, adduct = triplet
     r = analyze(adduct, cluster, h2, cdft_json=_CDFT)
-    # binding site coordination is computed for cluster and adduct
     assert r.site_cn_cluster is not None
     assert r.site_ecn_cluster is not None
     assert r.site_cn_adduct is not None
-    # deltas are consistent
     assert r.delta_cn_site == r.site_cn_adduct - r.site_cn_cluster
     assert r.delta_ecn_site == pytest.approx(r.site_ecn_adduct - r.site_ecn_cluster, abs=1e-9)
 
@@ -604,17 +560,12 @@ def test_analyze_cli_requires_exactly_one_source(tmp_path, triplet):
     from click.testing import CliRunner
     from cadmia.cli import main
     cluster, h2, adduct = triplet
-    # neither --adduct nor --adduct-dir
     res = CliRunner().invoke(main, [
         "analyze", "--cluster", str(cluster), "--probe-free", str(h2),
     ])
     assert res.exit_code != 0
     assert "exactly one" in res.output.lower()
 
-
-# ─────────────────────────────────────────────
-# CLI positional adducts (files, directory, glob)
-# ─────────────────────────────────────────────
 
 def _two_adducts(tmp_path):
     addir = tmp_path / "adducts"; addir.mkdir()
@@ -651,7 +602,7 @@ def test_analyze_cli_one_positional_file_is_single_mode(tmp_path, triplet):
     res = CliRunner().invoke(main, ["analyze", str(adduct), "--cluster", str(cluster),
                                     "--probe-free", str(h2)])
     assert res.exit_code == 0, res.output
-    assert "Analyzed" not in res.output          # the batch summary must not appear
+    assert "Analyzed" not in res.output
 
 
 def test_analyze_cli_rejects_positional_mixed_with_the_flags(tmp_path, triplet):
@@ -662,8 +613,6 @@ def test_analyze_cli_rejects_positional_mixed_with_the_flags(tmp_path, triplet):
                                     "--cluster", str(cluster), "--probe-free", str(h2)])
     assert res.exit_code != 0
 
-
-# ── Cluster isomerism: is the substrate in the adduct the same isomer as on its own? ──
 
 def _adduct_with_cluster(tmp_path, cluster_geom, name="adduct_iso.out"):
     """Adduct whose cluster block is *cluster_geom*, with H2 parked well away from it."""
@@ -682,7 +631,6 @@ def test_cluster_keeping_its_bonding_is_not_flagged(triplet):
 
 def test_broken_cluster_bond_is_flagged_with_the_bond_that_changed(tmp_path, triplet):
     cluster, h2, _ = triplet
-    # Ti–O 1.8 → 3.0 Å: past 1.20 × (1.60 + 0.66) = 2.71 Å, so the bond is gone.
     r = analyze(_adduct_with_cluster(tmp_path, [("Ti", 0, 0, 0), ("O", 3.0, 0, 0)]), cluster, h2)
     assert r.cluster_rearranged is True
     assert r.cluster_bond_changes == {"O-Ti": -1}
@@ -692,18 +640,17 @@ def test_broken_cluster_bond_is_flagged_with_the_bond_that_changed(tmp_path, tri
 def test_the_cluster_displacement_reaches_the_result(tmp_path, triplet):
     """The deformation is the observable, not only the yes/no verdict."""
     cluster, h2, _ = triplet
-    # Ti–O stretched 1.8 → 2.2 Å: bonding unchanged, but the atoms did move.
     r = analyze(_adduct_with_cluster(tmp_path, [("Ti", 0, 0, 0), ("O", 2.2, 0, 0)]), cluster, h2)
 
     assert len(r.cluster_displacement_ang) == 2
     assert max(r.cluster_displacement_ang) == pytest.approx(0.2, abs=0.01)
-    assert r.cluster_rearranged is False          # it deformed without rearranging
+    assert r.cluster_rearranged is False
 
 
 def test_a_rigid_motion_of_the_cluster_displaces_nothing(tmp_path, triplet):
     """Kabsch first: a translated and rotated cluster has not deformed."""
     cluster, h2, _ = triplet
-    rotated = [("Ti", 5.0, -2.0, 1.0), ("O", 5.0, -2.0, 2.8)]      # same 1.8 Å Ti–O
+    rotated = [("Ti", 5.0, -2.0, 1.0), ("O", 5.0, -2.0, 2.8)]
     r = analyze(_adduct_with_cluster(tmp_path, rotated), cluster, h2)
 
     assert max(r.cluster_displacement_ang) == pytest.approx(0.0, abs=1e-3)
@@ -719,7 +666,7 @@ def test_a_cluster_merely_stretched_by_the_probe_is_not_flagged(tmp_path, triple
 
 def test_verdict_survives_rotation_and_translation(tmp_path, triplet):
     cluster, h2, _ = triplet
-    rotated = [("Ti", 5.0, -2.0, 1.0), ("O", 5.0, -2.0, 2.8)]      # same Ti–O of 1.8 Å
+    rotated = [("Ti", 5.0, -2.0, 1.0), ("O", 5.0, -2.0, 2.8)]
     r = analyze(_adduct_with_cluster(tmp_path, rotated), cluster, h2)
     assert r.cluster_rearranged is False
 
@@ -727,14 +674,9 @@ def test_verdict_survives_rotation_and_translation(tmp_path, triplet):
 def test_a_distance_near_the_cutoff_makes_the_verdict_unsafe(tmp_path, triplet):
     """A verdict that would flip with a slightly different cutoff has to say so."""
     cluster, h2, _ = triplet
-    # 2.75 Å sits within _SKELETON_MARGIN of the 2.71 Å cutoff.
     r = analyze(_adduct_with_cluster(tmp_path, [("Ti", 0, 0, 0), ("O", 2.75, 0, 0)]), cluster, h2)
     assert any("close to the bond/no-bond cutoff" in w for w in r.warnings)
 
-
-# ─────────────────────────────────────────────
-# Counterpoise
-# ─────────────────────────────────────────────
 
 def _cp_log(path: Path, complex_e: float, fragment_e: float, corrected: float | None) -> Path:
     """A counterpoise-shaped Gaussian log: complex first, fragments after."""
@@ -758,7 +700,7 @@ def test_counterpoise_energy_is_not_taken_from_the_last_fragment(tmp_path):
 
     log = _cp_log(tmp_path / "cp.log", complex_e=-100.5, fragment_e=-50.1, corrected=-100.4)
     lines = log.read_text(encoding="utf-8").splitlines()
-    assert _parse_gaussian_energy(lines) == pytest.approx(-100.4)   # not -50.1
+    assert _parse_gaussian_energy(lines) == pytest.approx(-100.4)
 
 
 def test_counterpoise_without_a_corrected_line_warns(tmp_path):
@@ -783,7 +725,7 @@ def test_a_plain_log_is_untouched_by_the_counterpoise_path(tmp_path):
         encoding="utf-8",
     )
     lines = log.read_text(encoding="utf-8").splitlines()
-    assert _parse_gaussian_energy(lines) == pytest.approx(-76.41)   # last one still wins
+    assert _parse_gaussian_energy(lines) == pytest.approx(-76.41)
     assert gaussian_energy_is_counterpoise_corrected(lines) is False
 
 
@@ -802,7 +744,6 @@ def test_gaussian_counterpoise_log():
     assert gaussian_energy_is_counterpoise_corrected(lines)
     assert _parse_gaussian_energy(lines) == pytest.approx(-1001.408680229182, abs=1e-9)
     assert _parse_bsse_hartree(log) == pytest.approx(0.001604618594, abs=1e-12)
-    # The trap: the last SCF Done in the file is a fragment, an order of magnitude away.
     assert _parse_gaussian_energy(lines) < -1000.0
 
 

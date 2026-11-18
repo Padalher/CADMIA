@@ -15,7 +15,7 @@ from cadmia.core.provenance import Provenance
 
 
 def electronic_state_to_calculation(
-    state: Any,   # cadmia.core.ElectronicState
+    state: Any,
     *,
     engine: Optional[str] = None,
     method: Optional[str] = None,

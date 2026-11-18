@@ -68,12 +68,6 @@ class Polyhedron:
 
 _TETRAHEDRAL_ANGLE = 109.4712206
 
-# Reference for the angle variance, per polyhedron TYPE — not per coordination number:
-# a square-planar and a tetrahedral center both have CN=4 but ideal cis angles of 90°
-# and 109.47°. Each entry is (ideal cis angle in degrees, how many cis angles the ideal
-# polyhedron has). A trigonal bipyramid is deliberately absent: its ideal angles are two
-# different values (90° axial-equatorial, 120° equatorial-equatorial), so a variance
-# against a single reference would be meaningless — σ² is reported as NaN there.
 _IDEAL_CIS: dict[str, tuple[float, int]] = {
     "triangle":       (120.0, 3),
     "square_planar":  (90.0, 4),
@@ -82,17 +76,6 @@ _IDEAL_CIS: dict[str, tuple[float, int]] = {
     "octahedron":     (90.0, 12),
 }
 
-# Volume of the REGULAR polyhedron of each type as V = k·R³, with R the centre-to-vertex
-# distance. Inverting it gives the l₀ that Robinson's quadratic elongation needs: the bond
-# length of the ideal polyhedron with the same volume as the real one.
-#   octahedron         vertices at ±R on the axes           V = 4/3 R³
-#   tetrahedron        circumradius R                       V = 8/(9√3) R³
-#   square pyramid     half an octahedron                   V = 2/3 R³
-#   trigonal bipyramid two pyramids on an equilateral base  V = √3/2 R³
-# Flat types (triangle, square_planar) are absent: they have no volume, so no ⟨λ⟩. So is
-# `seesaw`, which has no regular counterpart. Note this table covers the trigonal
-# bipyramid while _IDEAL_CIS does not — a single ideal *angle* does not exist there, but a
-# single ideal *volume* does.
 _VOLUME_COEFF: dict[str, float] = {
     "tetrahedron":        8.0 / (9.0 * sqrt(3.0)),
     "square_pyramid":     2.0 / 3.0,
@@ -100,9 +83,6 @@ _VOLUME_COEFF: dict[str, float] = {
     "octahedron":         4.0 / 3.0,
 }
 
-# Addison's tau_5 and Yang's tau_4 split geometries that share a coordination number.
-# Midpoints of the 0..1 scales: tau_5 = 0 square pyramid, 1 trigonal bipyramid;
-# tau_4 = 0 square planar, 1 tetrahedron (0.85 is the usual seesaw/tetrahedron cut).
 _TAU5_MIDPOINT = 0.5
 _TAU4_SQUARE_PLANAR = 0.25
 _TAU4_TETRAHEDRON = 0.85
@@ -221,7 +201,7 @@ def convex_hull_volume(points: "np.ndarray") -> float:
         return float("nan")
     tol = 1e-6 * scale
     if np.linalg.matrix_rank(centered, tol=tol) < 3:
-        return float("nan")          # flat: a square-planar or triangular set has no volume
+        return float("nan")
 
     faces: "dict[frozenset[int], np.ndarray]" = {}
     n = len(pts)
@@ -231,14 +211,14 @@ def convex_hull_volume(points: "np.ndarray") -> float:
                 normal = np.cross(pts[j] - pts[i], pts[k] - pts[i])
                 length = float(np.linalg.norm(normal))
                 if length <= tol * scale:
-                    continue                                  # collinear triple
+                    continue
                 normal = normal / length
                 offset = float(np.dot(normal, pts[i]))
-                if float(np.dot(normal, centroid)) > offset:  # orient outward
+                if float(np.dot(normal, centroid)) > offset:
                     normal, offset = -normal, -offset
                 signed = pts @ normal - offset
                 if np.any(signed > tol):
-                    continue                                  # not a supporting plane
+                    continue
                 faces[frozenset(np.flatnonzero(np.abs(signed) <= tol).tolist())] = normal
 
     volume = 0.0
@@ -379,12 +359,6 @@ def analyze_polyhedra(
                 if other_el not in metal_set:
                     inferred.add(other_el)
         ligand_set = inferred
-        # Only worth reporting when the structure has metals AND has bonds, yet none of
-        # them is metal-ligand — that is the case where the caller expects polyhedra and
-        # silently gets none. A probe molecule with no metal, or an isolated atom with no
-        # bonds at all, has no polyhedron to find and warning there would be pure noise.
-        # "No polyhedra" and "could not tell what the ligands are" are different answers,
-        # and an empty list alone cannot distinguish them.
         if not ligand_set and result.bonds:
             metals_present = sorted({el for el in structure.atoms if el in metal_set})
             if metals_present:

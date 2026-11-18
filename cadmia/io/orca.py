@@ -74,8 +74,8 @@ def _parse_orca_charge_mult_pg(lines: List[str]):
     charge = 0
     multiplicity = 1
     point_group: Optional[str] = None
-    _charge_re = re.compile(r'Total Charge\s+Charge\s+\.*\s+(-?\d+)', re.IGNORECASE)
-    _mult_re   = re.compile(r'Multiplicity\s+Mult\s+\.*\s+(\d+)', re.IGNORECASE)
+    _charge_re = re.compile(r'Total Charge\s+Charge[\s.]+(-?\d+)', re.IGNORECASE)
+    _mult_re   = re.compile(r'Multiplicity\s+Mult[\s.]+(\d+)', re.IGNORECASE)
     _pg_re     = re.compile(r'(?:Point Group|Symmetry Group used)\s+(\S+)', re.IGNORECASE)
     for line in lines:
         m = _charge_re.search(line)

@@ -10,10 +10,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
-
 def _uuid() -> str:
     return str(uuid.uuid4())
 
@@ -27,10 +23,6 @@ def _sha256_file(path: Path) -> str:
     h.update(path.read_bytes())
     return h.hexdigest()
 
-
-# ─────────────────────────────────────────────
-# v2: provenance & structures
-# ─────────────────────────────────────────────
 
 def insert_provenance(conn: sqlite3.Connection, provenance: Any) -> str:
     """Insert a provenance row from a cadmia.core.Provenance (or compatible dict); return its id."""
@@ -55,7 +47,6 @@ def _default_provenance(output_path: str | Path, *, parser: str) -> Any:
     path = Path(output_path) if output_path else None
     if path and path.is_file():
         return Provenance.from_file(path, parser=parser, software_version=version)
-    # No real file to hash (e.g. in-memory geometry): record what we have.
     return Provenance(source_file=str(output_path or ""), parser=parser,
                       software_version=version)
 
@@ -106,10 +97,6 @@ def insert_workflow_run(
     )
     return run_id
 
-
-# ─────────────────────────────────────────────
-# molecules
-# ─────────────────────────────────────────────
 
 def upsert_molecule(
     conn: sqlite3.Connection,
@@ -170,10 +157,6 @@ def _formula_from_xyz(atom_lines: List[str]) -> str:
     return hill_formula(symbols)
 
 
-# ─────────────────────────────────────────────
-# calculations
-# ─────────────────────────────────────────────
-
 def insert_calculation(
     conn: sqlite3.Connection,
     molecule_id: str,
@@ -220,13 +203,9 @@ def get_calculations(
     return [dict(r) for r in rows]
 
 
-# ─────────────────────────────────────────────
-# descriptors  (from CDFTResult)
-# ─────────────────────────────────────────────
-
 def insert_descriptors_from_cdft(
     conn: sqlite3.Connection,
-    cdft_result: Any,   # cadmia.agents.cdft_agent.CDFTResult
+    cdft_result: Any,
     calculation_id: str,
     provenance_id: Optional[str] = None,
 ) -> List[str]:
@@ -264,10 +243,6 @@ def get_descriptors(
     ).fetchall()
     return [dict(r) for r in rows]
 
-
-# ─────────────────────────────────────────────
-# run_log
-# ─────────────────────────────────────────────
 
 def log_run(
     conn: sqlite3.Connection,
@@ -308,18 +283,14 @@ def get_run_log(
     return [dict(r) for r in rows]
 
 
-# ─────────────────────────────────────────────
-# High-level orchestration
-# ─────────────────────────────────────────────
-
 def persist_cdft_result(
     conn: sqlite3.Connection,
-    cdft_result: Any,   # cadmia.agents.cdft_agent.CDFTResult
+    cdft_result: Any,
     *,
     engine: str,
     output_path: str | Path,
     task: str = "cdft",
-    provenance: Optional[Any] = None,   # cadmia.core.Provenance
+    provenance: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Persist a full CDFTResult: molecule + calculation + per-atom descriptors + run_log.
 
@@ -379,7 +350,7 @@ def persist_imported_calculation(
     conn: sqlite3.Connection,
     *,
     atoms: List[str],
-    positions: Any,                 # iterable of (x, y, z)
+    positions: Any,
     name: str,
     engine: str,
     energy_au: Optional[float] = None,
@@ -438,10 +409,10 @@ def persist_imported_calculation(
 def persist_bond_descriptors(
     conn: sqlite3.Connection,
     calculation_id: str,
-    bonds: Any,                       # iterable of cadmia.io.mayer.MayerBond
+    bonds: Any,
     *,
     order_type: str = "mayer",
-    positions: Any = None,            # optional Nx3 for distance_A
+    positions: Any = None,
 ) -> List[str]:
     """Insert one bond_descriptors row per bond; return the inserted ids.
 
@@ -472,10 +443,6 @@ def persist_bond_descriptors(
         ids.append(bid)
     return ids
 
-
-# ─────────────────────────────────────────────
-# adsorption
-# ─────────────────────────────────────────────
 
 def insert_adsorption(
     conn: sqlite3.Connection,
@@ -689,7 +656,7 @@ def insert_adsorption_result(
 
 def persist_geometry_result(
     conn: sqlite3.Connection,
-    geometry_result: Any,   # cadmia.agents.geometry_agent.GeometryResult
+    geometry_result: Any,
     *,
     cluster_xyz: str | Path,
 ) -> Dict[str, Any]:
@@ -723,7 +690,7 @@ def persist_geometry_result(
 
 def persist_calculation_result(
     conn: sqlite3.Connection,
-    calculation_result: Any,   # cadmia.agents.calculation_agent.CalculationResult
+    calculation_result: Any,
     *,
     task: str = "sp",
 ) -> Dict[str, Any]:
@@ -787,7 +754,7 @@ def persist_calculation_result(
 
 def persist_benchmark_result(
     conn: sqlite3.Connection,
-    benchmark_result: Any,   # cadmia.agents.benchmark_agent.BenchmarkResult
+    benchmark_result: Any,
 ) -> Dict[str, Any]:
     """Persist a BenchmarkResult: a calculation row per engine + a run_log comparison entry."""
     params = benchmark_result.params
@@ -821,10 +788,10 @@ def persist_benchmark_result(
 
 def persist_analysis_result(
     conn: sqlite3.Connection,
-    analysis_result: Any,   # cadmia.agents.analysis_agent.AnalysisResult
+    analysis_result: Any,
     *,
     calc_id: Optional[str] = None,
-    provenance: Optional[Any] = None,   # cadmia.core.Provenance
+    provenance: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Persist an AnalysisResult as one adsorption row (+ run_log).
 
@@ -863,20 +830,12 @@ def persist_analysis_result(
         calc_id=calc_id,
         provenance_id=prov_id,
     )
-    # Attach the result to the configuration row `geometry` created, found by the filename stem
-    # the two stages share. Creating one here instead would have to invent an identity: calling
-    # insert_adsorption_config without `orientation` makes the idempotent lookup match ANY adduct
-    # on the same (cluster, probe, site), so the second configuration of a site overwrote the
-    # energy of the first. Better to persist no configuration than a wrong one.
     stem = Path(analysis_result.adduct_path).stem if analysis_result.adduct_path else ""
     config_id = find_adsorption_config_by_stem(conn, stem)
 
     result_id = None
     note = ""
     if config_id is None:
-        # adsorption_results.config_id is NOT NULL, and there is no honest value to put there:
-        # the row belongs to a configuration nobody recorded. The energetics still land in the
-        # `adsorption` row above, so nothing is lost; what is skipped is the v2 result row.
         note = (f" — no configuration row matches '{stem}', so the v2 result row was skipped; "
                 "run `geometry --db` first to link the two")
     else:
@@ -905,9 +864,9 @@ def persist_analysis_result(
 
 def persist_stability_result(
     conn: sqlite3.Connection,
-    stability_result: Any,   # cadmia.agents.stability_agent.StabilityResult
+    stability_result: Any,
     *,
-    provenance: Optional[Any] = None,   # cadmia.core.Provenance
+    provenance: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Persist a StabilityResult: mixed molecule + one stability row + run_log.
 

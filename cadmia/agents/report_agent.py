@@ -19,15 +19,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from cadmia.core.stats import linregress
 from cadmia.core.units import HARTREE_TO_KCAL
 
-# Two adducts whose total energies agree within this (and that bind the same site) are the
-# same DFT minimum: the prescreen dedups at the xTB level, but different starts can still
-# relax to one well at DFT, so we collapse them here before summarizing/correlating.
 _DEDUP_E_KCAL = 0.3
 
-
-# ─────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────
 
 def _load(obj: Any) -> Optional[dict]:
     """Normalize an input (dict / dataclass with to_dict / JSON path / JSON string) to a dict."""
@@ -96,7 +89,6 @@ def _dedup_analyses(analyses: List[dict]) -> Tuple[List[dict], Dict[Any, List[An
     unique: List[dict] = []
     duplicates: Dict[Any, List[Any]] = {}
     def key(a):
-        # config_index restarts at 0 on every `analyze` run; the saved result's id does not
         return a.get("config_id") or a.get("adduct_path") or id(a)
 
     for a in sorted(analyses, key=lambda d: (d.get("e_adduct_hartree") is None,
@@ -118,10 +110,6 @@ def _dedup_analyses(analyses: List[dict]) -> Tuple[List[dict], Dict[Any, List[An
     unique.sort(key=lambda d: (d.get("config_index") is None, d.get("config_index")))
     return unique, duplicates
 
-
-# ─────────────────────────────────────────────
-# Result objects
-# ─────────────────────────────────────────────
 
 @dataclass
 class Correlation:
@@ -204,10 +192,6 @@ class Report:
         return written
 
 
-# ─────────────────────────────────────────────
-# Builder
-# ─────────────────────────────────────────────
-
 _GLOBAL_ORDER = [
     ("homo_eV", "HOMO", "eV"), ("lumo_eV", "LUMO", "eV"), ("gap_eV", "Gap", "eV"),
     ("ip_eV", "IP", "eV"), ("ea_eV", "EA", "eV"), ("hardness_eV", "η(FD)", "eV"),
@@ -234,9 +218,6 @@ _STAGE_SCOPE = {
 }
 _BOX_WIDTH = 72
 
-
-# Fixed, so a module keeps its number whatever else the report holds. Reserved: 0 calculation and
-# preparation (from an .xyz and an input), 5 characterization (DOS, PDOS, IR, MEP).
 MODULE_NUMBER = {"structure": 1, "cdft": 2, "analysis": 3, "stability": 4}
 
 
@@ -321,7 +302,6 @@ def _run_info_block(meta: dict, contributions: List[str]) -> List[str]:
         ("cdft",      "Reactivity (CDFT): global descriptors + site ranking"),
         ("analysis",  "Adsorption energetics (probe–cluster configurations)"),
         ("stability", "Relative (formation) stability"),
-        # Only shown when benchmark data is given.
         ("benchmark", "Engine benchmark (Gaussian vs ORCA)"),
     ]
     for key, label in all_stages:
@@ -448,7 +428,6 @@ def build_report(
     if struct_d:
         md += opens("structure") + _structure_md(struct_d)
 
-    # ── Global descriptors ──
     if cdft_d:
         md += opens("cdft")
         gd = cdft_d.get("global_descriptors", {})
@@ -460,7 +439,6 @@ def build_report(
             tex.append(_latex_table(["Descriptor", "Value", "Unit"], rows,
                                     f"Global CDFT descriptors for {cluster}", "global"))
 
-        # ── Site ranking ──
         sites = sorted(cdft_d.get("sites", []), key=lambda s: s.get("rank", 1e9))
         srows = [[str(s.get("rank")), f"{s.get('atom_symbol')}({s.get('atom_index')})",
                   _fmt(s.get("fukui_plus")), _fmt(s.get("fukui_minus")),
@@ -474,7 +452,6 @@ def build_report(
                                      "Acid/base"],
                                     srows, f"CDFT site ranking for {cluster}", "sites"))
 
-        # ── Lewis acid/base sites (HSAB) ──
         ab = cdft_d.get("acid_base_summary") or {}
         acid, base = ab.get("strongest_acid_site"), ab.get("strongest_base_site")
         if acid or base:
@@ -494,7 +471,6 @@ def build_report(
             if ab.get("hsab_note"):
                 md += [f"_{ab['hsab_note']}_", ""]
 
-    # ── Adsorption summary + Δf vs E_ads correlation ──
     if analysis_ds:
         md += opens("analysis")
         analysis_ds, dup_map = _dedup_analyses(analysis_ds)
@@ -522,8 +498,6 @@ def build_report(
                 "yes" if a.get("activated") else "no",
             ])
             if df is not None and a.get("e_ads_kcal") is not None:
-                # Kept PER PROBE: a CDFT ranking can correlate with opposite signs for
-                # different probes, and a single r over the pool would average them away.
                 by_probe.setdefault(a.get("probe") or "probe", ([], [], []))
                 px, py, plab = by_probe[a.get("probe") or "probe"]
                 px.append(df); py.append(a["e_ads_kcal"])
@@ -542,8 +516,6 @@ def build_report(
         for probe_name, (px, py, plab) in sorted(by_probe.items()):
             n_distinct = len({round(v, 6) for v in px})
             if len(px) < 3 or n_distinct < 2:
-                # Two points give r = ±1 by construction, whatever they are. Printing that as a
-                # correlation is the trap, not the small sample itself.
                 warnings.append(
                     f"Δf vs E_ads for {probe_name}: {len(px)} configuration(s), "
                     f"{n_distinct} distinct Δf — too few for a correlation; not reported."
@@ -572,7 +544,6 @@ def build_report(
                 f"sites; only {len(analysis_ds)} unique minimum(a) available."
             )
 
-        # ── Electronic properties: cluster (before) → complex (after) ──
         ecl = next((a.get("electronic_cluster") for a in analysis_ds
                     if a.get("electronic_cluster")), None)
         complexes = [(a.get("config_index"), a.get("electronic_adduct"))
@@ -602,7 +573,6 @@ def build_report(
                 tex.append(_latex_table(headers, erows,
                                         f"Electronic properties (cluster vs adduct) for {cluster}", "elec"))
 
-            # Dipole magnitude (Debye) — separate table to keep units unambiguous.
             dcl = ecl.get("dipole_debye")
             dpls = [(i, ed.get("dipole_debye")) for i, ed in complexes]
             if dcl is not None and any(d is not None for _, d in dpls):
@@ -612,7 +582,6 @@ def build_report(
                 if len(dpls) == 1 and dpls[0][1] is not None:
                     md += [f"Δ|μ| on adsorption = **{dpls[0][1] - dcl:+.3f} D**.", ""]
 
-        # ── Strongest Mayer bond orders at the binding site (complex) ──
         mrows = []
         for a in analysis_ds:
             bonds = a.get("site_mayer_bonds") or []
@@ -630,7 +599,6 @@ def build_report(
             tex.append(_latex_table(["Cfg", "Site", "Partner", "Mayer BO"], mrows,
                                     f"Mayer bond orders at the binding site for {cluster}", "mayer"))
 
-        # ── Structural coordination of the binding site: cluster → complex ──
         srows = []
         for a in analysis_ds:
             if a.get("site_cn_cluster") is None and a.get("site_ecn_cluster") is None:
@@ -652,10 +620,6 @@ def build_report(
                                      "ECN$_{clu}$", "ECN$_{ad}$", "$\\Delta$ECN"], srows,
                                     f"Binding-site coordination for {cluster}", "coord"))
 
-        # ── Charge transfer predicted by conceptual DFT (cluster ↔ probe) ──
-        # One row per PROBE. Taking the first analysis published the ΔN of whichever probe
-        # happened to come first under a heading that does not name it, and ΔN is a property of
-        # the pair: the same cluster donates to one probe and accepts from another.
         ct_by_probe: dict = {}
         for a in analysis_ds:
             item = a.get("charge_transfer")
@@ -683,7 +647,6 @@ def build_report(
                 ctrows, f"Conceptual-DFT charge transfer (cluster $\\leftrightarrow$ probe) for {cluster}",
                 "ct"))
 
-        # ── Charge transfer on adsorption ──
         qrows = []
         qscheme = None
         for a in analysis_ds:
@@ -703,7 +666,6 @@ def build_report(
             tex.append(_latex_table(["Cfg", "Site", "$\\Delta q_{probe}$", "$\\Delta q_{site}$"],
                                     qrows, f"Charge transfer on adsorption for {cluster}", "charge"))
 
-        # ── Vibrational signature of the complex ──
         vrows = []
         for a in analysis_ds:
             bands = a.get("adduct_ir_bands") or []
@@ -719,7 +681,6 @@ def build_report(
                    "Top IR bands as cm⁻¹ (km/mol).", "",
                    _md_table(["cfg", "minimum?", "top IR bands"], vrows), ""]
 
-    # ── Density of states (linked artifacts) ──
     dos_files = (meta or {}).get("dos_files") or []
     pdos_files = (meta or {}).get("pdos_files") or []
     if dos_files or pdos_files:
@@ -730,7 +691,6 @@ def build_report(
             md.append(f"- PDOS: [{Path(p).name}]({p})")
         md.append("")
 
-    # ── Stability ──
     if stab_d:
         md += opens("stability")
         refs = " + ".join(f"{r.get('coefficient')}·{r.get('label')}" for r in stab_d.get("references", []))
@@ -741,8 +701,6 @@ def build_report(
                f"({_fmt(stab_d.get('e_rel_eV_per_atom'), 4, signed=True)} eV/atom)",
                f"- Reference: {stab_d.get('formula')} = {refs} ({bal})", ""]
 
-
-    # ── Benchmark ──
     if bench_d and bench_d.get("comparison"):
         md += opens("benchmark")
         c = bench_d["comparison"]
@@ -751,13 +709,9 @@ def build_report(
                          [[_fmt(c.get("delta_e_kcal"), 3), _fmt(c.get("rmsd_ang"), 4),
                            _fmt(c.get("timing_ratio"), 2), str(c.get("recommendation"))]]), ""]
 
-    # ── References (Literature Agent) ──
     if lit_d:
         md += _references_md(lit_d)
 
-    # The Markdown is the deliverable; the CLI print is not. A correlation that was withheld or
-    # configurations collapsed as duplicates belong in the document, next to the numbers they
-    # qualify.
     if warnings:
         md += ["## Warnings", ""] + [f"- {w}" for w in warnings] + [""]
 
@@ -768,10 +722,6 @@ def build_report(
                   latex="\n\n".join(tex) + "\n" if tex else "",
                   correlations=correlations, warnings=warnings)
 
-
-# ─────────────────────────────────────────────
-# The output: every stage's full report, in one fixed-width text file
-# ─────────────────────────────────────────────
 
 _NOT_STORED = (" This module's JSON holds no full report: it was written outside a CADMIA 0.3.1 run of\n"
                " the module (an older version, or by hand). Run the module again to include it.")

@@ -31,8 +31,8 @@ API_KEY_ENV = {
 @dataclass
 class LLMConfig:
     provider:   str = "anthropic"
-    model:      Optional[str] = None     # provider default when None
-    base_url:   Optional[str] = None     # for OpenAI-compatible/local endpoints
+    model:      Optional[str] = None
+    base_url:   Optional[str] = None
     max_tokens: int = 2048
     timeout_s:  int = 120
 
@@ -63,8 +63,6 @@ def load_config(path: "str | Path | None" = None) -> LLMConfig:
     if not isinstance(data, dict):
         raise LLMError(f"Invalid LLM config (expected a mapping): {cfg_path}")
     known = {"provider", "model", "base_url", "max_tokens", "timeout_s"}
-    # Flag secret-bearing keys with a clear message (only outside the whitelist, so
-    # legitimate keys like max_tokens are never caught by the "token" marker).
     _secret_markers = ("key", "token", "secret", "password", "passwd")
     if any(k not in known and any(m in k.lower() for m in _secret_markers) for k in data):
         raise LLMError(f"API keys/secrets must not be stored in {cfg_path}; use environment variables.")

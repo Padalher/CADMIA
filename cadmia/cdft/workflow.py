@@ -38,7 +38,7 @@ class CDFTInputState:
     charge_scheme: str = "hirshfeld"
     source_file: str = ""
     spin_sq: Optional[float] = None
-    electronic: Optional[ElectronicState] = None   # the parsed state, kept for the report
+    electronic: Optional[ElectronicState] = None
 
     @classmethod
     def from_electronic_state(cls, state: ElectronicState) -> CDFTInputState:
@@ -141,24 +141,18 @@ class CDFTWorkflowResult:
     structure: Structure
     charge_scheme: str
 
-    # --- global descriptors from finite differences ---
     global_fd: FiniteDifferenceCDFT
 
-    # --- global Koopmans descriptors (from N HOMO/LUMO) ---
     global_koopmans: Optional[GlobalElectronic]
 
-    # --- per-atom condensed descriptors ---
     fukui: FukuiResult
 
-    # --- source files ---
     source_n: str
     source_np1: Optional[str]
     source_nm1: Optional[str]
 
-    # --- the three input states, keyed "N", "N+1", "N-1" (absent ones omitted) ---
     states: Optional[dict] = None
 
-    # --- convenience accessors ---
     @property
     def homo_n_ev(self) -> Optional[float]:
         return self.global_fd.homo_n_ev
@@ -180,9 +174,9 @@ class CDFTWorkflowResult:
         return self.global_fd.nucleophilicity_hartree
 
 
-# Spin contamination beyond this fraction of the ideal ⟨S²⟩ makes the state a poor
-# representation of the intended spin eigenstate. 10 % is the usual working threshold.
 _SPIN_CONTAMINATION_TOL = 0.10
+_MAX_TWICE_TOTAL_SPIN = 12
+"""Largest 2S tried when looking for the nearest spin eigenvalue (S = 6)."""
 
 
 def _spin_contamination_warnings(states: "dict[str, CDFTInputState | None]") -> List[str]:
@@ -200,15 +194,10 @@ def _spin_contamination_warnings(states: "dict[str, CDFTInputState | None]") -> 
     for label, st in states.items():
         if st is None or st.spin_sq is None:
             continue
-        # nearest ideal S(S+1) over S = 0, 0.5, 1, 1.5, ...
         candidates = [(abs(st.spin_sq - s * (s + 1)), s * (s + 1))
-                      for s in (i / 2 for i in range(0, 13))]
+                      for s in (i / 2 for i in range(_MAX_TWICE_TOTAL_SPIN + 1))]
         _, ideal = min(candidates)
         if ideal == 0:
-            # A closed-shell SCF has no ⟨S²⟩ at all, so reaching here with ideal = 0 means an
-            # UNRESTRICTED calculation that landed near a singlet — and a broken-symmetry singlet
-            # is a real possibility in a Ti oxide. Dividing by zero is impossible, so the check
-            # is absolute: any appreciable ⟨S²⟩ on a nominal singlet is worth saying out loud.
             if st.spin_sq > 0.1:
                 out.append(
                     f"{label}: <S**2> = {st.spin_sq:.4f} on a nominally closed-shell state — "
@@ -223,7 +212,6 @@ def _spin_contamination_warnings(states: "dict[str, CDFTInputState | None]") -> 
                 "condensed descriptors carry that contamination."
             )
     return out
-
 
 
 def run_cdft_workflow(
@@ -246,11 +234,6 @@ def run_cdft_workflow(
         HOMO energy of the TCE reference (eV).  Defaults to the Multiwfn
         B3LYP/6-31G* value (:data:`HOMO_TCE_EV`).
     """
-    # --- validate charge scheme consistency ---
-    # The condensed Fukui functions subtract charges POSITION BY POSITION, so the three states
-    # must list their atoms in the same order. Same length is not enough: a file regenerated
-    # from a reordered .xyz gives f = q_i(N) - q_j(N±1) with i ≠ j, still sums to ~1, and raises
-    # nothing.
     for label, state in (("N+1", state_np1), ("N-1", state_nm1)):
         if state is None:
             continue
@@ -259,8 +242,6 @@ def run_cdft_workflow(
                 f"{label}: the atom list differs from N. The three charge states must share the "
                 "atom order — the condensed Fukui functions subtract charges by position.")
 
-    # Swapped N+1/N-1 files exchange f+ and f- with no other symptom. Checked only for states
-    # read from an output, where the total charge is the engine's own.
     q = state_n.structure.charge
     for label, state, expected in (("N+1", state_np1, q - 1), ("N-1", state_nm1, q + 1)):
         if (state is not None and state.electronic is not None and state_n.electronic is not None
@@ -276,27 +257,19 @@ def run_cdft_workflow(
     if state_nm1 is not None:
         schemes.add(state_nm1.charge_scheme)
     if len(schemes) > 1:
-        # Not a warning: a truncated Hirshfeld block makes the parser fall back to Mulliken
-        # silently, and f = q_Mulliken - q_Hirshfeld is a plausible-looking, wrong number that
-        # reaches the JSON either way.
         raise ValueError(
             f"Charge schemes differ across states: {sorted(schemes)}. Fukui functions are only "
             "meaningful when the same scheme is used for all three — check that every output "
             "carries a complete population block.")
 
-    # --- the charged states are open shell: say so if either is contaminated ---
-    # The neutral is checked too: it is usually closed shell, but nothing forces it to be, and
-    # a broken-symmetry singlet there poisons every descriptor, not just the ones from the ions.
     for msg in _spin_contamination_warnings({"N": state_n, "N+1": state_np1, "N-1": state_nm1}):
         import warnings
         warnings.warn(msg, RuntimeWarning, stacklevel=2)
 
-    # --- collect charges per state (empty list → treat as absent) ---
     charges_n   = state_n.charges   if state_n.charges   else None
     charges_np1 = state_np1.charges if (state_np1 is not None and state_np1.charges) else None
     charges_nm1 = state_nm1.charges if (state_nm1 is not None and state_nm1.charges) else None
 
-    # --- energies ---
     en = state_n.energy_hartree
     enp1 = state_np1.energy_hartree if state_np1 is not None else None
     enm1 = state_nm1.energy_hartree if state_nm1 is not None else None
@@ -306,7 +279,6 @@ def run_cdft_workflow(
             "run_cdft_workflow requires state_np1 and state_nm1 to have energy_hartree."
         )
 
-    # --- global finite-difference descriptors ---
     global_fd = compute_finite_difference_descriptors(
         energy_n_hartree=en,
         energy_np1_hartree=enp1,
@@ -318,7 +290,6 @@ def run_cdft_workflow(
         homo_tce_ev=homo_tce_ev,
     )
 
-    # --- Koopmans descriptors from N state HOMO/LUMO ---
     global_koopmans: Optional[GlobalElectronic] = None
     if state_n.homo_ev is not None and state_n.lumo_ev is not None:
         try:
@@ -329,14 +300,11 @@ def run_cdft_workflow(
         except ValueError:
             pass
 
-    # --- condensed Fukui and local descriptors ---
     structure = state_n.structure
     atoms = structure.atoms
     labels = structure.labels
 
     if charges_n is not None:
-        # Local softnesses follow Multiwfn convention: s = S[Ha^-1] × f[e]
-        # global_fd.softness is in eV^-1; multiply by HARTREE_TO_EV to get Ha^-1
         from cadmia.core.units import HARTREE_TO_EV as _HtoEV
         fukui = compute_condensed_fukui(
             atoms=atoms,
@@ -349,8 +317,8 @@ def run_cdft_workflow(
             hardness_ev=global_fd.hardness_ev,
             ip_ev=global_fd.ip_ev,
             ea_ev=global_fd.ea_ev,
-            softness_override=global_fd.softness * _HtoEV,  # eV^-1 → Ha^-1
-            omega_ev_override=global_fd.omega_ev,           # FD omega (eV)
+            softness_override=global_fd.softness * _HtoEV,
+            omega_ev_override=global_fd.omega_ev,
         )
     else:
         fukui = FukuiResult(

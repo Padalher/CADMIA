@@ -15,16 +15,16 @@ from cadmia.core.structure import Structure
 @dataclass
 class Calculation:
     structure:        Optional[Structure] = None
-    engine:           Optional[str] = None       # gaussian | orca
-    method:           Optional[str] = None       # functional / level of theory
+    engine:           Optional[str] = None
+    method:           Optional[str] = None
     basis:            Optional[str] = None
-    dispersion:       Optional[str] = None        # d3bj | d3zero | d4 | none
-    task:             Optional[str] = None        # sp | opt | freq | opt+freq
+    dispersion:       Optional[str] = None
+    task:             Optional[str] = None
     charge:           Optional[int] = None
     multiplicity:     Optional[int] = None
     energy_hartree:   Optional[float] = None
     frequencies_cm1:  List[float] = field(default_factory=list)
-    status:           str = "unknown"             # done | failed | running | unknown
+    status:           str = "unknown"
     wall_time_s:      Optional[float] = None
     source_file:      Optional[str] = None
     metadata:         dict = field(default_factory=dict)

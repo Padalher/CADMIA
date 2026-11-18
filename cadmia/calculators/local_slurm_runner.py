@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from cadmia.calculators.params import CalcParams
     from cadmia.config import HPCProfile
 
-_CMD_TIMEOUT = 30   # seconds per SLURM command
+_CMD_TIMEOUT = 30
 
 
 class LocalSlurmRunner:
@@ -30,8 +30,6 @@ class LocalSlurmRunner:
 
     def __init__(self, profile: "HPCProfile") -> None:
         self.profile = profile
-
-    # ── command helper ─────────────────────────────────
 
     def _run(self, cmd: List[str], timeout: int = _CMD_TIMEOUT) -> Tuple[int, str, str]:
         """Run a local command; returns (returncode, stdout, stderr)."""
@@ -41,8 +39,6 @@ class LocalSlurmRunner:
     def ping(self) -> bool:
         """Return True if SLURM (sbatch) is available on this machine."""
         return shutil.which("sbatch") is not None
-
-    # ── File transfer (local: copies, not transfers) ───
 
     def upload(self, local_path: Path, remote_path: str, timeout: int = _CMD_TIMEOUT) -> None:
         """Copy *local_path* to *remote_path* (both local); no-op if identical."""
@@ -66,8 +62,6 @@ class LocalSlurmRunner:
     def mkdir_remote(self, remote_dir: str) -> None:
         """Create a local directory (parents included)."""
         Path(remote_dir).mkdir(parents=True, exist_ok=True)
-
-    # ── SLURM ──────────────────────────────────────────
 
     def submit(
         self,
@@ -129,7 +123,6 @@ class LocalSlurmRunner:
         if slurm_state:
             return _SLURM_STATUS.get(slurm_state, "unknown")
 
-        # Job no longer queued — consult accounting.
         rc, stdout, _ = self._run(["sacct", "-j", job_id, "-n", "-o", "State%20"])
         if stdout.strip():
             state = stdout.strip().splitlines()[0].split()[0].upper()
@@ -137,7 +130,6 @@ class LocalSlurmRunner:
             if mapped != "unknown":
                 return mapped
 
-        # No queue entry and no accounting: use the completion marker.
         status = self._status_from_marker(output_path)
         return status or "unknown"
 

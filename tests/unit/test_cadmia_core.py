@@ -9,10 +9,6 @@ from cadmia.core import AdsorptionSystem, Descriptor, DescriptorSet, Provenance
 from cadmia.core import adapters
 
 
-# ─────────────────────────────────────────────
-# Provenance
-# ─────────────────────────────────────────────
-
 def test_provenance_from_file_hashes(tmp_path):
     f = tmp_path / "calc.out"
     f.write_text("hello", encoding="utf-8")
@@ -23,12 +19,8 @@ def test_provenance_from_file_hashes(tmp_path):
     assert Provenance.from_dict(prov.to_dict()) == prov
 
 
-# ─────────────────────────────────────────────
-# Descriptor / DescriptorSet
-# ─────────────────────────────────────────────
-
 def test_descriptor_scope_validation():
-    Descriptor(name="gap", value=4.5, scope="global")  # ok
+    Descriptor(name="gap", value=4.5, scope="global")
     with pytest.raises(ValueError):
         Descriptor(name="x", value=1.0, scope="not_a_scope")
 
@@ -54,10 +46,6 @@ def test_descriptorset_json_roundtrip():
     assert back.get("delta_f", atom_index=3).value == -0.2
 
 
-# ─────────────────────────────────────────────
-# AdsorptionSystem
-# ─────────────────────────────────────────────
-
 def test_adsorption_system_roundtrip():
     a = AdsorptionSystem(cluster="Al2TiO5", probe="H2", site_atom_index=1,
                          site_atom_symbol="Ti", e_ads_kcal=-18.8,
@@ -68,10 +56,6 @@ def test_adsorption_system_roundtrip():
     assert back.activation["activated"] is True
     assert back.provenance.warnings == ["w1"]
 
-
-# ─────────────────────────────────────────────
-# Adapters
-# ─────────────────────────────────────────────
 
 def test_cdft_to_descriptorset():
     from cadmia.agents.cdft_agent import CDFTResult, SiteDescriptor
@@ -91,9 +75,9 @@ def test_cdft_to_descriptorset():
     ds = adapters.cdft_to_descriptorset(res)
     assert ds.source == "cdft" and ds.structure_id == "Al2TiO5"
     g = ds.filter(scope="global")
-    assert {d.name for d in g} == {"gap_eV", "hardness_eV"}   # mu None skipped
+    assert {d.name for d in g} == {"gap_eV", "hardness_eV"}
     assert ds.get("gap_eV", scope="global").unit == "eV"
-    assert len(ds.filter(scope="atom")) == 6                  # 3 fukui × 2 sites
+    assert len(ds.filter(scope="atom")) == 6
     f1 = ds.get("delta_f", atom_index=1)
     assert f1.value == 0.24 and f1.metadata["rank"] == 1
 
@@ -132,10 +116,6 @@ def test_stability_to_descriptorset():
     assert ds.get("stoichiometry_balanced", scope="structure").value is True
 
 
-# ─────────────────────────────────────────────
-# Structure (consolidated in cadmia.core) — methods
-# ─────────────────────────────────────────────
-
 def test_structure_methods_and_xyz_roundtrip():
     import numpy as np
     from cadmia.core import Structure
@@ -150,10 +130,6 @@ def test_structure_methods_and_xyz_roundtrip():
     assert back.atoms == s.atoms
     assert back.distance(0, 1) == pytest.approx(0.96, abs=1e-6)
 
-
-# ─────────────────────────────────────────────
-# Calculation + adapters
-# ─────────────────────────────────────────────
 
 def test_calculation_roundtrip():
     import numpy as np

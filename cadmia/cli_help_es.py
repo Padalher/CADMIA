@@ -10,9 +10,6 @@ from __future__ import annotations
 
 import click
 
-# ─────────────────────────────────────────────
-# Spanish help text, keyed by full command path
-# ─────────────────────────────────────────────
 
 SPANISH_HELP: dict[str, str] = {
     "init": """
@@ -77,9 +74,16 @@ Opciones:
   --engine MOTOR        gaussian | orca — fuerza el motor si la autodetección fallara.
   --output, -o ARCHIVO  .xyz de salida (por defecto: <archivo>.xyz junto al origen).
   --comment TEXTO       Línea de comentario del .xyz (línea 2); sustituye a la energía.
+  --steps               Escribe TODOS los pasos de una optimización, no solo la última
+                        geometría: XYZ extendido, un bloque por paso con su energía (Eh),
+                        step=N y la columna forces (eV/Ang, = -gradiente). ORCA, y Gaussian
+                        si el log trae la tabla Forces. Un paso sin gradiente lleva forces = nan;
+                        la evaluación final de ORCA en el punto estacionario no se escribe.
+                        Salida por defecto: <archivo>_steps.xyz; sin ningún gradiente, error.
 
 Ejemplo:
   cadmia xyz N.out -o cluster.xyz
+  cadmia xyz opt.out --steps        # → opt_steps.xyz, listo para un visor
   # luego: cadmia geometry --cdft cdft.json --xyz cluster.xyz --probe CO2 ...
   # (o directamente: cadmia geometry ... --xyz N.out)
 """,
@@ -1449,10 +1453,6 @@ sistema); Ti-O/Al-O/Ti-Ti/Al-Al/Ti-Al es solo el orden preferente.
 }
 
 
-# ─────────────────────────────────────────────
-# Click integration
-# ─────────────────────────────────────────────
-
 def _command_key(ctx: click.Context) -> str:
     """Build the SPANISH_HELP key from the context chain (root program excluded)."""
     parts: list[str] = []
@@ -1499,8 +1499,6 @@ class EsCommand(click.Command):
         self.params.append(_ayuda_option())
 
 
-# Top-level command grouping for `cadmia --help` (keeps the flat 27-command list scannable).
-# Any command not listed here still appears, under "Other".
 COMMAND_GROUPS: list[tuple[str, list[str]]] = [
     ("Workflow (end to end)", ["pipeline"]),
     ("Reactivity & geometry", ["cdft", "geometry", "prescreen", "rank"]),
@@ -1523,7 +1521,7 @@ class EsGroup(click.Group):
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Top-level help lists commands grouped by category; nested groups use the default."""
-        if ctx.parent is not None:        # only the root `cadmia` group is grouped
+        if ctx.parent is not None:
             return super().format_commands(ctx, formatter)
 
         available = {}
@@ -1546,5 +1544,4 @@ class EsGroup(click.Group):
                 formatter.write_dl(rest)
 
 
-# Nested groups created via @group.group() inherit the same class.
 EsGroup.group_class = EsGroup

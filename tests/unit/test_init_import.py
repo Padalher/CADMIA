@@ -15,10 +15,6 @@ _HAS_GAUSSIAN = _GAUSSIAN.exists()
 _HAS_ORCA = _ORCA.exists()
 
 
-# ─────────────────────────────────────────────
-# init
-# ─────────────────────────────────────────────
-
 def test_init_creates_layout(tmp_path):
     summary = init_project(tmp_path / "proj", name="demo")
     root = Path(summary["root"])
@@ -50,7 +46,7 @@ def test_init_no_db(tmp_path):
 
 def test_init_is_idempotent(tmp_path):
     init_project(tmp_path / "p", name="x")
-    summary = init_project(tmp_path / "p", name="x")        # second run keeps existing
+    summary = init_project(tmp_path / "p", name="x")
     assert "cadmia_project.yaml" in summary["skipped"]
     assert "configs/" in summary["skipped"]
 
@@ -59,10 +55,6 @@ def test_init_name_defaults_to_dirname(tmp_path):
     summary = init_project(tmp_path / "MyStudy")
     assert summary["name"] == "MyStudy"
 
-
-# ─────────────────────────────────────────────
-# import
-# ─────────────────────────────────────────────
 
 @pytest.mark.skipif(not _HAS_GAUSSIAN, reason="Gaussian reference output not present")
 def test_import_gaussian_persists(tmp_path):
@@ -96,7 +88,7 @@ def test_import_orca_detected(tmp_path):
 def test_import_is_idempotent_on_geometry(tmp_path):
     db = tmp_path / "cadmia.db"
     import_agent.import_outputs([_GAUSSIAN], db_path=db)
-    import_agent.import_outputs([_GAUSSIAN], db_path=db)   # same geometry → same structure id
+    import_agent.import_outputs([_GAUSSIAN], db_path=db)
     import sqlite3
     conn = sqlite3.connect(db)
     assert conn.execute("SELECT COUNT(*) FROM structures").fetchone()[0] == 1

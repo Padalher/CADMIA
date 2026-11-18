@@ -43,7 +43,6 @@ class VolumetricGrid:
     def vmax(self) -> float:
         return float(self.data.max())
 
-    # ── Grid arithmetic (for Fukui/dual/Δρ maps from density cubes) ──
     def same_grid_as(self, other: "VolumetricGrid", tol: float = 1e-4) -> bool:
         """True when two grids share voxel layout (shape, origin, step vectors).
 

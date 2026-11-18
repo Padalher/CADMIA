@@ -44,7 +44,6 @@ def _parse_gaussian_hirshfeld_charges(lines: List[str], n_atoms: int) -> Optiona
         if "Hirshfeld charges" not in line or "Fukui" in line:
             continue
         cursor = i + 1
-        # skip the column-header line(s) until we hit actual atom data
         while cursor < len(lines):
             stripped = lines[cursor].strip()
             if stripped and stripped[0].isdigit():
@@ -107,9 +106,6 @@ def _parse_orca_hirshfeld_charges(lines: List[str]) -> Optional[List[float]]:
         up = line.upper()
         if "HIRSHFELD" not in up or ("ANALYSIS" not in up and "ATOMIC CHARGES" not in up):
             continue
-        # Walk to the column header (the line naming CHARGE) to learn whether a
-        # spin column is present; the modern block also has "Total integrated
-        # ... density" lines in between that must be skipped.
         cursor = i + 1
         has_spin = False
         while cursor < len(lines):
@@ -119,9 +115,9 @@ def _parse_orca_hirshfeld_charges(lines: List[str]) -> Optional[List[float]]:
                 cursor += 1
                 break
             parts = lines[cursor].split()
-            if len(parts) >= 4 and parts[2] == ":":  # old layout: rows start here
+            if len(parts) >= 4 and parts[2] == ":":
                 break
-            if parts and parts[0].isdigit():  # modern block without a column header
+            if parts and parts[0].isdigit():
                 break
             cursor += 1
         parsed = _orca_atom_charge_lines(lines, cursor, has_spin)
@@ -203,10 +199,6 @@ def parse_all_charges(filepath: str | Path, n_atoms: int) -> Dict[str, List[floa
     return {k: v for k, v in result.items() if len(v) == n_atoms}
 
 
-# Gaussian 03 prints "Counterpoise: corrected energy =" and later versions are reported to drop
-# the prefix. Matching the literal string without the colon, as this first did, found neither the
-# real file on disk nor anything else: the parser fell back to the last SCF Done, which in a
-# counterpoise job belongs to a fragment.
 _CP_ENERGY_RE = re.compile(r"Counterpoise:?\s+corrected\s+energy\s*=", re.IGNORECASE)
 
 
@@ -225,7 +217,6 @@ def _parse_gaussian_energy(lines: List[str]) -> Optional[float]:
         if _CP_ENERGY_RE.search(line):
             match = re.search(r"=\s*([-+]?\d*\.?\d+(?:[DEde][-+]?\d+)?)", line)
             if match:
-                # The LAST one: an optimization prints a corrected energy per step.
                 counterpoise = float(match.group(1).replace("D", "E").replace("d", "E"))
             continue
         if "SCF Done:" not in line:
@@ -274,14 +265,6 @@ def _parse_orca_energy(lines: List[str]) -> Optional[float]:
     return energy
 
 
-# Content-signature markers for the native engines. Deliberately duplicated (not imported)
-# from cadmia.agents.cdft_agent._detect_engine: `io` must not import from `agents`. Only used to tell "not this engine at all" from "this engine, but the native
-# parser choked on it" — the two cases load_electronic() must not treat the same way.
-# NOTE: "ORBITAL ENERGIES" is deliberately NOT included here even though _detect_engine uses
-# it — it is a generic section header other programs print too (e.g. Q-Chem's "Orbital
-# Energies (a.u.) and Symmetries"), which would false-positive as ORCA for outputs ORCA never
-# produced. "_detect_engine" can afford that ambiguity
-# because it only ever chooses between ORCA and Gaussian; this sniffer must not.
 _ORCA_MARKERS = (
     "FINAL SINGLE POINT ENERGY",
     "O   R   C   A",
@@ -292,6 +275,8 @@ _GAUSSIAN_MARKERS = (
     "This is part of the Gaussian",
 )
 
+_ENGINE_SNIFF_CHARS = 16384
+
 
 def sniff_native_engine(path: Path) -> "tuple[bool, bool]":
     """Best-effort (is_orca, is_gaussian) from the file content, not its parsed structure.
@@ -301,7 +286,7 @@ def sniff_native_engine(path: Path) -> "tuple[bool, bool]":
     real failure is surfaced instead of being reported as "not an ORCA/Gaussian output".
     """
     try:
-        content = path.read_text(encoding="utf-8", errors="replace")[:16384]
+        content = path.read_text(encoding="utf-8", errors="replace")[:_ENGINE_SNIFF_CHARS]
     except OSError:
         return False, False
     upper = content.upper()
@@ -342,11 +327,10 @@ def load_electronic(path: "str | Path") -> "tuple[ElectronicState, str]":
     raise ValueError(f"{file_path.name}: not an ORCA or Gaussian output")
 
 
-# ── level of theory echoed by the engine (for cross-species consistency checks) ──
 _BASIS_ORCA_RE  = re.compile(r"utilizes the basis:\s*(\S+)")
 _BASIS_GAUSS_RE = re.compile(r"Standard basis:\s*(\S+)")
 _GAUSS_DISP_RE  = re.compile(r"EmpiricalDispersion\s*=\s*(\w+)", re.IGNORECASE)
-_ORCA_ECHO_RE   = re.compile(r"^\s*\|\s*\d+>\s*(!.*)$")            # echoed simple-input line
+_ORCA_ECHO_RE   = re.compile(r"^\s*\|\s*\d+>\s*(!.*)$")
 _DISP_TOKEN_RE  = re.compile(r"\b(D2|D3|D3BJ|D3ZERO|D4)\b", re.IGNORECASE)
 _GAUSS_ROUTE_RE = re.compile(r"^\s*#", re.MULTILINE)
 
@@ -380,18 +364,16 @@ def parse_level_of_theory(path: "str | Path") -> "dict[str, Optional[str]]":
 
     dispersion: Optional[str] = None
     gd = _GAUSS_DISP_RE.search(text)
-    if gd:                                             # Gaussian: EmpiricalDispersion=GD3
+    if gd:
         tok = gd.group(1).lower()
         dispersion = tok[1:] if tok.startswith("g") else tok
     else:
-        # ORCA: read the echoed `! …` simple-input line, not the whole text (D3/D4 also
-        # appear in the citation banner).
         echoed = " ".join(mo.group(1) for line in lines
                           for mo in (_ORCA_ECHO_RE.match(line),) if mo)
         if echoed:
             dm = _DISP_TOKEN_RE.search(echoed)
             dispersion = dm.group(1).lower() if dm else "none"
-        elif _GAUSS_ROUTE_RE.search(text):             # Gaussian route, no dispersion keyword
+        elif _GAUSS_ROUTE_RE.search(text):
             dispersion = "none"
 
     return {"basis": basis, "dispersion": dispersion}
@@ -407,7 +389,6 @@ def engine_keywords(path: "str | Path") -> Optional[str]:
     echoed = [mo.group(1).strip() for line in lines for mo in (_ORCA_ECHO_RE.match(line),) if mo]
     if echoed:
         return " ".join(echoed)
-    # ponytail: first route line only; a route wrapped over several lines is cut there.
     return next((line.strip() for line in lines if line.lstrip().startswith("#")), None)
 
 
@@ -464,7 +445,7 @@ def parse_gaussian_electronic(
     virtual = []
     beta_occupied = []
     beta_virtual = []
-    in_eig_block = False   # an eigenvalue dump is a contiguous run of these lines
+    in_eig_block = False
     mulliken_charges: Optional[List[float]] = None
     dipole = None
     energy_hartree = _parse_gaussian_energy(lines)
@@ -487,8 +468,6 @@ def parse_gaussian_electronic(
         is_beta_occ = "Beta  occ. eigenvalues" in line or "Beta occ. eigenvalues" in line
         is_beta_virt = "Beta virt. eigenvalues" in line
         is_eig = is_alpha_occ or is_alpha_virt or is_beta_occ or is_beta_virt
-        # A new dump always starts with "Alpha occ"; reset so later dumps (opt+freq,
-        # pop=full) replace earlier ones instead of concatenating onto them.
         if is_alpha_occ and not in_eig_block:
             occupied, virtual, beta_occupied, beta_virtual = [], [], [], []
         if is_alpha_occ:
@@ -508,7 +487,7 @@ def parse_gaussian_electronic(
                 parts = lines[cursor].split()
                 if len(parts) >= 3 and parts[0].isdigit():
                     try:
-                        parsed.append(float(parts[2]))  # col 3 = charge (open-shell has 4 cols)
+                        parsed.append(float(parts[2]))
                     except ValueError:
                         pass
                 elif parsed:
@@ -549,8 +528,6 @@ def parse_gaussian_electronic(
             m = re.search(r'Temperature\s+([\d.]+)\s+Kelvin', line)
             if m:
                 temperature_k = float(m.group(1))
-        # "Frequencies --" is also a substring of hpmodes' "Frequencies ---", so matching it
-        # as a substring counted every frequency twice in a job that used hpmodes.
         elif re.match(r"\s*Frequencies\s+--\s", line):
             frequencies.extend(_floats_from_line(line.split("--", 1)[-1]))
 
@@ -569,7 +546,6 @@ def parse_gaussian_electronic(
                     )
                     break
 
-    # For open-shell: HOMO is the highest energy occupied orbital across both spin channels.
     alpha_homo = occupied[-1] if occupied else None
     beta_homo = beta_occupied[-1] if beta_occupied else None
     if alpha_homo is not None and beta_homo is not None:
@@ -653,7 +629,7 @@ def _parse_orca_orbital_energies(lines: List[str]):
             up = row.upper()
             if "SPIN DOWN" in up:
                 channel = "beta"
-                started = False   # the SPIN DOWN block repeats the NO/OCC header
+                started = False
                 cursor += 1
                 continue
             if "SPIN UP" in up:
@@ -661,7 +637,7 @@ def _parse_orca_orbital_energies(lines: List[str]):
                 cursor += 1
                 continue
             parts = row.split()
-            if not parts:         # blank lines separate the alpha and beta blocks
+            if not parts:
                 cursor += 1
                 continue
             if parts[0] == "NO" and "OCC" in parts:
@@ -717,7 +693,6 @@ def _frontier_from_eigenvalues(
     return homo, lumo
 
 
-# ORCA thermochemistry block (printed by a Freq run): "<label> ... <value> Eh".
 _ORCA_THERMO_PATTERNS = {
     "zpe_correction_hartree":        r"Zero point energy\s+\.\.\.\s+(-?\d+\.\d+)\s+Eh",
     "enthalpy_hartree":              r"Total Enthalpy\s+\.\.\.\s+(-?\d+\.\d+)\s+Eh",
@@ -761,7 +736,6 @@ def _parse_orca_thermochemistry(lines: List[str]) -> Dict[str, Union[float, str,
     mt = re.search(r"Temperature\s+\.\.\.\s+([\d.]+)\s*K", text)
     if mt:
         out["temperature_kelvin"] = float(mt.group(1))
-    # The scheme is read, never assumed: without either marker it stays unknown (None).
     mq = re.search(r"Quasi RRHO\s+\.\.\.\s+(True|False)", text)
     if mq:
         out["entropy_scheme"] = "grimme" if mq.group(1) == "True" else "harmonic"
@@ -823,15 +797,11 @@ def parse_orca_electronic(
 
     for index, line in enumerate(lines):
         if "MULLIKEN ATOMIC CHARGES" in line.upper():
-            # Open-shell blocks are titled "...AND SPIN POPULATIONS" and carry a
-            # trailing spin column; the charge is then the second-to-last field.
             has_spin = "SPIN" in line.upper()
             parsed = _orca_atom_charge_lines(lines, index + 1, has_spin)
             if len(parsed) == structure.n_atoms:
                 mulliken_charges = parsed
 
-    # HOMO/LUMO come from the full α/β eigenvalue lists (open-shell rule
-    # HOMO = max(α,β), LUMO = min(α,β)); never from an alpha-only inline scan.
     alpha_ev, beta_ev, n_alpha_occ, n_beta_occ = _parse_orca_orbital_energies(lines)
     homo_ev, lumo_ev = _frontier_from_eigenvalues(
         alpha_ev, beta_ev, n_alpha_occ, n_beta_occ,
@@ -879,10 +849,6 @@ def parse_orca_electronic(
     )
 
 
-# ─────────────────────────────────────────────
-# ORCA per-MO orbital populations (PDOS source)
-# ─────────────────────────────────────────────
-
 _ATOM_LABEL_RE = re.compile(r"^(\d+)([A-Za-z]+)$")
 
 
@@ -903,7 +869,7 @@ def parse_orca_mo_populations(filepath: str | Path) -> Dict[str, Optional[List[D
     header = None
     for i, line in enumerate(lines):
         if "LOEWDIN ORBITAL POPULATIONS PER MO" in line:
-            header = i      # last occurrence wins (final SCF)
+            header = i
     if header is None:
         return {"alpha": None, "beta": None}
 
@@ -923,7 +889,7 @@ def parse_orca_mo_populations(filepath: str | Path) -> Dict[str, Optional[List[D
             continue
         parts = stripped.split()
         if not all(p.isdigit() for p in parts):
-            break               # next output section
+            break
         try:
             indices = [int(p) for p in parts]
             energies = [float(x) for x in lines[i + 1].split()]
@@ -934,7 +900,7 @@ def parse_orca_mo_populations(filepath: str | Path) -> Dict[str, Optional[List[D
             {"index": k, "energy_ev": e * HARTREE_TO_EV, "occ": o, "contributions": {}}
             for k, e, o in zip(indices, energies, occs)
         ]
-        i += 4                  # indices, energies, occupations, dashed separator
+        i += 4
         while i < len(lines):
             rparts = lines[i].split()
             if len(rparts) < 2:

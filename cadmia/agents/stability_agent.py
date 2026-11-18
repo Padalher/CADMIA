@@ -42,10 +42,10 @@ def energy_in_basis(state, basis: str) -> Optional[float]:
     if basis == "E":
         return state.energy_hartree
     if basis == "E0":
-        if state.electronic_zpe_energy_hartree is not None:      # Gaussian prints the sum
+        if state.electronic_zpe_energy_hartree is not None:
             return state.electronic_zpe_energy_hartree
         if state.energy_hartree is not None and state.zpe_correction_hartree is not None:
-            return state.energy_hartree + state.zpe_correction_hartree   # ORCA prints the ZPE
+            return state.energy_hartree + state.zpe_correction_hartree
         return None
     if basis == "H":
         return state.enthalpy_hartree
@@ -59,7 +59,7 @@ def energy_in_basis(state, basis: str) -> Optional[float]:
     raise ValueError(f"Unknown energy basis {basis!r}; expected one of {ENERGY_BASES}.")
 
 
-_KB_HARTREE = 3.166811563e-6      # Boltzmann constant, Hartree/K
+_KB_HARTREE = 3.166811563e-6
 
 
 def _sigma_correction(state) -> float:
@@ -230,7 +230,7 @@ def _coefficient(c: Fraction):
 class StabilityReference:
     label:       str
     formula:     str
-    coefficient: float                     # int when whole; 0.5 for ½
+    coefficient: float
     e_hartree:   Optional[float] = None
 
 
@@ -248,16 +248,14 @@ class StabilityResult:
     e_rel_eV_per_atom: Optional[float] = None
     formula_units:     int = 1
     e_rel_kcal_per_fu: Optional[float] = None
-    reference_size:    str = "other"    # same-n | equal-size | other
+    reference_size:    str = "other"
     balanced:          bool = False
-    # Basis of every energy above (E0, E, H or G), and E_rel in each basis all inputs carry.
     energy_basis:      str = "E"
     e_rel_by_basis_kcal: Dict[str, float] = field(default_factory=dict)
     temperature_k:     Optional[float] = None
-    # Per term: spin multiplicity and imaginary modes (None = no frequency calculation).
     multiplicities:    Dict[str, int] = field(default_factory=dict)
     n_imaginary:       Dict[str, Optional[int]] = field(default_factory=dict)
-    symmetry:          Dict[str, dict] = field(default_factory=dict)   # detected
+    symmetry:          Dict[str, dict] = field(default_factory=dict)
     mixed_atoms:       List[str] = field(default_factory=list)
     mixed_positions:   List[List[float]] = field(default_factory=list)
     warnings:          List[str] = field(default_factory=list)
@@ -288,14 +286,14 @@ def _warn_unconverged(result, named_paths) -> None:
         if path is None:
             continue
         try:
-            engine = _detect_engine(Path(path))      # each term with its own engine's markers
+            engine = _detect_engine(Path(path))
             if geometry_converged(path, engine) is False:
                 failed.append(str(label))
             term = _check_termination(_read_lines(Path(path)), engine)
             if term.status == "fail":
                 unfinished.append(f"{label} ({term.message.split(':')[0].split(' —')[0]})")
         except (OSError, ValueError):
-            continue          # unreadable here means the parser already complained
+            continue
     if unfinished:
         result.warnings.append(
             "Did not terminate normally: " + ", ".join(unfinished)
@@ -411,38 +409,23 @@ def compute_stability(
     return result
 
 
-# ── Size-dependent stability descriptors along a cluster series ──────────────
-# Definitions for the series S_n = (TiAl2O5)_n:
-#   E_b   = E[S_n]/n − (E[TiO2] + E[Al2O3])          (binding energy per formula unit)
-#   E_f   = E[S_(n-1)] + E[S_1] − E[S_n]             (fragmentation energy)
-#   Δ²E   = E[S_(n-1)] + E[S_(n+1)] − 2·E[S_n]       (second-order energy difference)
-# and, against the series' OWN monomer instead of the pure oxides (any family, pure or mixed):
-#   E_b,fam = (n·E[S_1] − E[S_n])/n                  (positive when the cluster is bound)
-# E_b and E_b,fam answer different questions and are kept under different names.
-# With pure references of any size (--ref), E_b is E_rel/n against the size-1
-# references, ΔE_mix(n) is E_rel against those of the same n, and ΔE_mix,eq is E_rel/n against
-# those of equal size (½·(Al2O3)_2n + ½·(TiO2)_2n).
-# Several clusters with the same n are isomers: the lowest in the chosen basis
-# represents n in the descriptors, and the E0 and G minima are both reported.
-
-
 @dataclass
 class SeriesMember:
     n:            int
     label:        str
     formula:      str
     e_hartree:    Optional[float] = None
-    e_b_kcal:     Optional[float] = None   # binding energy per formula unit
+    e_b_kcal:     Optional[float] = None
     e_b_eV:       Optional[float] = None
-    e_b_family_kcal: Optional[float] = None   # per f.u., against the series' own monomer
+    e_b_family_kcal: Optional[float] = None
     e_b_family_eV:   Optional[float] = None
-    e_f_kcal:     Optional[float] = None   # fragmentation energy
+    e_f_kcal:     Optional[float] = None
     e_f_eV:       Optional[float] = None
-    delta2_kcal:  Optional[float] = None   # second-order energy difference
+    delta2_kcal:  Optional[float] = None
     delta2_eV:    Optional[float] = None
-    de_mix_kcal:  Optional[float] = None   # vs. pure references of the same n
+    de_mix_kcal:  Optional[float] = None
     de_mix_eV:    Optional[float] = None
-    de_mix_eq_kcal: Optional[float] = None   # per f.u., vs. pure references of equal size
+    de_mix_eq_kcal: Optional[float] = None
     de_mix_eq_eV:   Optional[float] = None
 
 
@@ -454,11 +437,10 @@ class SeriesIsomer:
     point_group:    Optional[str] = None
     chiral:         Optional[bool] = None
     representative: bool = False
-    # Δ against the lowest isomer of the same n, one basis at a time (E0, G and the chosen one).
     delta_kcal:     Dict[str, float] = field(default_factory=dict)
-    degeneracy:     Optional[int] = None     # g = 2 if chiral; set with the population
-    population:     Optional[float] = None   # Boltzmann over ΔG (σ-corrected)
-    population_e0:  Optional[float] = None   # Boltzmann over ΔE0, same g; σ is not in E0
+    degeneracy:     Optional[int] = None
+    population:     Optional[float] = None
+    population_e0:  Optional[float] = None
 
 
 @dataclass
@@ -470,11 +452,10 @@ class SeriesStabilityResult:
     isomers:          List[SeriesIsomer] = field(default_factory=list)
     population_basis: Optional[str] = None
     population_temperature_k: Optional[float] = None
-    # Descriptors from Σ P_i·E_i per n: a weighted average, not the free energy of the ensemble.
     weighted_members: List[SeriesMember] = field(default_factory=list)
     multiplicities:   Dict[str, int] = field(default_factory=dict)
     n_imaginary:      Dict[str, Optional[int]] = field(default_factory=dict)
-    symmetry:         Dict[str, dict] = field(default_factory=dict)    # detected
+    symmetry:         Dict[str, dict] = field(default_factory=dict)
     notes:            List[str] = field(default_factory=list)
     warnings:         List[str] = field(default_factory=list)
 

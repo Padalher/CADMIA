@@ -15,7 +15,7 @@
 
 </p>
 
-Autor: Pablo Daniel Alvarez Hernandez, Universidad Juárez Autónoma de Tabasco (UJAT)
+Autor: Pablo Daniel Álvarez Hernández, División Académica de Ciencias Básicas (DACB), Universidad Juárez Autónoma de Tabasco (UJAT)
 
 Las versiones siguen [Semantic Versioning](https://semver.org/lang/es/): antes de la 1.0.0, una versión
 menor puede cambiar comandos o formatos de salida, y cada cambio así queda en el changelog. La 1.0.0
@@ -62,26 +62,19 @@ Funciones principales:
   GFN2-xTB criba las configuraciones antes del DFT y los cálculos fallidos se diagnostican.
 - **Architecture:** una sola suite de módulos sobre un núcleo de datos común.
 
-## Novedades de 0.3.1
+## Novedades de 0.3.2
 
 Solo lo principal; el detalle completo está en
 [CHANGELOG.md](https://github.com/Padalher/CADMIA/blob/main/CHANGELOG.md) (en inglés).
 
-- **Un solo origen por módulo:** dentro de un proyecto de `cadmia init`, `structure report`, `cdft`,
-  `analyze` y `stability` guardan sus datos y su reporte completo en `results/`; `cadmia report`
-  los reúne en `reports/cadmia.out`, y `--report/-r ARCHIVO` solo reescribe el reporte de un
-  módulo sin recalcular.
-- **BSSE por counterpoise en ORCA:** `prepare bsse` escribe los cuatro puntos sencillos de
-  Boys–Bernardi y `analyze --bsse` los lee; contrastado con `Counterpoise=2` de Gaussian en
-  Al₂TiO₅ + CO₂ (1.49 frente a 1.52 kcal/mol).
-- **Espín y carga a lo largo del flujo:** `geometry` escribe `charge=`/`mult=` (el O₂ es triplete),
-  y `prescreen`, `rank`, `prepare`, `benchmark` y `pipeline --charge` los conservan.
-- **Termoquímica:** ΔG con la corrección de σ y ΔG cuasi-RRHO en `analyze`; activación por
-  flexión de sondas lineales (`--bend-threshold`, 10° por omisión).
-- **Figuras estáticas:** `electronic dos|pdos|ir` y `structure plot` escriben PNG/SVG/PDF
-  (`--format`, `--width single|double`). La DOS está en estados/eV con ambos espines.
-- **Corridas más seguras:** no se mezclan resultados de cúmulos distintos en un reporte, una
-  carpeta de pipeline ya usada exige `--resume` y cada salida se revisa con su propio motor.
+- **XYZ extendido:** todo `.xyz` que escriben `geometry`, `prescreen`, `rank` y `cdft` lleva la
+  energía en Hartree, la carga, la multiplicidad y las claves de la etapa, y lo leen ASE y OVITO;
+  `cdft` escribe además `results/cdft_sites.xyz` con los valores CDFT por átomo como columnas.
+- **Base de datos del proyecto:** `db status` y `db ask` leen la base del proyecto dentro de un
+  proyecto.
+- **Contraste con el CDFT más claro:** `analyze` ya no cuenta un sitio de unión ambifílico como
+  acuerdo con el CDFT.
+- **Plataforma soportada:** Linux.
 
 ## Lo que sigue
 
@@ -142,4 +135,6 @@ lenguaje.
 
 Errores y preguntas: [GitHub Issues](https://github.com/Padalher/CADMIA/issues).
 
-Contacto directo: Pablo Daniel Alvarez Hernandez — pablo.alvarez@padalher.com — https://padalher.com
+Dudas sobre el software: contact@padalher.com
+
+Contacto directo: Pablo Daniel Álvarez Hernández — pablo.alvarez@padalher.com — https://padalher.com

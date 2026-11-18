@@ -47,7 +47,7 @@ def linregress(x: Sequence[float], y: Sequence[float]) -> Optional[LinFit]:
     mx, my = sum(x) / n, sum(y) / n
     sxx = sum((a - mx) ** 2 for a in x)
     if sxx == 0:
-        return None  # constant x → slope undefined
+        return None
     sxy = sum((a - mx) * (b - my) for a, b in zip(x, y))
     syy = sum((b - my) ** 2 for b in y)
     slope = sxy / sxx
@@ -57,7 +57,7 @@ def linregress(x: Sequence[float], y: Sequence[float]) -> Optional[LinFit]:
 
     stderr = t = p = None
     if n > 2:
-        ss_res = max(syy - slope * sxy, 0.0)   # residual sum of squares = syy·(1−r²)
+        ss_res = max(syy - slope * sxy, 0.0)
         df = n - 2
         s2 = ss_res / df
         stderr = math.sqrt(s2 / sxx)
@@ -65,12 +65,10 @@ def linregress(x: Sequence[float], y: Sequence[float]) -> Optional[LinFit]:
             t = slope / stderr
             p = _student_t_two_tailed(t, df)
         elif r2 >= 1.0:
-            t, p = math.inf, 0.0                # perfect fit
+            t, p = math.inf, 0.0
     return LinFit(n=n, slope=slope, intercept=intercept, r=r, r2=r2,
                   stderr_slope=stderr, t_stat=t, p_value=p)
 
-
-# ── Student's t two-tailed p-value via the regularized incomplete beta ──
 
 def _betacf(a: float, b: float, x: float) -> float:
     MAXIT, EPS, FPMIN = 200, 3.0e-12, 1.0e-300

@@ -260,15 +260,12 @@ CREATE TABLE IF NOT EXISTS workflow_runs (
 );
 """
 
-# Additive column migrations for pre-v2 databases (ALTER TABLE is idempotent via inspection).
 _V2_COLUMNS = {
     "calculations": [("provenance_id", "TEXT REFERENCES provenance(id)")],
     "descriptors":  [("provenance_id", "TEXT REFERENCES provenance(id)")],
     "adsorption":   [("provenance_id", "TEXT REFERENCES provenance(id)")],
     "stability":    [("provenance_id", "TEXT REFERENCES provenance(id)"),
-                     # Which energy e_rel is a difference of.
                      ("energy_basis", "TEXT")],
-    # The skeleton class travels with the result that produced it.
     "adsorption_results": [("cluster_skeleton", "TEXT")],
 }
 
@@ -281,9 +278,6 @@ def _apply_column_migrations(conn: sqlite3.Connection) -> None:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
-# The file a project keeps its own database in. Looked for upwards from the working
-# directory, so a campaign run from inside its own tree keeps its results apart from
-# unrelated runs.
 PROJECT_DB_NAME = "cadmia.db"
 
 
@@ -306,10 +300,6 @@ def resolve_db_path(explicit: "str | Path | None" = None,
     return DEFAULT_DB
 
 
-# Bumped whenever the schema changes in a way an older CADMIA cannot read. Stored in SQLite's
-# own user_version so that a database written by a NEWER version is detected instead of being
-# opened and half-understood: the column migrations only ever add what is missing, so without
-# this a newer file looks merely "complete" to older code.
 SCHEMA_VERSION = 2
 
 
@@ -334,12 +324,8 @@ def init_db(path: Path = DEFAULT_DB) -> sqlite3.Connection:
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # 30 s instead of the 5 s default: a pipeline and an `analyze` writing at the same
-    # time is the normal case here, and 5 s is short enough to fail on a slow disk.
     conn = sqlite3.connect(str(path), timeout=30.0)
     conn.row_factory = sqlite3.Row
-    # Set per-connection PRAGMAs explicitly rather than relying on the copy embedded
-    # in the DDL script (foreign_keys is per-connection and not persisted).
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     conn.executescript(_DDL)
@@ -354,8 +340,6 @@ def get_connection(path: Path = DEFAULT_DB) -> Generator[sqlite3.Connection, Non
     """Context manager that opens the DB, commits on exit, and rolls back on error."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    # 30 s instead of the 5 s default: a pipeline and an `analyze` writing at the same
-    # time is the normal case here, and 5 s is short enough to fail on a slow disk.
     conn = sqlite3.connect(str(path), timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")

@@ -38,7 +38,7 @@ def file_lock(path: "Path | str", *, blocking: bool = True) -> Iterator[None]:
     """
     try:
         import fcntl
-    except ImportError:                       # non-POSIX: no advisory locks
+    except ImportError:
         yield
         return
     lock_path = Path(f"{path}.lock")

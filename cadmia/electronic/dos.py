@@ -42,7 +42,7 @@ class DOSResult:
         return None
 
 
-_GRID_STEPS_PER_SIGMA = 4   # coarser than sigma/4 and the peaks are aliased, not broadened
+_GRID_STEPS_PER_SIGMA = 4
 _TAIL_SIGMAS = 6
 
 
@@ -166,13 +166,6 @@ def dos_from_output(
     beta = state.beta_eigenvalues_ev
     homo = state.homo_ev
 
-    # Counting occupation by "eigenvalue below the HOMO" is only valid within one spin channel.
-    # In an open-shell system the HOMO is max(alpha, beta), which is usually the alpha one, so
-    # counting beta levels below it sweeps in beta VIRTUAL orbitals that happen to lie lower and
-    # reports more beta electrons than the system has.
-    #
-    # The occupation counts are known exactly where the eigenvalues are read, so they are taken
-    # from there. The threshold below is only the fallback for a reader that does not supply them.
     na = nb = None
     try:
         from cadmia.io.electronic import _parse_orca_orbital_energies
@@ -239,16 +232,12 @@ def write_dos(
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-# ─────────────────────────────────────────────
-# PDOS (projected DOS by element, from ORCA per-MO populations)
-# ─────────────────────────────────────────────
-
 @dataclass
 class PDOSResult:
     """Element-projected DOS in states/eV, both spins (a closed-shell orbital counts twice)."""
 
     energy_ev: np.ndarray
-    series: "dict[str, np.ndarray]"        # element -> projected DOS
+    series: "dict[str, np.ndarray]"
     total: np.ndarray
     homo_ev: Optional[float] = None
     lumo_ev: Optional[float] = None
